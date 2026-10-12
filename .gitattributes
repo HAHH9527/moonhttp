@@ -1,0 +1,3 @@
+# Git hooks must keep a POSIX shebang line ending; CRLF breaks `#!/bin/sh`
+# when core.autocrlf=true converts checkout.
+.githooks/* text eol=lf

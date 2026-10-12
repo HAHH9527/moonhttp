@@ -1,0 +1,61 @@
+#!/bin/sh
+# Pre-commit quality gate for the moonhttp project.
+# Checks staged MoonBit sources, regenerates public interfaces and formats code.
+# See .githooks/README.md for details.
+
+set -u
+
+# 1. Collect staged MoonBit sources; skip everything if none are staged
+staged_mbts=$(git diff --cached --name-only --diff-filter=ACM -- '*.mbt')
+
+if [ -z "$staged_mbts" ]; then
+    echo "提示：本次提交不含 .mbt 文件，已跳过 moon info/fmt 质量门" >&2
+    exit 0
+fi
+
+# 2. Type-check the module and regenerate interfaces for every package, so a
+#    changed package does not leave its dependents' .mbti stale. `moon info`
+#    already type-checks, so a separate `moon check` would be redundant.
+moon info || {
+    echo "moon info 失败，提交已中止" >&2
+    exit 1
+}
+
+# 3. Format the staged sources (moon fmt formats their whole package).
+moon fmt -- $staged_mbts || {
+    echo "moon fmt 失败，提交已中止" >&2
+    exit 1
+}
+
+# 4. Stage the touched packages' own interfaces, so the commit carries the
+#    regenerated .mbti instead of a stale one.
+pkgs=$(printf '%s\n' "$staged_mbts" | sed 's|/[^/]*$||' | sort -u)
+pkg_re=$(printf '%s\n' "$pkgs" | sed 's/[].^$[*\\]/\\&/g' | paste -sd'|' -)
+statuses=$(git status --porcelain -- '*.mbti' | cut -c4-)
+
+printf '%s\n' "$staged_mbts" | while IFS= read -r f; do
+    git add -- "$f" || exit 1
+done || exit 1
+
+printf '%s\n' "$statuses" | sed '/^$/d' | while IFS= read -r f; do
+    dir=${f%/*}
+    [ "$dir" = "$f" ] && dir=.
+    if echo "$dir" | grep -qE "^($pkg_re)$"; then
+        git add -- "$f" || exit 1
+    fi
+done || exit 1
+
+# 5. Warn about interfaces changed outside the touched packages: committing now
+#    would leave those .mbti stale in history.
+stale=$(printf '%s\n' "$statuses" | while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    dir=${f%/*}
+    [ "$dir" = "$f" ] && dir=.
+    echo "$dir" | grep -qE "^($pkg_re)$" || printf '%s\n' "$f"
+done)
+if [ -n "$stale" ]; then
+    echo "警告：以下 .mbti 已重新生成但不属于本次改动的包，提交后其接口会过期：" >&2
+    printf '  %s\n' "$stale" >&2
+fi
+
+exit 0
