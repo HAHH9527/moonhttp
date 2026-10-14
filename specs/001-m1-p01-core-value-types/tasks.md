@@ -285,7 +285,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
   在 T006 parse 测试的 userinfo 拒绝用例）；ⅲ **快照占位串抽查**：
   `.snap` 与测试中的敏感头样例值为合成占位串（如 `Bearer test-token-123`），
   `git grep` 抽查无真实形态凭证串（纪律 R3-M1 → spec A8）
-- [ ] T020 宪法合规自查（非侵入/测试先行/target 矩阵/中文文档逐项核对
+- [x] T020 宪法合规自查（非侵入/测试先行/target 矩阵/中文文档逐项核对
   plan.md Constitution Check 表）——掩码行按 **⚠️ 例外跟踪态**核对：确认
   plan「例外跟踪」节存在、F13/F12 已登记、合成占位串纪律已执行（宪法
   v1.2.0 :112-117 展示例外程序，留痕 R3-M1）；随后以 Conventional Commits
