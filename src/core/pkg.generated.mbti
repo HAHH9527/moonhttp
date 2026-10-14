@@ -1,0 +1,98 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "hahh9527/moonhttp/core"
+
+import {
+  "moonbitlang/async/http",
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub(all) suberror HeadersError {
+  InvalidName
+  InvalidValue
+} derive(@debug.Debug)
+pub fn HeadersError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror HttpUrlError {
+  InvalidHost
+  InvalidPort
+  MalformedUrl
+  UnsupportedScheme
+} derive(@debug.Debug)
+pub fn HttpUrlError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct HeadersV {
+  entries : Array[(@http.CaseInsensitiveString, String)]
+} derive(Eq, Hash, @debug.Debug)
+pub fn HeadersV::builder(Self) -> HeadersVBuilder
+pub fn HeadersV::equal(Self, Self) -> Bool
+pub fn HeadersV::get(Self, String) -> String?
+pub fn HeadersV::hash(Self) -> Int
+pub fn HeadersV::hash_combine(Self, Hasher) -> Unit
+pub fn HeadersV::not_equal(Self, Self) -> Bool
+pub fn HeadersV::to_http_map(Self) -> Map[@http.CaseInsensitiveString, String]
+pub fn HeadersV::to_repr(Self) -> @debug.Repr
+pub fn HeadersV::values(Self, String) -> Iter[String]
+
+pub struct HeadersVBuilder {
+  entries : Array[(@http.CaseInsensitiveString, String)]
+} derive(Eq, Hash, @debug.Debug)
+pub fn HeadersVBuilder::add(Self, String, String) -> Unit raise HeadersError
+pub fn HeadersVBuilder::build(Self) -> HeadersV
+pub fn HeadersVBuilder::equal(Self, Self) -> Bool
+pub fn HeadersVBuilder::hash(Self) -> Int
+pub fn HeadersVBuilder::hash_combine(Self, Hasher) -> Unit
+pub fn HeadersVBuilder::new() -> Self
+pub fn HeadersVBuilder::not_equal(Self, Self) -> Bool
+pub fn HeadersVBuilder::remove(Self, String) -> Unit
+pub fn HeadersVBuilder::set(Self, String, String) -> Unit raise HeadersError
+pub fn HeadersVBuilder::to_repr(Self) -> @debug.Repr
+
+pub struct HttpUrl {
+  scheme : @http.Protocol
+  host : String
+  port : Int
+  path_segments : Array[String]
+  query : String?
+  fragment : String?
+} derive(Eq, Hash, @debug.Debug)
+pub fn HttpUrl::equal(Self, Self) -> Bool
+pub fn HttpUrl::fragment(Self) -> String?
+pub fn HttpUrl::hash(Self) -> Int
+pub fn HttpUrl::hash_combine(Self, Hasher) -> Unit
+pub fn HttpUrl::host(Self) -> String
+pub fn HttpUrl::not_equal(Self, Self) -> Bool
+pub fn HttpUrl::parse(String) -> Self raise HttpUrlError
+pub fn HttpUrl::path_segments(Self) -> Array[String]
+pub fn HttpUrl::port(Self) -> Int
+pub fn HttpUrl::query(Self) -> String?
+pub fn HttpUrl::resolve(Self, String) -> Self raise HttpUrlError
+pub fn HttpUrl::scheme(Self) -> @http.Protocol
+pub fn HttpUrl::to_repr(Self) -> @debug.Repr
+pub fn HttpUrl::to_string(Self) -> String
+
+pub(all) enum Method {
+  Get
+  Post
+  Put
+  Delete
+  Head
+  Options
+  Trace
+  Patch
+  Connect
+} derive(Eq, Hash, @debug.Debug)
+pub fn Method::equal(Self, Self) -> Bool
+pub fn Method::from_request_method(@http.RequestMethod) -> Self
+pub fn Method::hash(Self) -> Int
+pub fn Method::hash_combine(Self, Hasher) -> Unit
+pub fn Method::not_equal(Self, Self) -> Bool
+pub fn Method::to_repr(Self) -> @debug.Repr
+pub fn Method::to_request_method(Self) -> @http.RequestMethod
+
+// Type aliases
+
+// Traits

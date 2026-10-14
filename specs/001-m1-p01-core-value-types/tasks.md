@@ -53,10 +53,10 @@ impl、无逃生口（R3-H1-A/R3-M3-A 取代 C1-A/N4-A 口径，宪法 v1.2.0 :1
 
 **Purpose**: 依赖钉版与 core 包落地
 
-- [ ] T001 在 `moon.mod` 声明依赖 `"moonbitlang/async@0.22.4"`（执行
+- [x] T001 在 `moon.mod` 声明依赖 `"moonbitlang/async@0.22.4"`（执行
   `moon add moonbitlang/async@0.22.4`，或手动填充 import 块后 `moon update`
   拉取），`moon check` 确认依赖解析成功（research R1；M1 README §5 前置）
-- [ ] T002 [P] 新建 `src/core/moon.pkg`：`import { "moonbitlang/async/http" }`
+- [x] T002 [P] 新建 `src/core/moon.pkg`：`import { "moonbitlang/async/http" }`
   + `pkgtype(kind: "library")`（research R10 + 决策 L3-A：**import 键写包路径
   `moonbitlang/async/http`，`@` 只出现在代码引用处**，如
   `@http.CaseInsensitiveString`；写成 `"moonbitlang/async/@http"` 是非法路径）。
@@ -71,7 +71,7 @@ impl、无逃生口（R3-H1-A/R3-M3-A 取代 C1-A/N4-A 口径，宪法 v1.2.0 :1
 
 **⚠️ CRITICAL**: US1–US4 均依赖本阶段完成
 
-- [ ] T003 [P] 在 `src/core/error.mbt` 定义 `pub enum HttpUrlError {
+- [x] T003 [P] 在 `src/core/error.mbt` 定义 `pub enum HttpUrlError {
   InvalidHost; InvalidPort; MalformedUrl; UnsupportedScheme }`
   **仅 `derive(Debug)`**（不 derive `Eq`/`Hash`，不用 `Show`——决策 M5-A/N1-A）；
   变体触发条件以 [data-model.md §4.1](data-model.md) 为**唯一规范源**
@@ -83,12 +83,12 @@ impl、无逃生口（R3-H1-A/R3-M3-A 取代 C1-A/N4-A 口径，宪法 v1.2.0 :1
   定位片段、不整体回显原始输入。同文件定义
   `pub enum HeadersError { InvalidName; InvalidValue }` **仅 `derive(Debug)`**
   （决策 H2-A：独立小枚举，method-error.md 的 a/b 二选一就此关闭）
-- [ ] T004 [P] 在 `src/core/method.mbt` 定义 `Method` 九值枚举（Get/Post/
+- [x] T004 [P] 在 `src/core/method.mbt` 定义 `Method` 九值枚举（Get/Post/
   Put/Delete/Head/Options/Trace/Patch/Connect）`derive(Eq, Hash, Debug)` +
   **紧随三行 `pub extend`**（决策 N1-A，不用 `Show`）；实现
   `to_request_method` / `from_request_method` 与 `@http.RequestMethod`
   一一对应的双向封闭映射（无失败分支，FR-007）
-- [ ] T005 [P] 在 `src/core/method_error_test.mbt` 写失败测试：九值映射往返
+- [x] T005 [P] 在 `src/core/method_error_test.mbt` 写失败测试：九值映射往返
   断言（`from(to(m)) == m` 对九值穷举）；`HttpUrlError`/`HeadersError` 变体
   可判别断言（`assert_true(e is HttpUrlError::InvalidHost)` 风格，错误不判等）；
   两错误枚举的 `debug_inspect` 输出形态断言——**SC-005 ② 载体：错误消息
@@ -110,7 +110,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ### Tests for User Story 1（先写、先失败）
 
-- [ ] T006 [P] [US1] 在 `src/core/http_url_parse_test.mbt` 写失败测试：
+- [x] T006 [P] [US1] 在 `src/core/http_url_parse_test.mbt` 写失败测试：
   ① spec US-1 场景 1–5（`http://Example.COM:80/a/./b/../c?x=1#frag` →
   `http://example.com/a/c?x=1#frag`；`http://[::1]:8080/x` host=`::1`
   port=8080；`http://bad host/`、`http://host:notaport/` raise 可判别；
@@ -123,16 +123,16 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
   userinfo → `MalformedUrl`；其余头相关两条归 T013）；
   ③ OkHttp `HttpUrlTest` 畸形输入组与规范化组移植（来源注释见 T017）。
   断言优先 `assert_eq`
-- [ ] T007 [P] [US1] 在 `src/core/percent_wbtest.mbt` 写失败白盒测试：
+- [x] T007 [P] [US1] 在 `src/core/percent_wbtest.mbt` 写失败白盒测试：
   percent-decode/encode 的 path 段、query、fragment 三口径（合法 `%XX`
   保留不二次编码、裸非法字符按对应编码集补编码，research R8）。该文件名
   与 plan.md 源码清单一致（决策 M3-A）
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] 在 `src/core/percent.mbt` 实现编码集常量与
+- [x] T008 [US1] 在 `src/core/percent.mbt` 实现编码集常量与
   percent-decode/percent-encode（priv；对齐 OkHttp encode set，R8）
-- [ ] T009 [US1] 在 `src/core/http_url.mbt` 实现 `HttpUrl`：六字段（scheme
+- [x] T009 [US1] 在 `src/core/http_url.mbt` 实现 `HttpUrl`：六字段（scheme
   **类型为 `@http.Protocol`**，本包**不自立 `Scheme` 枚举**、**不提供
   `default_port(scheme)` 静态函数**——默认端口真相用上游
   `@http.Protocol::default_port`（http=80/https=443），如需便捷入口只在
@@ -144,7 +144,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
   `pub extend`；`parse` 单遍 O(n) 落实六条验证规则（全部 raise 拒收、绝不 panic）；
   `to_string`（snake_case，决策 L1-A；默认端口省略、path 重建以 `/` 起始、
   `None` 不输出 `?`/`#`）；访问器 scheme/host/port/path_segments/query/fragment
-- [ ] T010 [US1] 运行 `moon test --target native`：US-1 全部断言由红转绿；
+- [x] T010 [US1] 运行 `moon test --target native`：US-1 全部断言由红转绿；
   `moon fmt` 格式化本阶段改动
 
 **Checkpoint**: US1 独立可用（MVP 达成：parse/to_string/访问器/错误判别）
@@ -160,7 +160,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ### Tests for User Story 2（先写、先失败）
 
-- [ ] T011 [P] [US2] 在 `src/core/http_url_resolve_test.mbt` 写失败测试：
+- [x] T011 [P] [US2] 在 `src/core/http_url_resolve_test.mbt` 写失败测试：
   base `http://a.com/dir/page` + `"../up"` → `http://a.com/up`；+ `"/root"`
   → `http://a.com/root`；+ `"//b.com/x"` → `http://b.com/x`（scheme 继承）；
   绝对 location 直接 parse；空 location → base 去 fragment（对齐 OkHttp）；
@@ -172,7 +172,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] 在 `src/core/resolve.mbt` 实现 RFC 3986 §5 相对引用合并：
+- [x] T012 [US2] 在 `src/core/resolve.mbt` 实现 RFC 3986 §5 相对引用合并：
   复用已解析 base、O(增量)；覆盖 T011 的全部分支（含 query-only、仅 fragment、
   base 无 path）；空串返回 base 去 fragment（contracts/http-url.md）
 
@@ -189,7 +189,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ### Tests for User Story 3（先写、先失败）
 
-- [ ] T013 [P] [US3] 在 `src/core/headers_test.mbt` 写失败测试：Builder
+- [x] T013 [P] [US3] 在 `src/core/headers_test.mbt` 写失败测试：Builder
   `add("Accept","a")`+`add("Accept","b")` 后 build，值上
   `values("accept")` **先收集为数组**再断言 `["a","b"]`（决策 M2-A：
   `values` 返回保序 `Iter[String]`、不折叠，迭代器本身不作断言对象）、
@@ -207,7 +207,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ### Implementation for User Story 3
 
-- [ ] T014 [US3] 在 `src/core/headers.mbt` 实现 `HeadersV`（不可变，底层
+- [x] T014 [US3] 在 `src/core/headers.mbt` 实现 `HeadersV`（不可变，底层
   `Array[(CaseInsensitiveString, String)]`，复用 `@http.CaseInsensitiveString`
   ——research R2）：HeadersV 与 HeadersVBuilder 统一 `derive(Eq, Hash, Debug)`
   + 紧随三行 `pub extend`（`Eq::{equal, not_equal}` / `Hash::{hash,
@@ -231,7 +231,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ### Tests for User Story 4（先写、先失败）
 
-- [ ] T015 [P] [US4] 在 `src/core/headers_fold_test.mbt` 写失败测试，按
+- [x] T015 [P] [US4] 在 `src/core/headers_fold_test.mbt` 写失败测试，按
   SC-003 的**两个可满足不变量**组织（决策 H1-A，原「折叠后 `get` 首个语义不变」
   已弃用）：① **无重复名**——生成名字唯一的头列表（`@property` 不可用时以
   种子随机+循环），折叠后每个名字的 `get` 值与折叠前逐字节相等（恒等映射）；
@@ -244,7 +244,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ### Implementation for User Story 4
 
-- [ ] T016 [US4] 在 `src/core/headers.mbt` 增 `to_http_map() ->
+- [x] T016 [US4] 在 `src/core/headers.mbt` 增 `to_http_map() ->
   @http.Headers`：遍历序列、同名值以 `","` 无空格合并（FR-005，specify
   裁决 Q1-A），满足 T015 的两个不变量
 
@@ -256,13 +256,13 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 **Purpose**: 对拍清单、质量门、输出面验收与提交（宪法 v1.2.0「合入前质量门」:130-133）
 
-- [ ] T017 [P] 在 `src/core/http_url_parse_test.mbt` 头部注释固化 OkHttp
+- [x] T017 [P] 在 `src/core/http_url_parse_test.mbt` 头部注释固化 OkHttp
   移植对拍清单（SC-002，research R9）：移植组=畸形输入/规范化/resolve/
   IPv6/percent-encoding；略去组=IDN（M1 显式拒绝非 ASCII host）、
   userinfo（M1 显式拒绝）；resolve 组须列明 T011 的三条补充锚点
   （query-only / 仅 fragment / base 无 path，决策 L6-A）；来源注明
   `OkHttp 5.5.0 HttpUrlTest (Apache-2.0)`（宪法 III 署名合规）
-- [ ] T018 质量门收口（quickstart.md 5 步全跑）：`moon check` 在 **native 与
+- [x] T018 质量门收口（quickstart.md 5 步全跑）：`moon check` 在 **native 与
   wasm 两目标**零错误零警告（SC-004：verify `pub extend` 已消除 [0079]、
   全包无 `derive(Show)` 残留 [0027]；js/wasm-gc 依宪法 v1.2.0 原则 V
   :67-77 标注「暂不验证」挂欠账 F9/M5 收口，质量门 :130-133 不作门禁——

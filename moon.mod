@@ -26,3 +26,7 @@ preferred_target = "native"
 description = "基于 moonbitlang/async 的 OkHttp 对齐 HTTP 客户端"
 
 source = "src"
+
+import {
+  "moonbitlang/async@0.22.4",
+}
