@@ -1,14 +1,10 @@
 <!--
-- 版本变更：0.0.0（未填充模板骨架）→ 1.0.0（首次制定）
-- 修改的原则：无（此前全部为模板占位符）
-- 新增章节：核心原则（I–VII）、技术约束与合规、开发工作流与质量门、治理
-- 删除章节：无
-- 遗留 TODO：不安全配置 opt-in 条款（后期补充）；OkHttp 能力全景按 5.5.0 的
-  delta 核对（重点 DNS）；`okhttp-capabilities-summary.md` 等被引文档缺失待补；
-  EventListener 对取消的回调归属待对 5.5.0 源码核对
-- 主要依据：用户指令（中文表达）、proj-init-docs/okhttp-on-async-http 可行性报告、
-  agents.md（MoonBit 工程约定）、speckit-tutorial.md（Spec Kit 流程）、
-  用户裁定（敏感信息掩码、暂缓不安全配置、非侵入 ≥ 性能、上游改动本地包引用不入主分支、OkHttp 基准 5.5.0、性能基线为 async/http Client 复用、实验库不保证兼容、push/分支合并人工批准）
+遗留 TODO（承继自 1.0.0/1.1.0 修订审阅，均未处理）：
+- 不安全配置 opt-in 条款（后期补充，与 F12 一并考虑）
+- OkHttp 能力全景按 5.5.0 的 delta 核对（重点 DNS）
+- `okhttp-capabilities-summary.md` 等被引文档缺失待补
+- EventListener 对取消的回调归属待对 5.5.0 源码核对
+v1.1.0 修订详情见 git 历史（docs(constitution) v1.1.0 提交）。
 -->
 
 # moonhttp 项目宪法
@@ -110,9 +106,12 @@ target 优先级固定为 native ≥ wasm > wasm-gc > js。
   → [网络拦截器] → CallServer/WebSocket。
 - 对 reqbest（Apache-2.0）的移植（HPACK、br/zstd 协商参考等）必须按署名合规
   清单执行；本项目许可证为 Apache-2.0。
-- 敏感信息自动掩码：日志、调试输出、EventListener、错误消息与错误上下文中的
-  Authorization、Proxy-Authorization、Cookie、Set-Cookie、URL 用户信息等必须
-  自动脱敏。（不安全配置 opt-in 等安全条款留待后期补充，暂不立条。）
+- 敏感信息默认不展示：日志与一切用户可见输出（调试输出、EventListener、
+  错误消息与错误上下文等）默认不得出现 Authorization、Proxy-Authorization、
+  Cookie、Set-Cookie、URL 用户信息等敏感信息（自动掩码只是达成「不展示」的
+  可选手段之一，不作机制性强制）；当某项开发或设计确需展示敏感信息时，
+  MUST 事先主动汇报项目所有者、经人工确认后方可实现。
+  （不安全配置 opt-in 等安全条款留待后期补充，暂不立条。）
 - 实验阶段（0.x）不保证对外 API 兼容；但 `.mbti` diff 仍须逐次审视——
   不保证兼容 ≠ 允许意外泄漏，破坏性变化须在 spec 与 changelog 显式记录。
 
@@ -146,4 +145,4 @@ target 优先级固定为 native ≥ wasm > wasm-gc > js。
   `proj-init-docs/speckit-tutorial.md`（Spec Kit 流程）、
   `proj-init-docs/okhttp-on-async-http/`（可行性研究报告全集）。
 
-**版本**：1.0.0 | **批准日期**：2026-10-12 | **最近修订**：2026-10-12
+**版本**：1.1.0 | **批准日期**：2026-10-12 | **最近修订**：2026-10-14
