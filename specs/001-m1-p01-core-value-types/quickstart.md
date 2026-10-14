@@ -40,6 +40,7 @@ target 收口；合入质量门 :130-133 不作本包门禁）——**不执行*
 
 ```text
 moon check                  # 期望：零错误零警告（含 [0079]/[0027]）
+moon check --target wasm    # 期望：零错误零警告（两目标口径见步骤 2，R4-L1）
 moon info && moon fmt       # 期望：干净无 diff 残留
 ```
 
