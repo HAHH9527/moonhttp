@@ -28,13 +28,16 @@
 | F9 | wasm-gc stub 与 js 适配层（D9） | wasm-gc 无 stub、js 仅 `moon check` + 降级清单 | **M5 / 16-target-support** | wasm-gc 明确报错 stub（跟踪上游 runtime）；js fetch 适配层与能力降级清单收口（M1–M4 各包 js 降级项届时汇总核对） | 待回补 |
 | F10 | @http 内部逐段 blit（D4 尾巴） | L3 只做到缓存折叠 Map；发送路径 Map 迭代+逐段 blit 仍在 @http 内部 | 未排期（**I8**，基准驱动，M3 评估） | 仅当 P10 基准证明请求头序列化是热点才推进；属上游深水区，须人工批准 | 待回补 |
 | F11 | 响应头顺序不可保真 | @http 响应侧无序 Map + 逗号合并，重建 HeadersV 为遍历序；各包验收禁止断言线上顺序 | 未排期（**I6/I8**，基准驱动） | 保真需改 `read_headers` 字节域扫描（I6）；若推进，同步解除 P02 及下游「不得断言顺序」的验收限制 | 待回补 |
+| F12 | 敏感信息掩码的运行期开关（P01 决策 N4-A） | P01 只交付**默认脱敏**的 HeadersV 调试输出 + 显式逃生口方法（`specs/001-m1-p01-core-value-types/spec.md` FR-013/A8），不提供包级可变开关 | **M3**（可观测与安全：Logger/EventListener 落地时） | 随 Logger/EventListener 一并设计可配置掩码（全局或作用域级、跨 native/wasm/wasm-gc/js 语义一致）；同批补宪法「技术约束与合规」中留待后期条目的「不安全配置 opt-in」；M3 前各包测试与 `.snap` 禁止使用逃生口（明文不得入库） | 待回补 |
 
 ## 与里程碑的对应速查
 
 - **M2**：F1（拦截器链）、F2（代理）、F3（DNS 缓存）、F4（File 体）、F5（便捷方法）、
   F6（认证）——共 6 条，M2 拆分时逐条核对。
 - **M3**：F4 之外另注意 D3 的 `trust` 指纹字段（07-tls-security 的自定义信任/证书固定
-  需要它进 Address 池键；该字段本身随 F2 的 Address 扩展一并考虑，07 落地时生效）。
+  需要它进 Address 池键；该字段本身随 F2 的 Address 扩展一并考虑，07 落地时生效）；
+  **F12** 可配置掩码开关随 Logger/EventListener 设计，并同批补宪法「不安全配置
+  opt-in」条款。
 - **M4**：F7（304 语义变化）。
 - **M5**：F9（target 收口），并汇总核对 M1–M4 全部 js 降级清单。
 - **未排期（基准驱动/需求驱动）**：F8、F10、F11。

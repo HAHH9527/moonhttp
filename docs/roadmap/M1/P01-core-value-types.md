@@ -123,6 +123,10 @@ query/fragment/percent-encoding/IPv6-literal 处理，证据 `01 §2` 表）；
   （零分配比较/哈希，`case_insensitive_string.mbt:21-52` 手法），仍非侵入。
 - 宪法 III：与 OkHttp 的差异（IDN 拒绝、userinfo 处理）在 spec 显式记录。
 - OkHttp HttpUrl 测试矩阵移植属 Apache-2.0 场景复用，spec 中注明来源（宪法 III）。
+- 宪法「技术约束与合规·敏感信息自动掩码」在本包的落地面：**HeadersV 的调试/展示
+  输出**（FR-013/SC-005，手写 `impl Debug` 默认脱敏 + 显式逃生口，测试与 `.snap`
+  禁用逃生口）与 **URL userinfo**（FR-008 显式拒绝）。运行期可配置掩码开关
+  不在本包，登记为 **F12** 归 M3（`docs/roadmap/deferred-items.md`）。
 
 ## target 矩阵
 
