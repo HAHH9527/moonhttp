@@ -27,6 +27,17 @@
 - Q: `HttpUrlError` 变体清单在 spec 内 4 处重述，规范源是谁？ → A: 以 `data-model.md` 为唯一规范源，spec 只引用不重述（决策 L4-A → FR-009）
 - Q: RFC 3986 的 query-only（`?x=1`）、仅 fragment（`#f`）、base 无 path 三个 resolve 分支是否需要验收锚点？ → A: 需要，落在 `contracts/http-url.md` 锚点表与 T011/T017（决策 L6-A，属契约层，不改 spec 边界用例计数）
 
+### Session 2026-10-14
+
+- Q: HeadersV 调试输出是否默认脱敏（2026-10-13 C1-A/N4-A 口径）？ → A: 否（R3-H1-A 取代）：本包 MUST NOT 提供日志/展示/序列化输出类 API，除 derive 的 `Debug` 外无用户可见输出面；P01 不承诺脱敏——依宪法 v1.2.0 掩码段（:112-117）展示例外程序（人工确认留痕：R3-M1），脱敏归 M3 可观测性专版（欠账 F13）→ FR-013
+- Q: 值类型的 Debug 义务形态？ → A: 全部公开值类型（HttpUrl/HeadersV/HeadersVBuilder/Method）MUST `derive(Debug)` 默认实现，不手写 `impl Debug`；保留 N1-A 的 derive + 显式 `pub extend` 与「一律不用 `derive(Show)`」（R2-D1/R2-B1/R3-H1-A → FR-006）
+- Q: SC-004 的目标验证口径？ → A: 验证面为 native 与 wasm（`moon check` 零错误零警告）；js 与 wasm-gc 依宪法 v1.2.0 原则 V（:67-77）标注「暂不验证」并挂欠账跟踪（M5 target 收口），不作本包门禁（R2-F1/R3-C1 闭环 → SC-004，SC-001 联动）
+- Q: SC-005 的判据形态？ → A: 三条输出面核对：① `.mbti` 无 Logger/`Show`/`to_display`/序列化输出类签名；② 错误消息只携带定位片段、不整体回显原始输入；③ `HttpUrl::to_string` 不输出 userinfo（R3-M2-A → SC-005）
+- Q: 明文排查是否保留显式逃生口方法？ → A: 不保留（R3-M3-A）：全文不再有 `debug_unredacted` 类方法，明文输出面即 derive 的 `Debug` 本身；「默认脱敏 + 按需展示」完整形态归 M3 专版（F12/F13）统一设计
+- Q: Builder 的取得入口？ → A: 双入口均属公开面：空 Builder 经 `HeadersVBuilder::new()`；`HeadersV::builder()` 用于已固化值 → 可变 Builder 回转，且不重跑 FR-012 校验（R2-C1 → FR-004/Key Entities）
+- Q: FR-011 纯值对象承诺如何验收？ → A: 三条静态核对：`moon.pkg` import 仅 `moonbitlang/async/http`；源码无 `Client`/`new_client`/`request(` 执行类 API；`.mbti` 无 IO 签名（R2-E1-A → FR-011）
+- Q: 测试与 `.snap` 中的敏感头样例值纪律？ → A: 必须为明显合成的占位串（如 `Bearer test-token-123`），禁止任何真实/可用凭证——明文入库不可逆（R3-M1 → A8 测试纪律）
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - HttpUrl 解析与规范化（Priority: P1）
@@ -106,9 +117,10 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
 4. **Given** Builder `add("Bad Name","v")`（含空格、非 token 字符）或
    `add("X","a\r\nInjected: 1")`（值含 CR/LF），**Then** raise 可判别的
    `HeadersError::InvalidName` / `InvalidValue`，容器不变（FR-012，防头注入）。
-5. **Given** Builder 已 `add("Authorization","Bearer secret")` 后 `build()`，
-   **When** 对该值做调试输出，**Then** 输出含头名与脱敏占位、**不含**
-   `Bearer secret`；同一容器判等/哈希不受脱敏影响（FR-013/SC-005）。
+5. **Given** Builder 已 `add("Authorization","Bearer test-token-123")` 后
+   `build()`，**When** 检查该值的输出面与判等/哈希，**Then** 除 derive 默认的
+   `Debug` 外无任何日志/展示/序列化输出 API（FR-013），判等/哈希语义与输出
+   行为无关、恒稳（SC-005；样例值为合成占位串，见 A8 测试纪律）。
 
 ---
 
@@ -151,8 +163,6 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
   MUST raise `HeadersError::InvalidName`（见 FR-012）。
 - 头值含 CR 或 LF（含 CRLF 折叠注入序列）：Builder 操作 MUST raise
   `HeadersError::InvalidValue`（见 FR-012，防头注入）。
-- HeadersV 含 `Authorization`/`Cookie` 等敏感头：调试/展示输出 MUST 只呈现脱敏
-  值，明文 MUST NOT 进入日志或 `.snap` 快照（见 FR-013）。
 
 ## Requirements *(mandatory)*
 
@@ -171,16 +181,21 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
   安全使用），保插入序、名字大小写不敏感比较、支持重复名；`get`（首个）与
   `values`（保序遍历，**不折叠同名值**）在值上提供，`set`（覆盖全部同名）/
   `add` / `remove`（删全部同名）在配套可变 Builder 上提供（澄清 2026-10-13；
-  同名值合并只发生在 FR-005 的边界折叠）。
+  同名值合并只发生在 FR-005 的边界折叠）。Builder 双入口均属公开面
+  （R2-C1，2026-10-14）：空 Builder 经 `HeadersVBuilder::new()` 取得；
+  `HeadersV::builder()` 用于已固化 HeadersV → 可变 Builder 的回转，且
+  **不重跑 FR-012 校验**（源数据首次 build 前已校验）。
 - **FR-005**: HeadersV 向 `@http` 头 Map 的边界折叠 MUST 与 @http 响应侧同名
   合并语义逐字节对称：同名值以无空格逗号 `","` 合并（用户裁决 Q1-A；RFC 9110
   允许无空格逗号，且保证响应侧已合并的头再进请求侧折叠不变形）。
 - **FR-006**: 值类型（HttpUrl / HeadersV / HeadersVBuilder / Method）MUST
-  可判等、可哈希、可调试输出（Eq/Hash/Debug）；错误类型（HttpUrlError /
-  HeadersError）MUST 可调试输出（Debug），**不参与判等与哈希**——错误判别以
-  `is` 与模式匹配为准（澄清 2026-10-13，决策 M5-A）。本包 MUST NOT 使用
-  `derive(Show)`（本工具链报弃用警告 [0027]）；HeadersV 的 Debug 输出受 FR-013
-  脱敏约束，MUST 手写实现而非 derive。
+  可判等、可哈希，并 MUST `derive(Debug)` 默认实现（2026-10-14 决策
+  R2-D1/R2-B1/R3-H1-A，取代「HeadersV 手写 impl Debug」口径）；错误类型
+  （HttpUrlError / HeadersError）MUST 可调试输出（Debug），**不参与判等与
+  哈希**——错误判别以 `is` 与模式匹配为准（澄清 2026-10-13，决策 M5-A）。
+  derive 的值类型紧随显式 `pub extend`（`Eq::{equal, not_equal}` /
+  `Hash::{hash, hash_combine}` / `Debug::{to_repr}`，决策 N1-A）；本包一律
+  MUST NOT 使用 `derive(Show)`（本工具链报弃用警告 [0027]）。
 - **FR-007**: `Method` MUST 仅以九个标准方法（Get/Post/Put/Delete/Head/
   Options/Trace/Patch/Connect）建模，与 `@http.RequestMethod` 一一对应；
   自定义方法 token 不在 M1 类型面内（用户裁决 Q2-B：裁剪 `Custom` 出范围，
@@ -195,19 +210,20 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
 - **FR-010**: IPv6 literal（`[::1]:8080` 形式）MUST 可解析，host 存储为剥去
   方括号的字符串。
 - **FR-011**: 本包 MUST 不含任何网络 IO 与请求执行逻辑（纯值对象层）。
+  验收判据（R2-E1-A，2026-10-14，静态核对）：① `src/core/moon.pkg` 的
+  import 仅 `moonbitlang/async/http`；② `src/core` 源码不出现 `Client` /
+  `new_client` / `request(` 等执行类 API；③ `.mbti` 无 IO 相关签名。
 - **FR-012**: HeadersVBuilder MUST 在进入存储前校验头名与头值，违例 raise 可
   判别的 `HeadersError`：头名 MUST 为非空 RFC 9110 token 字符序列（违例
   `InvalidName`）；头值 MUST NOT 含 CR 或 LF（违例 `InvalidValue`，防头注入）。
   `add`/`set` 受此约束，`remove` 对非法名静默无操作（澄清 2026-10-13，
   决策 H2-A；本条为安全类 MUST，P02/P05 按此继承）。
-- **FR-013**: HeadersV 的调试与展示输出 MUST **默认脱敏** `Authorization`、
-  `Proxy-Authorization`、`Cookie`、`Set-Cookie` 的头值（宪法「技术约束与合规·
-  敏感信息自动掩码」MUST 在本包的落地；URL 用户信息的脱敏由 FR-008 拒绝
-  userinfo 达成）。脱敏 MUST NOT 影响判等与哈希（脱敏只发生在输出层）。
-  如需明文排查，MUST 通过**显式调用的逃生口方法**获取，本包 MUST NOT 提供
-  包级可变掩码开关；测试与 `.snap` 快照 MUST NOT 使用逃生口（澄清 2026-10-13，
-  决策 C1-A + N4-A）。可配置掩码开关与宪法「不安全配置 opt-in」条款归 M3，
-  登记在 `docs/roadmap/deferred-items.md`（见 A8）。
+- **FR-013**: 本包 MUST NOT 提供日志、展示或序列化输出类 API；除 `Debug`
+  （derive 默认实现）外无用户可见输出面。P01 不承诺敏感头脱敏——依据宪法
+  v1.2.0 掩码段（:112-117）的展示例外程序（人工确认留痕：分析报告 R3-M1），
+  脱敏随 M3 可观测性专版交付，登记欠账 F13（连同 F12 可配置开关）
+  （澄清 2026-10-14，决策 R3-H1-A，取代 2026-10-13 的 C1-A + N4-A 脱敏
+  口径；userinfo 的结构性保证由 FR-008 拒绝达成）。
 
 ### Key Entities
 
@@ -218,9 +234,12 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
   判等/哈希。
 - **HeadersV**：有序、允许重复名的**不可变**请求头容器（变更经配套可变
   Builder 完成后由 `build()` 产出）；名字大小写不敏感；支持向 `@http`
-  头 Map 的折叠转换；调试/展示输出默认脱敏敏感头值（FR-013）。
+  头 Map 的折叠转换。`HeadersV::builder()` 提供已固化值 → 可变 Builder 的
+  回转，不重跑 FR-012 校验（R2-C1）。
 - **HeadersVBuilder**：HeadersV 的可变配套容器，`add`/`set`/`remove` 与头名
-  头值校验（FR-012）在此发生。
+  头值校验（FR-012）在此发生。双入口（R2-C1）：空实例经
+  `HeadersVBuilder::new()` 取得；`HeadersV::builder()` 提供已固化值 →
+  可变 Builder 的回转（不重跑 FR-012 校验）。
 - **Method**：请求方法值；仅九个标准方法，与底层 HTTP 库的方法枚举一一对应
   （自定义方法 token 不在 M1 类型面内）。
 - **HttpUrlError**：URL 解析失败的可判别错误，变体清单见 FR-009 指向的
@@ -233,7 +252,8 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
 ### Measurable Outcomes
 
 - **SC-001**: US-1 至 US-4 的全部验收场景均有测试且 `moon test --target
-  native` 与 `--target wasm` 双绿；js 至少 `moon check --target js` 通过。
+  native` 与 `--target wasm` 双绿（验证面口径见 SC-004：js/wasm-gc 暂不
+  验证，宪法 v1.2.0 :130-133，2026-10-14 联动修正）。
 - **SC-002**: OkHttp `HttpUrlTest` 场景矩阵的移植清单在测试文档中列明
   （移植了哪些组：畸形输入/规范化/resolve/IPv6/percent-encoding；略去了
   哪些及理由），移植来源注明 Apache-2.0（宪法 III）。
@@ -244,15 +264,18 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
   （澄清 2026-10-13，决策 H1-A：原「折叠后 get 首个语义与折叠前一致」在存在
   重复名时必然为假，故弃用）。
 - **SC-004**: `moon info && moon fmt` 干净，`.mbti` 冻结 core 值对象公开面
-  并经人工审视（宪法 VI）；四个目标 `moon check` **零错误零警告**——derive
-  的值类型紧随显式 `pub extend`（`Eq::{equal, not_equal}`、
-  `Hash::{hash, hash_combine}`、`Debug::{to_repr}`）以消除
-  `implicit_impl_as_method` [0079]，且不使用 `derive(Show)`（决策 N1-A；
-  由此新增的方法名一并进入 `.mbti` 冻结清单逐条审视）。
-- **SC-005**: 敏感头零明文泄漏：含 `Authorization`/`Proxy-Authorization`/
-  `Cookie`/`Set-Cookie` 的 HeadersV 实例，其调试/展示输出不含对应明文头值，
-  且本包提交的 `.snap` 快照与测试输出中不含这些值（FR-013 的验收判据；
-  决策 C1-A）。
+  并经人工审视（宪法 VI）；验证面为 **native 与 wasm**：`moon check`
+  **零错误零警告**——derive 的值类型紧随显式 `pub extend`
+  （`Eq::{equal, not_equal}`、`Hash::{hash, hash_combine}`、
+  `Debug::{to_repr}`）以消除 `implicit_impl_as_method` [0079]，且不使用
+  `derive(Show)`（决策 N1-A；由此新增的方法名一并进入 `.mbti` 冻结清单
+  逐条审视）。js 与 wasm-gc 依宪法 v1.2.0 原则 V（:67-77）显式标注
+  「暂不验证」并挂欠账跟踪（M5 target 收口），不作本包门禁
+  （R2-F1/R3-C1 闭环，2026-10-14，取代「四个目标零错误零警告」口径）。
+- **SC-005**: 输出面三项核对（R3-M2-A，2026-10-14，取代「快照/输出不含
+  明文」判据）：① `.mbti` 无 Logger / `Show` / `to_display` / 序列化输出类
+  签名；② 错误消息只携带定位片段、不整体回显原始输入；③
+  `HttpUrl::to_string` 不输出 userinfo（FR-008 结构性保证）。
 
 ## Assumptions
 
@@ -283,9 +306,11 @@ Builder 上，`build()` 产出不可变的 HeadersV 值，值上提供 `get`（�
   （Q3-A：M1 拒绝，建模随 M3 回补）、`Method::Custom`（Q2-B：裁剪出 M1，
   需求驱动回补）、`Set-Cookie` 解析与 Cookie 回发（M2）、认证路径多值
   quoted-string 保留（M2，08-auth）、任何网络执行逻辑，均不在本包范围。
-- **A8（掩码开关的归属，决策 N4-A）**：本包 MUST NOT 提供包级可变的脱敏开关
-  ——可变全局状态会跨测试用例泄漏、在 native/wasm/wasm-gc/js 四目标语义不一致，
-  且与宪法 VII 的接口纪律相冲。明文排查只经 FR-013 的显式逃生口方法，且测试
-  与 `.snap` 快照不得使用它。「运行期可配置掩码 flag」连同宪法中留待补充的
-  「不安全配置 opt-in」条款一起归 **M3**（可观测与安全），登记在
-  `docs/roadmap/deferred-items.md`。
+- **A8（脱敏与掩码开关的归属，2026-10-14 改写）**：本包 MUST NOT 提供包级
+  可变脱敏开关，也不提供 `debug_unredacted` 类显式逃生口方法——明文输出面
+  即 derive 的 `Debug` 本身（R3-M3-A）；「默认脱敏 + 按需展示」完整形态与
+  「运行期可配置掩码 flag」归 **M3** 可观测性专版统一设计（欠账 F13/F12），
+  连同宪法中留待补充的「不安全配置 opt-in」条款，登记在
+  `docs/roadmap/deferred-items.md`。**测试纪律（R3-M1）**：`.snap` 快照与
+  测试中的敏感头样例值必须为明显合成的占位串（如 `Bearer test-token-123`），
+  禁止任何真实/可用凭证——明文入库不可逆。
