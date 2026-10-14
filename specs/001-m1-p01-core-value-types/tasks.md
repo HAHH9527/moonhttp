@@ -13,14 +13,17 @@ FR-001–FR-013、SC-001–SC-005）、research.md（R1–R14）、data-model.md
 **Tests**: 本特性**显式要求测试任务**（宪法 IV「验收场景与测试先行」不可妥协：
 先写失败测试，再实现，红-绿-重构）。测试锚点直接引用
 [contracts/http-url.md](contracts/http-url.md)、[contracts/headers.md](contracts/headers.md)
-的「验收锚点」表与 spec Edge Cases（15 条）。
+的「验收锚点」表与 spec Edge Cases（14 条）。
 
 **Organization**: 按用户故事分组（US1 🎯 MVP → US2 → US3 → US4），
 US1 与 US3 可并行；US2 依赖 US1，US4 依赖 US3。
 
-**决策口径**（全部取 analysis-report.md 决策登记表 A 项）：C1-A / H1-A / H2-A /
-H3→N2-A / M1-A / M2-A / M3-A / M4（plan V 行不动）/ M5→N1-A / M6-A / L1-A /
-L2-A / L3-A / L4-A / L5-A / L6-A / N3-A / N4-A。
+**决策口径**（第一/二轮取 analysis-report.md 登记表 A 项，第三轮取其
+「第三轮登记表」，均已勾选 2026-10-14）：C1-A / H1-A / H2-A / H3→N2-A /
+M1-A / M2-A / M3-A / M4（原「plan V 行不动」锁已由所有者作废，R3-C1）/
+M5→N1-A / M6-A / L1-A / L2-A / L3-A / L4-A / L5-A / L6-A / N3-A / N4-A；
+**第三轮（2026-10-14）**：R2-D1 / R2-B1 / R2-C1 / R2-E1-A / R2-F1→R3-C1 /
+R3-H1-A / R3-M1 / R3-M2-A / R3-M3-A（T019 删除，判据并入 T018）。
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -34,12 +37,15 @@ L2-A / L3-A / L4-A / L5-A / L6-A / N3-A / N4-A。
 MoonBit 惯例：黑盒测试 `*_test.mbt`、白盒测试 `*_wbtest.mbt`、每包
 `moon.pkg`、生成接口 `.mbti`。
 
-**derive 配套写法（贯穿全部实现任务，决策 N1-A + M5-A）**：值类型
+**derive 配套写法（贯穿全部实现任务，决策 N1-A + M5-A + R3-H1-A）**：值类型
 `derive(Eq, Hash, Debug)` 后**紧随**三行 `pub extend T with
 Eq::{not_equal, equal}` / `Hash::{hash, hash_combine}` / `Debug::{to_repr}`，
 以消除 `implicit_impl_as_method` 警告 [0079]；错误类型**仅** `derive(Debug)`，
 不 derive `Eq`/`Hash`；全包**不使用** `derive(Show)`（工具链报 deprecated_syntax
-[0027]）。唯一例外：`HeadersV` 的 `Debug` 手写 `impl Debug` 以做脱敏（决策 C1-A）。
+[0027]）；`HeadersV` **无例外**——统一 `derive(Debug)` 默认实现，不手写
+impl、无逃生口（R3-H1-A/R3-M3-A 取代 C1-A/N4-A 口径，宪法 v1.2.0 :112-117
+展示例外程序，留痕 R3-M1）。测试与 `.snap` 中的敏感头样例值必须为明显合成
+的占位串（如 `Bearer test-token-123`，纪律 R3-M1 → spec A8）。
 
 ---
 
@@ -85,7 +91,9 @@ Eq::{not_equal, equal}` / `Hash::{hash, hash_combine}` / `Debug::{to_repr}`，
 - [ ] T005 [P] 在 `src/core/method_error_test.mbt` 写失败测试：九值映射往返
   断言（`from(to(m)) == m` 对九值穷举）；`HttpUrlError`/`HeadersError` 变体
   可判别断言（`assert_true(e is HttpUrlError::InvalidHost)` 风格，错误不判等）；
-  两错误枚举的 `debug_inspect` 输出形态断言；顺带确认本文件 `moon check`
+  两错误枚举的 `debug_inspect` 输出形态断言——**SC-005 ② 载体：错误消息
+  只携带定位片段、不整体回显原始输入**（以超长/含敏感样式的触发输入构造
+  错误后断言输出不含整体回显；不削弱条款）；顺带确认本文件 `moon check`
   无 [0079]/[0027] 警告
 
 **Checkpoint**: 基础类型就绪，US1/US3 可并行开工
@@ -107,12 +115,12 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
   `http://example.com/a/c?x=1#frag`；`http://[::1]:8080/x` host=`::1`
   port=8080；`http://bad host/`、`http://host:notaport/` raise 可判别；
   非 ASCII host → `InvalidHost`；往返幂等 `parse(to_string(parse(s))) ==
-  parse(s)`）；② spec Edge Cases 全部 **15 条**（含决策 M1-A 的
+  parse(s)`）；② spec Edge Cases 全部 **14 条**（含决策 M1-A 的
   `http://h:0/` 与 `http://h:65536/` → `InvalidPort`；空串/仅 scheme/仅 host →
   `MalformedUrl`；path 空规范化为 `/`；query 保留字符与 `%XX` 不二次编码；
   fragment `None` 与空串可区分；IPv6 畸形括号报错、zone-id 保留；host 末尾点
   `a.com.` 保留；重复 query 键保留；`ftp://` → `UnsupportedScheme`；
-  userinfo → `MalformedUrl`；其余头相关两条与脱敏一条归 T013）；
+  userinfo → `MalformedUrl`；其余头相关两条归 T013）；
   ③ OkHttp `HttpUrlTest` 畸形输入组与规范化组移植（来源注释见 T017）。
   断言优先 `assert_eq`
 - [ ] T007 [P] [US1] 在 `src/core/percent_wbtest.mbt` 写失败白盒测试：
@@ -174,8 +182,8 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ## Phase 5: User Story 3 - HeadersV 操作语义（Priority: P1）
 
-**Goal**: 不可变有序多头容器 + 可变 Builder（含头名校验）+ 默认脱敏的调试
-输出（spec US-3、FR-004/006/012/013）
+**Goal**: 不可变有序多头容器 + 可变 Builder（含头名校验）+ derive(Debug)
+默认实现的调试输出（spec US-3、FR-004/006/012/013）
 
 **Independent Test**: 纯容器语义单测，无 IO
 
@@ -191,26 +199,23 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
   （含空格）/ 空名 / 含 `:` 等非 RFC 9110 token 字符 → raise
   `HeadersError::InvalidName`；`add("X","a\r\nY: 1")`（值含 CR/LF）→ raise
   `HeadersError::InvalidValue`；两者违例后**容器不变**；`remove("Bad Name")`
-  对非法名**静默无操作、不 raise**；值为空串的头合法保留；
-  **脱敏（FR-013/SC-005，决策 C1-A）**：`add("Authorization","Bearer secret")`
-  → build → 调试输出含头名与脱敏占位、**不含** `Bearer secret`，
-  同一容器判等/哈希不受脱敏影响；对 `Proxy-Authorization`/`Cookie`/
-  `Set-Cookie` 各写一条同类断言。本文件 **MUST NOT 调用脱敏逃生口**（N4-A）
+  对非法名**静默无操作、不 raise**；值为空串的头合法保留；**输出面（spec
+  US-3 场景 5，R3-H1-A）**：`add("Authorization","Bearer test-token-123")`
+  → build → `debug_inspect` 输出含该合成占位串（derive 默认明文形态），
+  判等/哈希与输出行为无关、恒稳（样例值必须为合成占位串，纪律 R3-M1 →
+  spec A8，禁止任何真实/可用凭证）
 
 ### Implementation for User Story 3
 
 - [ ] T014 [US3] 在 `src/core/headers.mbt` 实现 `HeadersV`（不可变，底层
   `Array[(CaseInsensitiveString, String)]`，复用 `@http.CaseInsensitiveString`
-  ——research R2）：`derive(Eq, Hash)` + 紧随 `pub extend` 配套，但 **`Debug`
-  走手写 `impl Debug for HeadersV with to_repr(self, h)`**（不 derive，否则
-  逐条原样打印名/值对——research R13；`@debug` 实测不可作用户工程依赖）；
-  手写实现对 `Authorization`/`Proxy-Authorization`/`Cookie`/`Set-Cookie`
-  （名字大小写不敏感匹配）输出脱敏占位，其余头名/值原样输出，脱敏只在输出层
-  （判等/哈希看原值）；同时提供**显式逃生口方法**（建议名
-  `debug_unredacted(self) -> String`，最终命名在 `.mbti` 冻结时定案），
-  **MUST NOT 引入包级可变掩码开关**（决策 N4-A，可配置开关归 M3 欠账 F12）；
-  `HeadersVBuilder`（`add`/`set` 带 FR-012 校验并 raise、`remove` 静默、
-  `build`；`derive(Eq, Hash, Debug)` + `pub extend`）；值上 `get`（首个）/
+  ——research R2）：HeadersV 与 HeadersVBuilder 统一 `derive(Eq, Hash, Debug)`
+  + 紧随三行 `pub extend`（`Eq::{equal, not_equal}` / `Hash::{hash,
+  hash_combine}` / `Debug::{to_repr}`，决策 N1-A；R2-D1/R2-B1/R3-H1-A——
+  **不手写 impl Debug、无逃生口方法**）；Builder 双入口（R2-C1）：
+  `HeadersVBuilder::new()` 造空、`HeadersV::builder(self)` 已固化值回转且
+  **不重跑 FR-012 校验**（源数据首次 build 前已校验）；`add`/`set` 带
+  FR-012 校验并 raise、`remove` 静默、`build`；值上 `get`（首个）/
   `values`（保序 `Iter[String]`，不折叠）
 
 **Checkpoint**: US1/US2/US3 均独立可用
@@ -235,7 +240,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
   响应侧拆分可**还原**原名值序列（进出互逆）；另断言空容器折叠为空 Map、
   值为空串的头折叠后值为空串。文件头注释显式声明「折叠不保证 quoted-string
   边界（如 `WWW-Authenticate: Basic realm="a, b"`），认证路径 M2 绕过」——
-  US-4 场景 2 的文档承诺落在代码注释。本文件 **MUST NOT 使用脱敏逃生口**
+  US-4 场景 2 的文档承诺落在代码注释
 
 ### Implementation for User Story 4
 
@@ -249,7 +254,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-**Purpose**: 对拍清单、质量门、零明文泄漏验收与提交（宪法「合入前质量门」）
+**Purpose**: 对拍清单、质量门、输出面验收与提交（宪法 v1.2.0「合入前质量门」:130-133）
 
 - [ ] T017 [P] 在 `src/core/http_url_parse_test.mbt` 头部注释固化 OkHttp
   移植对拍清单（SC-002，research R9）：移植组=畸形输入/规范化/resolve/
@@ -257,24 +262,34 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
   userinfo（M1 显式拒绝）；resolve 组须列明 T011 的三条补充锚点
   （query-only / 仅 fragment / base 无 path，决策 L6-A）；来源注明
   `OkHttp 5.5.0 HttpUrlTest (Apache-2.0)`（宪法 III 署名合规）
-- [ ] T018 质量门收口（quickstart.md 5 步全跑）：`moon check` 四目标
-  **零错误零警告**（SC-004：verify `pub extend` 已消除 [0079]、全包无
-  `derive(Show)` 残留 [0027]）；`moon info && moon fmt` 干净；逐条审视
-  `src/core/pkg.generated.mbti` 公开面＝HttpUrl/HeadersV/HeadersVBuilder/
-  Method + HttpUrlError/HeadersError + parse/resolve/to_string/访问器/
-  get/values/set/add/remove/build/to_http_map + **derive 配套的 `pub extend`
-  方法与脱敏逃生口**（新入清单须逐条确认），并确认**不含**自立 `Scheme`
-  枚举与包级掩码开关（决策 N2-A/N4-A，SC-004/宪法 VI）；
-  `moon test --target native` 与 `moon test --target wasm` 双绿；
-  `moon check --target js` 通过（SC-001）
-- [ ] T019 [P] SC-005 脱敏零明文泄漏验收：`git grep` 扫描 `src/core/**` 的
-  `.snap` 快照与测试源码，确认 `Authorization`/`Proxy-Authorization`/
-  `Cookie`/`Set-Cookie` 的示例明文值（如测试里的 `Bearer secret`）**未**出现在
-  任何 `.snap` 中；确认测试与快照均未调用逃生口方法；发现泄漏即修断言/改手写
-  `impl Debug`，不得以「删除该测试」了事
-- [ ] T020 宪法合规自查（非侵入/测试先行/target 矩阵/中文文档/敏感信息掩码
-  逐项核对 plan.md Constitution Check 表，含「技术约束与合规」行）后以
-  Conventional Commits（中文描述）提交本包全部改动，汇报中列明 commit 范围
+- [ ] T018 质量门收口（quickstart.md 5 步全跑）：`moon check` 在 **native 与
+  wasm 两目标**零错误零警告（SC-004：verify `pub extend` 已消除 [0079]、
+  全包无 `derive(Show)` 残留 [0027]；js/wasm-gc 依宪法 v1.2.0 原则 V
+  :67-77 标注「暂不验证」挂欠账 F9/M5 收口，质量门 :130-133 不作门禁——
+  不执行 `moon check --target js`/`--target wasm-gc`）；`moon info &&
+  moon fmt` 干净；`moon test --target native` 与 `moon test --target wasm`
+  双绿；逐条审视 `src/core/pkg.generated.mbti` 公开面＝HttpUrl/
+  HeadersV/HeadersVBuilder/Method + HttpUrlError/HeadersError + parse/
+  resolve/to_string/访问器/get/values/set/add/remove/build/to_http_map +
+  **Builder 双入口**（`HeadersVBuilder::new()` 与 `HeadersV::builder()`，
+  R2-C1）+ derive 配套的 `pub extend` 方法（新入清单须逐条确认）；
+  **负面清单（SC-005 ①）**：不含 `debug_unredacted` 类逃生口、不含自立
+  `Scheme` 枚举、不含包级掩码开关、不含 Logger/`Show`/`to_display`/
+  序列化输出类签名；**并入原 T019 的验收对象（R3-M2-A，T019 取消后的
+  载体）**：ⅰ **FR-011 三条静态核对**（R2-E1-A：`src/core/moon.pkg` 的
+  import 仅 `moonbitlang/async/http`；`src/core` 源码不出现 `Client`/
+  `new_client`/`request(` 等执行类 API；`.mbti` 无 IO 相关签名）；
+  ⅱ **SC-005 三条输出面核对**（① `.mbti` 无展示类签名——即上述负面清单；
+  ② 错误消息只携带定位片段、不整体回显输入——断言载体在 T005 的
+  method-error 测试；③ `HttpUrl::to_string` 不输出 userinfo——断言载体
+  在 T006 parse 测试的 userinfo 拒绝用例）；ⅲ **快照占位串抽查**：
+  `.snap` 与测试中的敏感头样例值为合成占位串（如 `Bearer test-token-123`），
+  `git grep` 抽查无真实形态凭证串（纪律 R3-M1 → spec A8）
+- [ ] T020 宪法合规自查（非侵入/测试先行/target 矩阵/中文文档逐项核对
+  plan.md Constitution Check 表）——掩码行按 **⚠️ 例外跟踪态**核对：确认
+  plan「例外跟踪」节存在、F13/F12 已登记、合成占位串纪律已执行（宪法
+  v1.2.0 :112-117 展示例外程序，留痕 R3-M1）；随后以 Conventional Commits
+  （中文描述）提交本包全部改动，汇报中列明 commit 范围
 
 ---
 
@@ -299,7 +314,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 
 - 测试任务先写并确认失败（红），再实现（绿），后 `moon fmt`（重构）
 - percent.mbt（T008）先于 http_url.mbt（T009）；error.mbt（T003）先于两者
-- T013 的脱敏断言与 T014 的手写 `impl Debug` 构成红-绿对
+- T013 的容器语义断言与 T014 的 derive 实现构成红-绿对
 - T016 与 T014 同文件（`headers.mbt`），**不可并行**，顺序在 T014 之后
 
 ### Parallel Opportunities
@@ -309,7 +324,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 - Phase 2 完成后：**US1 全线 ∥ US3 全线**（不同文件集，见下例）
 - US1 内：T006 ∥ T007（不同测试文件）
 - US2 与 US3/US4 在 US1 完成后可与 US3 并行
-- Phase 7：T017、T019 可与 T018 的跑测部分并行（不同文件）
+- Phase 7：T017 可与 T018 的跑测部分并行（不同文件）
 
 ---
 
@@ -320,7 +335,7 @@ HttpUrlError 而非 panic（spec US-1、FR-001/002/003/009/010）
 T006 http_url_parse_test.mbt         T013 headers_test.mbt
 T007 percent_wbtest.mbt              （红）
 （红）                                T014 headers.mbt
-T008 percent.mbt                     （绿：含手写 impl Debug 脱敏）
+T008 percent.mbt                     （绿：derive(Eq, Hash, Debug) + pub extend）
 T009 http_url.mbt
 （绿）                                T015 headers_fold_test.mbt（红）
 T010 moon test 验证                   T016 to_http_map（绿）→ 转 US2
@@ -342,9 +357,9 @@ T010 moon test 验证                   T016 to_http_map（绿）→ 转 US2
 
 1. Setup + Foundational → 基础就绪
 2. +US1 → 独立验证（MVP！）
-3. +US2（依赖 US1）与 +US3（并行，含 FR-012 校验与 FR-013 脱敏）→ 各自独立验证
+3. +US2（依赖 US1）与 +US3（并行，含 FR-012 校验与 FR-013 输出面收敛）→ 各自独立验证
 4. +US4（依赖 US3）→ 独立验证（SC-003 两不变量）
-5. Polish：对拍清单、质量门、零明文泄漏验收、提交
+5. Polish：对拍清单、质量门与输出面验收（T018）、提交
 
 ### Parallel Team Strategy
 
@@ -362,7 +377,8 @@ T010 moon test 验证                   T016 to_http_map（绿）→ 转 US2
 - 每个任务或逻辑组完成后 `moon fmt`；Checkpoint 处验证独立可测性
 - 禁止触碰 `src/client/`（本包范围外）；禁止改动上游 async 任何内容（宪法 I）
 - 完成判据以 quickstart.md「通过判据」为准（SC-001–SC-005）
-- **留待下一轮 analyze 复核的一处口径**：`HeadersVBuilder` 按 FR-006 参与
-  `derive(Debug)`，而 FR-013 的脱敏承诺只绑定 `HeadersV`——Builder 的调试输出
-  是否构成脱敏旁路，spec/契约未表态；本清单按现有产物照写，不擅自扩大或收窄
-  FR-013 范围（改口径须回 spec 走命令链）
+- 第三轮 R2-D1 已关闭原「`HeadersVBuilder` 按 FR-006 参与 `derive(Debug)`，
+  而 FR-013 脱敏承诺只绑定 `HeadersV`——Builder 调试输出是否构成脱敏旁路」
+  的复核口径：FR-013 不再承诺脱敏（R3-H1-A，走宪法 v1.2.0 :112-117 展示
+  例外程序），Builder 与 HeadersV 统一 `derive(Debug)` 默认实现，旁路问题
+  不复存在（2026-10-14 关闭）。
