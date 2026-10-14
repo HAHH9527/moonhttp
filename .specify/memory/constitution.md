@@ -66,11 +66,14 @@ moonhttp 必须只通过 `moonbitlang/async` 的公开 API 与底座耦合，
 
 ### V. Target 策略
 
-target 优先级固定为 native ≥ wasm > wasm-gc > js。
+target 优先级固定为 native ≥ wasm > js = wasm-gc；js 与 wasm-gc
+均不在验证面内，只要求显式标注与欠账跟踪。
 
 - native 与 wasm 共享同一路径，能力必须等价（P0）。
-- js 走 fetch 适配层，能力降级清单必须明确记录（P1）。
-- wasm-gc 被 async runtime 阻塞，必须提供明确报错的 stub（P2，跟踪上游）。
+- js 走 fetch 适配层，不在验证面内；能力状态记为「未验证」而非
+  「已降级」（P1）。
+- wasm-gc 被 async runtime（`@http` 编译图）阻塞，M5 之前不建 stub，
+  仅跟踪上游进度并保留显式排除说明（P2）。
 - 每项能力设计时必须显式标注 target 矩阵（native/wasm/js/wasm-gc）。
 
 ### VI. 简洁与接口纪律
@@ -125,8 +128,9 @@ target 优先级固定为 native ≥ wasm > wasm-gc > js。
 - 特性设计文档统一结构：OkHttp 规格 → async/http 现状（行号证据）→ 实现方案 →
   侵入性清单 → target 矩阵 → 性能影响 → 工作量/依赖 → 测试方案。
 - 合入前质量门：`moon info && moon fmt` 干净、`moon test --target native` 与
-  `moon test --target wasm` 双双全绿、js 至少 `moon check --target js` 通过且
-  能力降级清单已同步、`.mbti` diff 已审视、性能改动附基准数据、宪法合规已自查。
+  `moon test --target wasm` 双双全绿、`.mbti` diff 已审视、性能改动附
+  基准数据、宪法合规已自查。js 与 wasm-gc 不作为合入门禁，仅要求每项
+  能力的 target 矩阵显式标注「暂不验证」并挂欠账跟踪。
 - agent 可在合适时机主动 commit（Conventional Commits、中文描述、不含秘密
   文件，汇报中列明 commit 范围）；一切 push 与分支合并（merge/rebase 进主分支）
   须事先人工批准。
@@ -145,4 +149,4 @@ target 优先级固定为 native ≥ wasm > wasm-gc > js。
   `proj-init-docs/speckit-tutorial.md`（Spec Kit 流程）、
   `proj-init-docs/okhttp-on-async-http/`（可行性研究报告全集）。
 
-**版本**：1.1.0 | **批准日期**：2026-10-12 | **最近修订**：2026-10-14
+**版本**：1.2.0 | **批准日期**：2026-10-12 | **最近修订**：2026-10-14
