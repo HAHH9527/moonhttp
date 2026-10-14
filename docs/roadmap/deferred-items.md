@@ -17,7 +17,7 @@
 
 | 里程碑 | 明细文件 | 条目数（未完成/总数） |
 | --- | --- | --- |
-| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 12 / 12 |
+| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 13 / 13 |
 | M2 完整门面 | （待 M2 拆分时创建） | — |
 | M3–M5 | （待对应里程碑拆分时创建） | — |
 
@@ -36,13 +36,15 @@
 | F9 | wasm-gc stub 与 js 适配层收口 | M5 / 16 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F10 | @http 内部逐段 blit（基准驱动·I8） | 未排期（M3 评估） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F11 | 响应头顺序不可保真（基准驱动·I6/I8） | 未排期 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
-| F12 | 敏感信息掩码的运行期开关（P01 只交付默认脱敏 + 显式逃生口） | M3（Logger/EventListener） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F12 | 敏感信息掩码的运行期开关（P01 交付 derive(Debug) 默认明文输出，经宪法 v1.2.0 展示例外程序人工确认） | M3（Logger/EventListener） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F13 | 敏感信息脱敏专版（默认脱敏 + 按需展示形态，覆盖 HeadersV/调试输出及后续值类型） | M3（随 Logger/EventListener 与 F12 一并设计） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 
 ## 按里程碑速查（仅未完成）
 
 - **M2 拆分须核对**：F1–F6（6 条）。
 - **M3 拆分须核对**：F10 评估决策、F12（可配置掩码开关 + 补宪法「不安全配置
-  opt-in」条款）；另注意 F2 随带的 Address `trust` 字段生效。
+  opt-in」条款）、F13（脱敏专版，与 F12 一批设计）；另注意 F2 随带的 Address
+  `trust` 字段生效。
 - **M4 拆分须核对**：F7（行为变化需 changelog）。
 - **M5 拆分须核对**：F9 + 汇总 M1–M4 全部 js 降级清单。
 - **未排期**：F8（需求驱动）、F10、F11（基准驱动）。

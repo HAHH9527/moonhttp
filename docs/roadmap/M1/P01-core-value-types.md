@@ -123,17 +123,20 @@ query/fragment/percent-encoding/IPv6-literal 处理，证据 `01 §2` 表）；
   （零分配比较/哈希，`case_insensitive_string.mbt:21-52` 手法），仍非侵入。
 - 宪法 III：与 OkHttp 的差异（IDN 拒绝、userinfo 处理）在 spec 显式记录。
 - OkHttp HttpUrl 测试矩阵移植属 Apache-2.0 场景复用，spec 中注明来源（宪法 III）。
-- 宪法「技术约束与合规·敏感信息自动掩码」在本包的落地面：**HeadersV 的调试/展示
-  输出**（FR-013/SC-005，手写 `impl Debug` 默认脱敏 + 显式逃生口，测试与 `.snap`
-  禁用逃生口）与 **URL userinfo**（FR-008 显式拒绝）。运行期可配置掩码开关
-  不在本包，登记为 **F12** 归 M3（`docs/roadmap/deferred-items.md`）。
+- 宪法 v1.2.0「敏感信息默认不展示」（:112-117）在本包的落地面（2026-10-14 第三轮
+  裁决 R3-H1-A/R3-M1）：P01 **不含脱敏**——全部公开类型 `derive(Debug)` 默认实现
+  （明文输出，走宪法展示例外程序，人工确认留痕＝分析报告 R3-M1 与 plan「例外
+  跟踪」节），测试与 `.snap` 样例值须为合成占位串；SC-005 判据为输出面三项核对。
+  **URL userinfo** 仍结构性拒绝（FR-008，不因脱敏延后撤销）。脱敏专版登记为
+  **F13**、可配置开关登记为 **F12**，均归 M3（`docs/roadmap/deferred-items.md`）。
 
 ## target 矩阵
 
 | target | 支持 | 说明 |
 | --- | :-: | --- |
-| native / wasm / js | ✅ | 纯值对象，无 IO |
-| wasm-gc | ❌ | 依赖 `@http` 包进入编译图（CaseInsensitiveString）；若 C1 判定自建，则本包可全 target 纯净——clarify 后定 |
+| native / wasm | ✅ | 纯值对象，无 IO；宪法 v1.2.0 验证面（check 零错误零警告 + 双 target test 全绿） |
+| js | ⏸ 暂不验证 | 宪法 v1.2.0 原则 V（:67-77）：M5 前不在验证面，显式标注 + 欠账跟踪（F9） |
+| wasm-gc | ❌ | 复用 `@http.CaseInsensitiveString`（C1 已定）带入编译图；M5 前不建 stub（宪法 :75-76） |
 
 ## 性能影响
 
@@ -144,7 +147,8 @@ query/fragment/percent-encoding/IPv6-literal 处理，证据 `01 §2` 表）；
 
 - HttpUrl：移植 OkHttp `HttpUrlTest` 场景矩阵（畸形输入、规范化、resolve、IPv6、
   percent-encoding），`assert_eq` 风格；自增中文/边界用例。
-- HeadersV：语义单测 + 折叠属性测试（任意头列表折叠后 get 首个语义不变）。
+- HeadersV：语义单测 + 折叠属性测试（两个可满足不变量：无重复名折叠为恒等映射；
+  有重复名按插入序 `,` 无空格拼接且进出互逆——决策 H1-A）。
 - native + wasm 双 target `moon test` 全绿。
 
 ## 澄清问题种子（clarify 输入）
@@ -160,7 +164,8 @@ query/fragment/percent-encoding/IPv6-literal 处理，证据 `01 §2` 表）；
 ## 验收判据（包级 DoD）
 
 1. 上述 US-1–US-4 验收场景全部有测试且 `moon test --target native` 与
-   `--target wasm` 双绿；js `moon check` 通过。
+   `--target wasm` 双绿；js/wasm-gc 依宪法 v1.2.0「暂不验证」（挂欠账 F9，
+   M5 收口），不作本包门禁。
 2. OkHttp HttpUrl 测试矩阵移植清单在 spec 中列明（移植了哪些组、略了哪些及理由）。
 3. `moon info && moon fmt` 干净，`.mbti` 冻结 core 值对象公开面并经审视。
 

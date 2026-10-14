@@ -82,7 +82,7 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
 | D6 | **ResponseBody 便捷方法裁剪**：M1 交付 `bytes()`/`text()`；`json()`（需引 @json 依赖）与 `char_stream` 随 M2 交付 | 01 §3.6 | 依赖面最小化（宪法 VI YAGNI）；char_stream 原文已标 M2 |
 | D7 | **重试决策表裁剪**：401/407 行（Authenticator，08 属 M2）与 408 可选项不属 M1，M1 一律终态返回；304 在 M1 语义为「不跟随、直接返回」（缓存层 M4 才存在） | 02 §3.2 决策表 | M2/M4 接入后回补对应行；spec 中显式记录 |
 | D8 | **测试与基准夹具自建**：原报告引用的上游仓库资产（`test_programs` cancellation 基建、`examples/http_server_benchmark`、`mio/_connmeasure` Python 夹具）不搬运，P03 自建等价物 | 03 §8、14 §5 | 宪法 I 禁止复制/vendor 上游源码；方法论对齐 round1–3，目标值以其报告数字为参考 |
-| D9 | **target 执行口径**：M1 不建 wasm-gc stub 与 js 适配层（16 属 M5）；各包只要求 native+wasm 测试双绿、js 至少 `moon check --target js` 通过，能力降级沿用各特性文档矩阵 | 16-target-support 属 M5 | 里程碑边界；宪法 V 的矩阵标注仍在每包落实 |
+| D9 | **target 执行口径**（2026-10-14 按宪法 v1.2.0 更新）：M1 不建 wasm-gc stub 与 js 适配层（16 属 M5）；验证面为 native+wasm（check 零错误零警告 + 测试双绿），js/wasm-gc 依宪法 v1.2.0 原则 V（:67-77）标注「暂不验证」并挂欠账（F9），M5 收口时恢复 js 门禁（:130-133） | 16-target-support 属 M5 | 里程碑边界；宪法 v1.2.0 target 条款为口径依据，矩阵标注仍在每包落实 |
 
 补充口径说明（非差异，仅为落地澄清）：
 
@@ -119,5 +119,6 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
 ## 6. M1 完成的整体判定
 
 P01–P10 全部包级验收判据通过，且 P10 输出的基准报告满足第 1 节三条交付判据
-（≥20×、stale-retry 闭环、可控服务端全绿），宪法质量门（native/wasm 双绿、js check、
-`moon info && moon fmt` 干净、`.mbti` diff 已审视、性能数据归档）逐项核对通过。
+（≥20×、stale-retry 闭环、可控服务端全绿），宪法质量门（v1.2.0：native/wasm
+双绿、`moon info && moon fmt` 干净、`.mbti` diff 已审视、性能数据归档；
+js/wasm-gc 暂不验证）逐项核对通过。

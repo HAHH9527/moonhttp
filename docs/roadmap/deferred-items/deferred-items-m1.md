@@ -25,10 +25,11 @@
 | F6 | 401/407 认证 follow-up（D7） | 一律终态返回，无 Authenticator | **M2 / 08-auth** | 决策表回补 401/407 行；407 优雅化可选（**I4，~15 行**，现有绕行可用则不侵入）；认证路径的 HeadersV 需绕过 Map 折叠（quoted-string 逗号，P01 已留例外条款） | 待回补 |
 | F7 | 304 缓存语义（D7） | 304 终态透传给调用方 | **M4 / 05-cache** | 缓存层存在后 304 与缓存合并、自动转条件 GET——这是 M1 → M4 的**用户可见行为变化**，须在 M4 spec 与 changelog 显式记录 | 待回补 |
 | F8 | 408 可选重试（D7） | 不跟随不重试 | 未排期（原文即标可选） | OkHttp 无此默认；仅当用户提出需求时作为 opt-in 纳入 | 待回补 |
-| F9 | wasm-gc stub 与 js 适配层（D9） | wasm-gc 无 stub、js 仅 `moon check` + 降级清单 | **M5 / 16-target-support** | wasm-gc 明确报错 stub（跟踪上游 runtime）；js fetch 适配层与能力降级清单收口（M1–M4 各包 js 降级项届时汇总核对） | 待回补 |
+| F9 | wasm-gc stub 与 js 适配层（D9） | wasm-gc/js 依宪法 v1.2.0 原则 V（:67-77）「暂不验证」（2026-10-14 起），非 M1 例外；各包 target 矩阵显式标注并挂欠账 | **M5 / 16-target-support** | wasm-gc 跟踪上游 runtime、M5 前不建 stub（宪法 :75-76）；js fetch 适配层与能力清单收口（M5 起 js 恢复 check 门禁，:130-133；M1–M4 各包「未验证」项届时汇总核对） | 待回补 |
 | F10 | @http 内部逐段 blit（D4 尾巴） | L3 只做到缓存折叠 Map；发送路径 Map 迭代+逐段 blit 仍在 @http 内部 | 未排期（**I8**，基准驱动，M3 评估） | 仅当 P10 基准证明请求头序列化是热点才推进；属上游深水区，须人工批准 | 待回补 |
 | F11 | 响应头顺序不可保真 | @http 响应侧无序 Map + 逗号合并，重建 HeadersV 为遍历序；各包验收禁止断言线上顺序 | 未排期（**I6/I8**，基准驱动） | 保真需改 `read_headers` 字节域扫描（I6）；若推进，同步解除 P02 及下游「不得断言顺序」的验收限制 | 待回补 |
-| F12 | 敏感信息掩码的运行期开关（P01 决策 N4-A） | P01 只交付**默认脱敏**的 HeadersV 调试输出 + 显式逃生口方法（`specs/001-m1-p01-core-value-types/spec.md` FR-013/A8），不提供包级可变开关 | **M3**（可观测与安全：Logger/EventListener 落地时） | 随 Logger/EventListener 一并设计可配置掩码（全局或作用域级、跨 native/wasm/wasm-gc/js 语义一致）；同批补宪法「技术约束与合规」中留待后期条目的「不安全配置 opt-in」；M3 前各包测试与 `.snap` 禁止使用逃生口（明文不得入库） | 待回补 |
+| F12 | 敏感信息掩码的运行期开关（P01 决策 N4-A → R3-H1-A 修订） | P01 交付 derive(Debug) **默认明文**输出（无逃生口、无包级开关；宪法 v1.2.0 :112-117 展示例外程序，人工确认留痕＝分析报告 R3-M1），测试与 `.snap` 样例值须为合成占位串 | **M3**（可观测与安全：Logger/EventListener 落地时） | 随 Logger/EventListener 一并设计可配置掩码（全局或作用域级、跨 native/wasm/wasm-gc/js 语义一致），与 F13 脱敏专版同批；同批补宪法「技术约束与合规」中留待后期条目的「不安全配置 opt-in」 | 待回补 |
+| F13 | 敏感信息脱敏专版（P01 决策 R3-H1-A/R3-M3-A） | P01 不承诺脱敏：全部公开类型 derive(Debug) 默认明文，无手写 impl、无逃生口（`specs/001-m1-p01-core-value-types/spec.md` FR-013/A8、plan「例外跟踪」节） | **M3**（可观测与安全） | 「默认脱敏 + 按需展示」完整形态随 Logger/EventListener 管线统一设计（与 F12 一批），覆盖 HeadersV/HeadersVBuilder 及后续 Request/Response 等值类型；错误消息只携带定位片段与 `to_string` 不含 userinfo 两条不因专版撤销 | 待回补 |
 
 ## 与里程碑的对应速查
 
@@ -36,8 +37,8 @@
   F6（认证）——共 6 条，M2 拆分时逐条核对。
 - **M3**：F4 之外另注意 D3 的 `trust` 指纹字段（07-tls-security 的自定义信任/证书固定
   需要它进 Address 池键；该字段本身随 F2 的 Address 扩展一并考虑，07 落地时生效）；
-  **F12** 可配置掩码开关随 Logger/EventListener 设计，并同批补宪法「不安全配置
-  opt-in」条款。
+  **F12** 可配置掩码开关与 **F13** 脱敏专版随 Logger/EventListener 一批设计，
+  并同批补宪法「不安全配置 opt-in」条款。
 - **M4**：F7（304 语义变化）。
 - **M5**：F9（target 收口），并汇总核对 M1–M4 全部 js 降级清单。
 - **未排期（基准驱动/需求驱动）**：F8、F10、F11。

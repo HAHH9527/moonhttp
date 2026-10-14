@@ -1154,7 +1154,12 @@ docs/roadmap/M1/README.md D9、deferred-items F9
   「违背核心原则但理由充分」准备的；此处省下的只是一条 check 命令，却要宪法 MUST
   门禁留污点、并让 plan V 行与质量门两处失真，收益不成比例。
 
-**人类选择**：（待勾选 A/B/C——本条涉及宪法文件改动，agent 不得代执行）
+**人类选择**：**A**（2026-10-14 由所有者发起 `/speckit-constitution` 修订并人工
+审阅提交，commit `f568f9a`）：宪法升 **v1.2.0**，采纳附录 A 完整版草案（原则 V
+`:67-77`：`native ≥ wasm > js = wasm-gc`，js/wasm-gc 均不在验证面内；质量门
+`:130-133`：js/wasm-gc 不作合入门禁、仅显式标注「暂不验证」+ 欠账跟踪）。
+版本判据由所有者定为 MINOR（1.2.0）。**M4 锁（plan V 行逐字不动）同步作废**——
+回改链中 plan 的 V 行按新宪法口径重写。
 
 ## R3-H1 四层产物仍把「默认脱敏」写成 MUST，与所有者新方向相反
 
@@ -1204,7 +1209,9 @@ R2-C2 三条的勾选原文与 constitution.md:109-114
 - **C.（不成立）保持 spec 不动、实现按默认 `Debug`**：tasks 与 spec 脱节，
   直接违宪法 :121-122，排除。
 
-**人类选择**：（待勾选；A 为 R2 勾选的规范化，B 为回到第一轮）
+**人类选择**：**A**（2026-10-14；P01 不实现脱敏：全部公开类型 `derive(Debug)`
+默认实现（含 HeadersVBuilder），FR-013 改写为「不提供展示/序列化 API、脱敏随
+M3 专版交付」，plan 掩码行 ✅→⚠️ 并新增 `# 例外跟踪`，脱敏欠账挂 F13）
 
 ## R3-M1 「确需展示敏感信息」的人工确认留痕（宪法手续）
 
@@ -1235,7 +1242,12 @@ R2-C2 的勾选原文，以及 plan.md 的 `# 例外跟踪`（尚无该节）
 - **C. 不做脱敏也不留痕**：违 `:112-113` 的程序性 MUST（且宪法的展示例外是
   1.1.0 **新增强制**，比 1.0.0 更明确），排除。
 
-**人类选择**：（待勾选 A——本条同时需要所有者确认「合成占位串」纪律）
+**人类选择**：**A**（2026-10-14 确认）。留痕 ①＝本勾选（原文引用所有者 R2
+勾选：「Debug 可以先用默认实现，log 脱敏等后续专开一个版本进行」「测试数据
+`.snap` 不需要脱敏」）；留痕 ②＝回改链中 plan.md 新增 `# 例外跟踪` 节。
+纪律确认：`.snap` 与测试中的敏感头样例值 MUST 为明显合成的占位串（如
+`Bearer test-token-123`），禁止任何真实/可用凭证——明文入库后清除需 rewrite
+history，不可逆。
 
 ## R3-M2 SC-005 与 T019 在不脱敏下反向必红
 
@@ -1264,7 +1276,9 @@ R2-C2 的勾选原文，以及 plan.md 的 `# 例外跟踪`（尚无该节）
   （只剩 A 项的 ③ userinfo 一条），`:142` 的合规审查更难举证。
 - **C. 保留 SC-005 原文**：与 R3-H1-A 直接矛盾、T019 必红，不可。
 
-**人类选择**：（待勾选 A/B）
+**人类选择**：**A**（2026-10-14；SC-005 判据改为三条输出面核对——`.mbti` 无
+展示类签名 / 错误消息只携带定位片段 / `to_string` 不输出 userinfo；T019 并入
+T018 静态核对）
 
 ## R3-M3 逃生口方法在默认明文下失去意义
 
@@ -1286,7 +1300,8 @@ contracts/headers.md 脱敏段留下的「显式逃生口方法（`debug_unredac
 - **B. 保留但语义反转**（默认明文、显式请求脱敏，如 `debug_redacted()`）：
   仍是一处 P01 用不到的公开面，且与 M3 的 Logger 配置面重复，不建议。
 
-**人类选择**：（待勾选 A/B）
+**人类选择**：**A**（2026-10-14；删除逃生口，冻结清单净减一项；M3 专版连同
+F12/F13 统一设计「默认脱敏 + 按需展示」）
 
 ## R3-M4 roadmap 侧欠账与包摘要需同步
 
@@ -1310,7 +1325,12 @@ docs/roadmap/M1/README.md（D9 target 差异）
   M3 拆包时易漏。
 - **C. roadmap 不动**：跨里程碑账目与 P01 实际交付不一致，不建议。
 
-**人类选择**：（待勾选 A/B/C）
+**人类选择**：**A**（2026-10-14；新增 F13 归 M3 并改写 P01 包摘要、同步 F12
+措辞；因 R3-C1 选 A，M1/README.md D9 与 deferred-items F9 的 target 表述
+同批更新）——**已执行（2026-10-14）**：deferred-items.md（13/13）、
+deferred-items-m1.md（F12 改写 + F13 新增 + F9 对齐 v1.2.0）、
+M1/P01-core-value-types.md（摘要/target 矩阵/测试方案/DoD 四处）、
+M1/README.md（D9 + 质量门口径）均已更新。
 
 ## R3-L1 本报告及下游产物中的宪法引用需换版
 
@@ -1330,7 +1350,9 @@ docs/roadmap/M1/README.md（D9 target 差异）
   「v1.1.0 后的复核见第三轮段」。
 - **B. 全量重写行号与版本**：销毁历史一致性证据，不建议。
 
-**人类选择**：（待勾选 A/B）
+**人类选择**：**A**（2026-10-14；历史条目不动；注：宪法已于本轮经
+`/speckit-constitution` 升至 v1.2.0，后续引用以 v1.2.0 现行文本为准——target
+条款 `:67-77`、质量门 `:130-133`、版本行 `:152`）
 
 ---
 
@@ -1412,20 +1434,20 @@ R2-D1 与 R2-F1 原为 implement 前置项。勾选已完成（原文见各条�
    ② R3-H1/R3-M2/R3-M3 走第三轮回改链；③ R3-M1 留痕 + plan `# 例外跟踪`。
    三者全部关闭后才可 `/speckit-implement`。
 
-## 第三轮登记表（2026-10-14·对齐宪法 v1.1.0，**全部待勾选**）
+## 第三轮登记表（2026-10-14·对齐宪法 v1.1.0，**已全部勾选（2026-10-14）**）
 
 R3-C1 只能由**人工**关闭（涉宪法文件，agent 不得代执行）；R3-H1/R3-M2 为 implement
 前置项；R3-M1 是所有者的确认留痕动作；R3-M3/M4/L1 建议同轮一并定，避免第四次回环。
 
 | ID | 严重度 | 建议首选项 | 人类选择 | 影响产物 | 需重跑的命令 |
 |----|--------|------------|----------|----------|--------------|
-| **R3-C1** | CRITICAL（人工专属） | B（P01 解阻塞最小代价：js 仍 `check`、wasm-gc 显式排除）；A 为项目级正解（人工提宪法修订，草案见附录 A） | （待勾选 A/B/C） | 宪法 :69/:72/:127-129（人工）、plan L54 + M4 锁作废、spec SC-004、quickstart 步骤 2、tasks T018、research R7、M1 README D9 | 人工修订 → `speckit-clarify` → `speckit-plan` → `speckit-tasks` |
-| **R3-H1** | HIGH | A（P01 不实现脱敏，脱敏另开专版；plan 记 `# 例外跟踪`） | （待勾选 A/B） | spec FR-006/FR-013/SC-005/Edge Cases 第 15 条/Key Entities/A8、plan 检查表 + Constraints、data-model §2/§5、contracts/headers、quickstart 步骤 3/4、research R13/R14、tasks T013/T014/T015/T018/T019 | `speckit-clarify` → `speckit-plan` → `speckit-tasks` → `speckit-analyze` |
-| **R3-M1** | MEDIUM（手续） | A（报告原文留痕 + plan `# 例外跟踪` + 合成占位串纪律） | （待勾选 A；需同时确认「`.snap`/测试只用合成占位凭证值」） | 本文件、plan.md（新增 `# 例外跟踪` 节）、contracts/headers 条款 | — |
-| R3-M2 | MEDIUM | A（SC-005 判据改为「无展示类输出面 + 错误不整体回显 + 无 userinfo」，T019 并入 T018） | （待勾选 A/B） | spec SC-005、quickstart 步骤 4、tasks T018/T019 | 随 R3-H1 |
-| R3-M3 | MEDIUM | A（删除逃生口，M3 专版统一设计） | （待勾选 A/B） | spec FR-013、contracts/headers、tasks T014/T018、quickstart 冻结清单 | 随 R3-H1 |
-| R3-M4 | MEDIUM | A（新增 F13 + P01 包摘要改写） | （待勾选 A/B/C） | docs/roadmap/deferred-items.md、deferred-items-m1.md、M1/P01-core-value-types.md、（选 A 时）M1/README.md D9 | 回改链后直接编辑（非规格类产物） |
-| R3-L1 | LOW | A（历史条目不动，第三轮起引用 1.1.0 行号） | （待勾选 A/B） | 本文件「分析范围」行、下游引用行号（重生成时自然刷新） | — |
+| **R3-C1** | CRITICAL（人工专属） | B（P01 解阻塞最小代价：js 仍 `check`、wasm-gc 显式排除）；A 为项目级正解（人工提宪法修订，草案见附录 A） | **A**（经 `/speckit-constitution` 修订宪法至 **v1.2.0**，commit `f568f9a`，采纳附录 A 完整版草案；**M4 锁作废**，plan V 行将按新口径重写） | 宪法 :69/:72/:127-129（人工）、plan L54 + M4 锁作废、spec SC-004、quickstart 步骤 2、tasks T018、research R7、M1 README D9 | 人工修订 → `speckit-clarify` → `speckit-plan` → `speckit-tasks` |
+| **R3-H1** | HIGH | A（P01 不实现脱敏，脱敏另开专版；plan 记 `# 例外跟踪`） | **A**（P01 不做脱敏，全部公开类型 `derive(Debug)` 默认实现；脱敏欠账挂 F13） | spec FR-006/FR-013/SC-005/Edge Cases 第 15 条/Key Entities/A8、plan 检查表 + Constraints、data-model §2/§5、contracts/headers、quickstart 步骤 3/4、research R13/R14、tasks T013/T014/T015/T018/T019 | `speckit-clarify` → `speckit-plan` → `speckit-tasks` → `speckit-analyze` |
+| **R3-M1** | MEDIUM（手续） | A（报告原文留痕 + plan `# 例外跟踪` + 合成占位串纪律） | **A**（已确认合成占位串纪律；本勾选即留痕 ①，plan `# 例外跟踪` 为留痕 ②） | 本文件、plan.md（新增 `# 例外跟踪` 节）、contracts/headers 条款 | — |
+| R3-M2 | MEDIUM | A（SC-005 判据改为「无展示类输出面 + 错误不整体回显 + 无 userinfo」，T019 并入 T018） | **A**（判据改三条输出面核对；T019 并入 T018） | spec SC-005、quickstart 步骤 4、tasks T018/T019 | 随 R3-H1 |
+| R3-M3 | MEDIUM | A（删除逃生口，M3 专版统一设计） | **A**（删除逃生口） | spec FR-013、contracts/headers、tasks T014/T018、quickstart 冻结清单 | 随 R3-H1 |
+| R3-M4 | MEDIUM | A（新增 F13 + P01 包摘要改写） | **A**（含 D9/F9 同批更新，因 R3-C1 选 A） | docs/roadmap/deferred-items.md、deferred-items-m1.md、M1/P01-core-value-types.md、（选 A 时）M1/README.md D9 | 回改链后直接编辑（非规格类产物） |
+| R3-L1 | LOW | A（历史条目不动，第三轮起引用 1.1.0 行号） | **A**（历史条目不动；后续引用以宪法 v1.2.0 现行行号为准） | 本文件「分析范围」行、下游引用行号（重生成时自然刷新） | — |
 
 ---
 
@@ -1561,3 +1583,90 @@ Target 矩阵标注口径、M5（target 收口）里程碑的定义。**不改�
 人工审阅通过后提交，**提交前删除该报告**。本文件的顶部遗留 TODO 注释块
 （不安全配置 opt-in / F12、OkHttp 5.5.0 delta 核对等）应在新修订中一并核对是否
 需要跟进。**该文件的修改与提交只能由所有者执行。**
+
+---
+
+# 第四轮复跑（2026-10-14 · 第三轮回改链验收）
+
+**产出命令**：`/speckit-analyze`（验收复跑）｜ **分析日期**：2026-10-14
+｜ 除本节追加外未改动任何文件；历史轮次正文未改写。
+
+**复跑范围**：第三轮变更链验收——①宪法 v1.2.0（commit `f568f9a`）②spec
+Session 2026-10-14（8 条）③plan 向下传导（V 行/掩码行 ⚠️/`# 例外跟踪` 节 +
+四附属产物同步）④tasks 对齐（20→19，T019 并入 T018）。核对基准：本报告
+第三轮登记表（已全部勾选）+ 宪法 v1.2.0 行号（V :67-77 / 掩码 :112-117 /
+质量门 :130-133 / 治理 :139 起 / 版本行 :152）。
+
+**度量**：FR 13 ｜ SC 5 ｜ Tasks 19 ｜ **FR+SC 覆盖 18/18（独立复核，不采信
+tasks.md 自报映射）** ｜ CRITICAL 0 ｜ HIGH 0 ｜ MEDIUM 0 ｜ **LOW 1
+（R4-L1，新发现）**。
+
+**覆盖复核方法**：13 项 FR 与 5 项 SC 中，14 项有任务内 ID 级锚点
+（grep `FR-xxx`/`SC-xxx` 命中任务行）；4 项（FR-003/FR-008/FR-009/FR-010）
+无 ID 字面但内容锚点充分——FR-003←T006「非 ASCII host → `InvalidHost`」
+（:117），FR-008←T003（:81）+T006（:123）+T018ⅲ③（:284），FR-009←T003
+四变体定义与 data-model 唯一规范源引用（:75-77）+T005 判别断言，FR-010←
+T003/T006/T009 的 IPv6 剥括号三锚点（:79/:121/:140）；FR-006 由头部
+「derive 配套写法」全局段（:37-48）+T009/T014 的 derive 实现锚定。
+
+## 第四轮验收结论
+
+1. **判据达成**：CRITICAL=0、HIGH=0、覆盖 18/18 ✅
+2. **第三轮 7 条全部闭环**：R3-C1（宪法 v1.2.0 入宪 + 四层 target 口径
+   一致）✅；R3-H1（FR-013/FR-006 改写，四层产物「默认脱敏 MUST」清零，
+   残留仅否定/取代/留痕语境）✅；R3-M1（留痕①＝第三轮登记表勾选 :1443，
+   留痕②＝plan `# 例外跟踪` 节，占位串纪律入 spec A8/tasks T013/T018/
+   contracts/quickstart）✅；R3-M2（SC-005 三条输出面判据 + T019 删除、
+   判据并入 T018ⅱⅲ）✅；R3-M3（`debug_unredacted` 全产物仅存负面清单
+   1 处：tasks T018 :276）✅；R3-M4（roadmap 侧 F13 新增/F12/D9/F9 更新/
+   P01 摘要改写——**已排定为本轮之后直接编辑步骤，非规格层欠账**，本报告
+   按前向引用口径不判悬空）☑ 排定；R3-L1（宪法引用全部换版 v1.2.0 行号，
+   共 21 处分布 5 文件；v1.1.0 仅存 research R15 基准变更说明）✅。
+3. **重点核对六项**：
+   - 三层产物与 v1.2.0 一致性（target 口径线：SC-001/SC-004 ↔ plan V 行/
+     Testing/Target Platform ↔ T018 ↔ quickstart 步骤 2；掩码例外跟踪线：
+     FR-013/SC-005 ↔ plan ⚠️ 行 + `# 例外跟踪` 节 ↔ T013/T018/T020 ↔
+     contracts 调试输出六条款）——两线四层全部一致 ✅
+   - 「不得削弱三条」四层锚点齐备：FR-008（spec Edge/FR ↔ data-model
+     验证规则 2 ↔ contracts 条款 4 ↔ T006/T018ⅲ③）；FR-012（spec FR-012 ↔
+     data-model §2 验证规则 ↔ contracts 条款 6 ↔ T013 校验断言块）；
+     错误消息只携带定位片段（spec SC-005 ② ↔ data-model §4 ↔ contracts
+     条款 3 ↔ T005 显式载体断言 + T018ⅱ②）✅
+   - Builder 双入口五处一致：签名级四处（spec FR-004/Key Entities :37/
+     :185、contracts :11-13、tasks T014 :216-217/T018 :274、quickstart
+     :49-50）；plan 为概念级引用（「双入口 R2-C1」三处，无签名——设计文档
+     粒度适当，不判问题）✅
+   - 公开面口径一致：derive(Eq, Hash, Debug) + 三行 `pub extend`（N1-A）、
+     无逃生口、无自立 `Scheme`、无包级开关、负面清单（T018 ↔ quickstart
+     步骤 3 ↔ SC-005 ①）三处同形 ✅
+   - quickstart 5 步 ↔ T018 验收面对应：步骤 1↔双 test 全绿（+T010 检查
+     点）、步骤 2↔两目标口径（不执行 js/wasm-gc check）、步骤 3↔零警告 +
+     `.mbti` 冻结/双入口/负面清单、步骤 4↔T018ⅱⅲ（SC-005 三条 + 占位串
+     抽查）、步骤 5↔T017 清单 + T018 全跑收口 ✅（步骤 3 命令块见 R4-L1）
+   - checklists/requirements.md：16/16 通过（第三轮 spec 改后复验无状态
+     翻转，本轮维持）✅
+4. **已知事项确认**：宪法 v1.2.0 对原则 V 重写的 MAJOR/MINOR 定性（:140
+   语义）为所有者裁决（MINOR），已留痕于 R3-C1——本报告不重议。
+
+## 第四轮新发现
+
+| ID | 类别 | 严重度 | 位置 | 摘要 | 建议 | 阻塞 implement？ |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| R4-L1 | 欠规格 | LOW | quickstart.md 步骤 3 命令块 ↔ T018 | T018 口径为「native 与 wasm **两目标**零错误零警告」，但 quickstart 步骤 3 命令块仅 `moon check`（默认 native），未显式给出 wasm 侧命令；步骤 2 散文已声明验证面含 wasm，实现不会因此漏跑（T018 任务文本显式两目标），属文档命令面缺口 | quickstart 步骤 3 命令块补一行 `moon check --target wasm # 期望：零错误零警告`；建议随 R3-M4 的 roadmap/文档直接编辑批顺带处理 | 否 |
+
+## 进入 /speckit-implement 的前置判定
+
+**满足。** 判据（CRITICAL=0、HIGH=0、18/18）达成；第三轮 7 条全部闭环
+（R3-M4 为排定中的 roadmap 直接编辑步骤，非规格层阻塞）；R3-M1 双留痕
+完整（登记表勾选 ① + plan `# 例外跟踪` 节 ②）。
+
+**剩余非阻塞待办（归属）**：
+- roadmap 直接编辑（R3-M4，analyze 后执行）：deferred-items 总入口 + M1
+  明细新增 **F13**（脱敏专版，M3）；F12 表述更新（连 F13 成对）；D9/F9
+  按 v1.2.0 target 口径更新；M1/README P01 摘要与 P01 包文档「掩码落地面」
+  段按「不含脱敏」改写。
+- quickstart 步骤 3 命令块补 `moon check --target wasm`（R4-L1，可并入上批）
+  ——**已处理（2026-10-14，随 roadmap 批完成）**。
+- 人工处置：无。
+
+（本节为第四轮复跑段；如需第五轮，接续于后。）
