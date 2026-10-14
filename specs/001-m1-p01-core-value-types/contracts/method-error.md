@@ -79,5 +79,6 @@ pub enum HeadersError {
 `derive(Eq, Hash, Debug)` 后**紧随**三行 `pub extend`，否则按契约写法调用
 `equal`/`hash`/`debug_inspect` 会触发 `implicit_impl_as_method` 警告 [0079]。
 由此进入 `.mbti` 的方法名一并计入 T018 的公开面冻结清单逐条核对
-（宪法 VI）。`HeadersV` 的 `Debug` 属例外——手写 `impl Debug` 做脱敏，
-见 [headers.md](headers.md)。
+（宪法 VI）。全部值类型统一 `derive(Debug)` 默认实现（`HeadersV` 无例外，
+2026-10-14 R3-H1-A 取代原「手写 impl Debug 做脱敏」口径），见
+[headers.md](headers.md)。

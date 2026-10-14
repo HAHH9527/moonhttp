@@ -12,7 +12,7 @@ HttpUrl ──解析自──> URL 字符串（String）
 HttpUrl ──resolve──> HttpUrl
 HeadersV <──build()── HeadersVBuilder
 HeadersV ──to_http_map()──> @http.Headers（Map[CaseInsensitiveString, String]）
-HeadersV ──手写 impl Debug──> 脱敏的调试输出（FR-013）
+HeadersV ──derive(Debug)──> 调试输出（FR-013：无其他输出面，R3-H1-A）
 Method  ──映射──> @http.RequestMethod
 HttpUrl.scheme() ──复用──> @http.Protocol（本包不自立 scheme 枚举，R12）
 HttpUrlError：parse/resolve 的失败信号（四变体）
@@ -71,7 +71,7 @@ HeadersV + body?`；P04 以 `HttpUrl`（scheme/host/port）与 `HeadersV` 判等
 | 折叠 | `to_http_map() -> @http.Headers`：遍历序列，同名值以无空格 `","` 合并（FR-005，与 @http 响应侧 `parser.mbt` 的 `"\{v0},\{v}"` 逐字节对称）；空容器折叠为空 Map；值为空串的头合法保留 |
 | 折叠不变量 | ① 无重复名时折叠对单值名是恒等映射；② 有重复名时折叠值 = 按插入序 `,` 无空格拼接，且该串经 @http 响应侧 parser 拆分可还原原名值序列（进出互逆）——SC-003 的两个可测命题（决策 H1-A） |
 | 折叠例外声明 | 值内 quoted-string 逗号（如 `WWW-Authenticate` realm）不保证边界——文档显式声明，认证路径 M2 绕过（US-4 场景 2） |
-| 调试输出 | **手写 `impl Debug`**（不 derive，R13）：对 `Authorization`/`Proxy-Authorization`/`Cookie`/`Set-Cookie` 的头值输出脱敏占位（大小写不敏感匹配），其余头原样；脱敏只在输出层，判等/哈希仍看原值。明文只可经显式逃生口方法取得，且**测试与 `.snap` 快照禁用**（FR-013/SC-005）；本包无包级可变掩码开关（R14，欠账 F12 归 M3） |
+| 调试输出 | `derive(Debug)` 默认实现（R3-H1-A，取代 R13 的手写脱敏方案）：明文输出面即 `Debug` 本身，无手写 impl、无逃生口方法；本包无日志/展示/序列化输出类 API（FR-013）。测试与 `.snap` 中的敏感头样例值必须为合成占位串（R3-M1 纪律）；脱敏专版与可配置开关归 M3（F13/F12），依据宪法 v1.2.0 :112-117 展示例外程序 |
 | 判等/哈希 | 相同名值对序列（含顺序）相等且哈希一致——顺序参与判等（重放字节级一致的前提）；`derive(Eq, Hash)` + 显式 `pub extend`（R4） |
 
 **验证规则（Builder 期，FR-012）**：
@@ -115,7 +115,7 @@ HeadersV + body?`；P04 以 `HttpUrl`（scheme/host/port）与 `HeadersV` 判等
 | `InvalidValue` | 头值含 CR 或 LF（防头注入） | 同上——属安全类拒绝，下游不得放宽 |
 
 **错误消息**：中文优先（宪法 VII），只携带定位片段、不回显完整原始输入
-（宪法「敏感信息掩码」在错误上下文一侧的最小适用面）。raise 源只有
+（SC-005 ② 判据，不因脱敏延后而撤销）。raise 源只有
 `parse`/`resolve`/Builder 校验三处，本包其余 API 全是全函数（无 panic 路径）。
 
 ## 数据量假设

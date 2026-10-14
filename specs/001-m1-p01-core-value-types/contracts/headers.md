@@ -7,7 +7,12 @@
 ## Builder（可变，构建期使用）
 
 ```moonbit
-fn HeadersV::builder() -> HeadersVBuilder        // 空容器
+/// 空容器构造入口（R2-C1 双入口之一）。
+fn HeadersVBuilder::new() -> HeadersVBuilder
+/// 已固化 HeadersV → 可变 Builder 的回转（R2-C1 双入口之二）：
+/// 以已 build 的值重建 Builder，不重跑 FR-012 校验
+/// （源数据首次 build 前已校验）。
+fn HeadersV::builder(self) -> HeadersVBuilder
 /// 追加；名/值校验失败 raise HeadersError，容器不变。
 fn HeadersVBuilder::add(self, name : String, value : String) -> Unit raise
 /// 删全部同名后追加一条；校验同上。
@@ -45,28 +50,26 @@ fn HeadersV::to_http_map(self) -> @http.Headers
 2. **有重复名**：折叠值 = 按插入序以 `,` 无空格拼接；且该串经 @http 响应侧
    parser 拆分可**还原**原名值序列（进出互逆）。以确定性用例覆盖。
 
-## 调试输出与脱敏（FR-013 / SC-005）
+## 调试输出（FR-013 / SC-005）
 
 ```moonbit
-/// 手写 impl Debug（不 derive）：敏感头值脱敏后的调试形态。
-impl Debug for HeadersV with to_repr(self, h) { ... }
-
-/// 显式逃生口：输出未脱敏形态，仅供特殊排查。
-/// 建议名 debug_unredacted；最终命名在 .mbti 冻结时定案。
-fn HeadersV::debug_unredacted(self) -> String
+/// derive(Debug) 默认实现（R3-H1-A）——明文输出面即 Debug 本身。
+/// 本包不提供日志/展示/序列化输出类 API，也不提供 debug_unredacted 类
+/// 逃生口方法（R3-M3-A）——「默认脱敏 + 按需展示」归 M3 专版（F12/F13）。
 ```
 
-1. `Authorization`、`Proxy-Authorization`、`Cookie`、`Set-Cookie`（名字
-   大小写不敏感匹配）的值 MUST 输出脱敏占位；其余头名/值原样输出。
-2. **必须手写 `impl Debug`**——`derive(Debug)` 读不到任何脱敏逻辑，会逐条
-   原样打印名/值对（research R13；`@debug` 实测不可作用户工程依赖，无法借用）。
-3. 脱敏只作用于**输出层**：判等与哈希仍看原值（契约条款 1、2 不受影响）。
-4. 明文只可经**显式调用的逃生口方法**取得。本包 MUST NOT 提供包级可变的
-   掩码开关（决策 N4-A）；运行期可配置掩码随 M3 的 Logger/EventListener
-   设计，见欠账 **F12**（`docs/roadmap/deferred-items.md`）。
-5. **测试与 `.snap` 快照 MUST NOT 使用逃生口**——明文头值不得进入版本库。
-   URL 用户信息一侧由 FR-008 拒绝 userinfo 达成，本包不存在携带明文凭证的
-   URL 值。
+1. 全部公开值类型 MUST `derive(Debug)` 默认实现；除 `Debug` 外无用户可见
+   输出面（FR-013）。
+2. 判等与哈希仍看原值，与输出行为无关（契约条款 1、2 不受影响）。
+3. **错误消息只携带定位片段、不整体回显原始输入**——本条款不因脱敏延后
+   而撤销（SC-005 ②）。
+4. URL 用户信息由 FR-008 拒绝 userinfo 结构性保证（SC-005 ③），本包不存在
+   携带明文凭证的 URL 值。
+5. **测试纪律（R3-M1）**：`.snap` 与测试中的敏感头样例值必须为明显合成的
+   占位串（如 `Bearer test-token-123`），禁止任何真实/可用凭证——明文入库
+   不可逆。
+6. 依据：宪法 v1.2.0 :112-117 展示例外程序（所有者 2026-10-14 确认，留痕＝
+   分析报告 R3-M1）；脱敏专版挂 F13、可配置开关挂 F12（均归 M3）。
 
 ## 契约条款
 
@@ -98,4 +101,4 @@ fn HeadersV::debug_unredacted(self) -> String
 | `add("Bad Name","v")` / `add("X","a\r\nY: 1")` | raise `InvalidName` / `InvalidValue`，容器不变 |
 | `add("X","")` | 合法，值保留为空串 |
 | `remove("Bad Name")` | 静默无操作，不 raise |
-| `add("Authorization","Bearer secret")` → build → 调试输出 | 含头名与脱敏占位，**不含** `Bearer secret`；同一容器判等/哈希不受影响 |
+| `add("Authorization","Bearer test-token-123")` → build → 检查输出面 | 除 derive 的 `Debug` 外无任何输出类 API（FR-013）；判等/哈希与输出行为无关、恒稳（样例值为合成占位串，R3-M1） |

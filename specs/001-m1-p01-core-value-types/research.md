@@ -44,8 +44,9 @@ mooncakes registry 索引 + 工具链 core 源码（`moon 0.1.20260920` 自带�
   `T with Eq::{not_equal, equal}`、`T with Hash::{hash, hash_combine}`、
   `T with Debug::{to_repr}`；错误类型（`HttpUrlError`/`HeadersError`）
   **仅 `derive(Debug)`**，不 derive `Eq`/`Hash`（判别用 `is` 与模式匹配）；
-  **全包不使用 `derive(Show)`**。`HeadersV` 的 Debug 属例外——必须手写
-  `impl Debug` 以做脱敏（见 R13）。
+  **全包不使用 `derive(Show)`**。（原「`HeadersV` 的 Debug 属例外——必须
+  手写 `impl Debug` 以做脱敏」的表述已被 R3-H1-A 取代，2026-10-14：
+  HeadersV 一并 `derive(Debug)` 默认实现，见 R13 注记与 R15。）
 - **Rationale**：工具链（`moon 0.1.20260920`）实测三条：① `derive(Eq, Hash,
   Debug)` 生成的是 **impl 而非方法**，按契约写法调用 `a.equal(b)` 或
   `debug_inspect(x)` 会触发 `implicit_impl_as_method` **警告 [0079]**，补上
@@ -173,7 +174,7 @@ mooncakes registry 索引 + 工具链 core 源码（`moon 0.1.20260920` 自带�
   MoonBit 惯例不一致，文档需额外解释）；`scheme() -> String`（N2-D，弱类型、
   丢失穷举性）。
 
-## R13 脱敏 Debug 的实现路径（决策 C1-A + N4-A）
+## R13 脱敏 Debug 的实现路径（决策 C1-A + N4-A；已被 R3-H1-A 取代，2026-10-14，原文留痕）
 
 - **Decision**：`HeadersV` 不用 `derive(Debug)`，改**手写 `impl Debug`**，
   对 `Authorization`/`Proxy-Authorization`/`Cookie`/`Set-Cookie` 四个头名
@@ -193,7 +194,12 @@ mooncakes registry 索引 + 工具链 core 源码（`moon 0.1.20260920` 自带�
   `.snap` 仍会落盘明文，宪法在本包实际未满足）；禁止本包用 Debug 快照而
   不改实现（C1-C，规避而非实现）。
 
-## R14 掩码开关的归属（决策 N4-A，欠账 F12）
+> **取代注记（2026-10-14，R3-H1-A）**：定案改为——全部公开类型
+> `derive(Debug)` 默认实现，无手写 impl、无逃生口方法；P01 不承诺脱敏
+> （宪法 v1.2.0 :112-117 展示例外程序，留痕 R3-M1），脱敏归 M3 专版
+> （F13）。本节原文保留为决策历程留痕。
+
+## R14 掩码开关的归属（决策 N4-A，欠账 F12；前提已被 R3-M3-A 修订，2026-10-14，原文留痕）
 
 - **Decision**：本包**不提供**包级可变的脱敏开关。运行期可配置掩码（全局或
   作用域级）连同宪法中留待补充的「不安全配置 opt-in」条款一起归 **M3**
@@ -207,3 +213,25 @@ mooncakes registry 索引 + 工具链 core 源码（`moon 0.1.20260920` 自带�
 - **Alternatives considered**：本包提供全局 flag（N4-B，+1 可变公开面）；
   开发期不脱敏、发布前再开（N4-C，等于 C1 重开）；连逃生口也不给（过严，
   特殊排查无路，且宪法并未禁止显式取明文）。
+
+> **取代注记（2026-10-14，R3-M3-A）**：逃生口方法删除后，「排查需明文」
+> 改经 derive 的 `Debug` 本身；「不提供包级可变开关」结论保持，欠账扩展为
+> F12（可配置开关）+ F13（脱敏专版），均归 M3。
+
+## R15 宪法基准升至 v1.2.0（2026-10-14）
+
+- **Decision**：本项目宪法引用基准由 v1.1.0 升至 **v1.2.0**（commit
+  `f568f9a`），行号口径：原则 V（target）:67-77——native ≥ wasm >
+  js = wasm-gc，js/wasm-gc 不在验证面内，仅显式标注 + 欠账跟踪；合入前
+  质量门 :130-133——js/wasm-gc 不作合入门禁；掩码段 :112-117——默认
+  不展示，自动掩码为可选手段，确需展示须事先人工确认（本项目已确认，
+  留痕＝分析报告 R3-M1）；版本行 :152。
+- **Rationale**：所有者 2026-10-14 对 R2-F1 的裁决「目标只保留 native/
+  wasm，js/wasm-gc 不在首先支持的平台中，目前不需要 check」入宪；
+  `moon check --target wasm-gc` 因 @http 编译图是编译失败而非警告，M1
+  阶段跑 js/wasm-gc 无有效信号（分析报告附录 A）。spec 的 SC-001/SC-004、
+  plan 的 Testing/Target Platform、quickstart 步骤 2 据此收敛为
+  「验证面 native/wasm」。
+- **Alternatives considered**：维持 v1.1.0 的全目标 check 口径（质量门按
+  字面必红，R2-F1 无法闭环）；把 js/wasm-gc 写成永久排除（丢失 M5 收口
+  的欠账跟踪锚点，不可取）。

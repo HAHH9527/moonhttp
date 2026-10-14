@@ -21,18 +21,20 @@ moon test --target native   # 期望：全绿
 moon test --target wasm     # 期望：全绿
 ```
 
-**看什么**：US-1–US-4 验收场景与 15 条边界用例（spec Edge Cases）全部有
+**看什么**：US-1–US-4 验收场景与 14 条边界用例（spec Edge Cases）全部有
 对应断言；关键锚点（[contracts/http-url.md](contracts/http-url.md)、
 [contracts/headers.md](contracts/headers.md) 的「验收锚点」表）逐条通过：
 规范化 `http://example.com/a/c?x=1#frag`、IPv6 剥括号、userinfo/端口/scheme
 按变体报错、resolve 各形态（含 query-only、仅 fragment、base 无 path）、
 HeadersV 折叠 `"a,b"` 与两个折叠不变量、往返幂等。
 
-### 2. js 编译检查（宪法 V 降级线）
+### 2. 验证面口径核对（SC-004，宪法 v1.2.0 原则 V :67-77）
 
-```text
-moon check --target js      # 期望：无错误
-```
+验证面为 **native 与 wasm**（步骤 1 的双 target 测试 + 步骤 3 的 check 零
+错误零警告）；js 与 wasm-gc 显式标注「暂不验证」并挂欠账跟踪（F9，M5
+target 收口；合入质量门 :130-133 不作本包门禁）——**不执行**
+`moon check --target js` / `--target wasm-gc`（M1 阶段无有效信号，wasm-gc
+因 @http 编译图为编译失败而非警告）。
 
 ### 3. 零警告门禁与接口冻结（SC-004，宪法 VI）
 
@@ -44,16 +46,21 @@ moon info && moon fmt       # 期望：干净无 diff 残留
 **看什么**：`src/core/pkg.generated.mbti` 的公开面 = 4 值类型（HttpUrl/
 HeadersV/HeadersVBuilder/Method）+ 2 错误枚举（HttpUrlError/HeadersError）+
 parse/resolve/to_string/访问器/get/values/add/set/remove/build/to_http_map
-+ 各值类型 `pub extend` 暴露的 `equal`/`not_equal`/`hash`/`hash_combine`/
-`to_repr` + 脱敏逃生口方法——**不得**出现自立 `Scheme` 枚举、包级掩码开关
-或任何意外泄漏类型（决策 N2-A/N4-A）。
++ **Builder 双入口**（`HeadersVBuilder::new()` 造空、`HeadersV::builder()`
+回转不重跑 FR-012 校验，R2-C1）+ 各值类型 `pub extend` 暴露的 `equal`/
+`not_equal`/`hash`/`hash_combine`/`to_repr`——**不得**出现自立 `Scheme`
+枚举、Logger/`Show`/`to_display`/序列化输出类签名、`debug_unredacted` 类
+逃生口或任何意外泄漏类型（决策 N2-A/R3-H1-A/R3-M3-A；全部公开类型为
+`derive(Debug)` 默认实现）。
 
-### 4. 敏感头零明文泄漏（SC-005，宪法「技术约束与合规」）
+### 4. 输出面三项核对（SC-005，宪法 v1.2.0 :112-117）
 
-**看什么**：含 `Authorization`/`Proxy-Authorization`/`Cookie`/`Set-Cookie`
-的 HeadersV 实例，其调试输出不含对应明文头值；`git grep` 在 `src/core` 的
-`.snap` 快照与测试期望串中查不到这些明文样例值；测试代码未调用逃生口方法
-（FR-013）。
+**看什么**：① `.mbti` 无 Logger / `Show` / `to_display` / 序列化输出类签名
+（全部公开类型 `derive(Debug)` 默认实现，R3-H1-A）；② 错误消息只携带定位
+片段、不整体回显原始输入；③ `HttpUrl::to_string` 不输出 userinfo（FR-008
+结构性保证）。另抽查（R3-M1 纪律）：测试与 `.snap` 中的敏感头样例值为
+合成占位串（如 `Bearer test-token-123`），`git grep` 不得出现真实形态
+凭证串。
 
 ### 5. OkHttp 移植对拍清单（SC-002，宪法 III/IV）
 
@@ -70,5 +77,6 @@ P02（Request/Response/体模型，复用本包冻结的 `.mbti` 接口）。
 ## 已知不验证项（显式排除）
 
 - 性能基准：本包无门禁（P10 汇总覆盖，宪法 II）。
-- wasm-gc：不支持（research R7）；js 运行时行为：仅编译检查（D9）。
+- js 与 wasm-gc：暂不验证（宪法 v1.2.0 原则 V :67-77；research R7/R15；
+  M5 收口，欠账 F9）。
 - 网络 IO：本包无（FR-011）；网络行为验证属 P02+ 包。

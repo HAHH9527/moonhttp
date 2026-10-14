@@ -10,16 +10,19 @@
 交付两块纯数据能力：(1) **HttpUrl**——对齐 OkHttp `HttpUrl.parse` 语义的 URL
 解析、规范化、相对引用解析（`resolve`）与序列化（`to_string`）；(2) **HeadersV**
 ——不可变有序多头容器（变更经可变 Builder，Builder 侧做头名/头值校验防头注入）
-、向 `@http` 头 Map 的边界折叠转换，以及**默认脱敏的调试输出**（宪法「技术约束
-与合规·敏感信息自动掩码」在本包的落地点）。另含 `Method`（九个标准方法，与
+、向 `@http` 头 Map 的边界折叠转换；除 derive 的 `Debug` 外无任何输出类 API
+（FR-013，R3-H1-A，走宪法 v1.2.0 :112-117 展示例外程序）。另含 `Method`
+（九个标准方法，与
 `@http.RequestMethod` 一一对应）与错误类型 `HttpUrlError`（四变体）/
 `HeadersError`（两变体）。scheme 复用上游 `@http.Protocol`，本包不自立枚举。
 不含任何 IO 与执行逻辑。关键裁决（spec Clarifications 2026-10-13 两轮 +
-specify 裁决）：折叠分隔符无空格 `","`（与 @http 响应侧逐字节对称）、
-`Custom` method 裁剪出 M1、userinfo 显式拒绝、HeadersV 不可变 + Builder、
-URL 错误四变体、头校验 raise `HeadersError`（FR-012）、调试输出默认脱敏 +
-显式逃生口（FR-013/N4-A）、scheme 复用 `@http.Protocol`（N2-A）、derive 配
-显式 `pub extend` 保持 `moon check` 零警告（N1-A）。
+2026-10-14 第三轮 + specify 裁决）：折叠分隔符无空格 `","`（与 @http 响应侧
+逐字节对称）、`Custom` method 裁剪出 M1、userinfo 显式拒绝、HeadersV 不可变
++ Builder（双入口 R2-C1）、URL 错误四变体、头校验 raise `HeadersError`
+（FR-012）、输出面收敛为 derive 的 `Debug` 且不脱敏（FR-013，R3-H1-A 取代
+N4-A，宪法 v1.2.0 :112-117 展示例外）、验证面 native/wasm（SC-004，宪法 V
+:67-77）、scheme 复用 `@http.Protocol`（N2-A）、derive 配显式 `pub extend`
+保持验证面 `moon check` 零警告（N1-A）。
 
 ## Technical Context
 
@@ -29,17 +32,17 @@ URL 错误四变体、头校验 raise `HeadersError`（FR-012）、调试输出�
 
 **Storage**: N/A（纯值对象，无持久化）
 
-**Testing**: `moon test --target native` 与 `--target wasm` 双绿、`moon check --target js` 通过；`moon check` 四目标**零错误零警告**（SC-004：derive 的值类型紧随显式 `pub extend`，全包不用 `derive(Show)`）；断言优先 `assert_eq`；OkHttp `HttpUrlTest` 场景矩阵移植（Apache-2.0 来源注明）；测试与 `.snap` 快照禁用脱敏逃生口（FR-013）
+**Testing**: `moon test --target native` 与 `--target wasm` 双绿；`moon check` 在验证面（native/wasm）**零错误零警告**（SC-004，宪法 v1.2.0 原则 V :67-77；js/wasm-gc「暂不验证」不作门禁，质量门 :130-133）；断言优先 `assert_eq`；OkHttp `HttpUrlTest` 场景矩阵移植（Apache-2.0 来源注明）；测试与 `.snap` 中的敏感头样例值必须为合成占位串（A8 测试纪律，R3-M1）
 
-**Target Platform**: native（首选）与 wasm 全支持；js 仅编译检查；wasm-gc 不支持（`@http` 进入编译图，M1 不建 stub，见 M1 README D9）
+**Target Platform**: 验证面为 native（首选）与 wasm（能力等价）；js 与 wasm-gc 依宪法 v1.2.0 原则 V（:67-77）显式标注「暂不验证」并挂欠账跟踪（F9，M5 target 收口；wasm-gc 阻塞源 `@http` 编译图，M5 前不建 stub，D9）
 
 **Project Type**: library（moonhttp 的 core 包；分层：门面 `src/client` → core `src/core` → `moonbitlang/async`）
 
 **Performance Goals**: 解析每 URL 一次 O(n)；`resolve` 复用已解析 base、O(增量)；名字比较/哈希零分配（复用 `@http.CaseInsensitiveString` 的免分配实现）；本包无独立基准门禁（宪法 II 的性能数据要求由 P10 汇总覆盖）。**A3「path 段是否惰性化」评估结论（决策 M6-A）**：本包**不惰性化**，path 段以 `Array[String]` 立即解码——理由是 ① P01 无基准数据可依据，过早引入惰性结构违背宪法 VI 的 YAGNI；② 解码本身与 parse 同遍完成，惰性化只是把分配推迟到访问点，而下游 P04 池键与 P06 重定向几乎必然访问 path 段，推迟等于白付复杂度；③ 值类型需满足 Eq/Hash，惰性结构会让判等/哈希需要 memoization，公开面复杂化。**再评估触发条件**：P10 基准若显示「每请求 URL 解析分配」成为热点、或出现「只取 host/port 不取 path」的高频消费方（如连接池键瘦身），届时在 M2/M3 的门面层重评，不在本包返工。
 
-**Constraints**: 非侵入（宪法 I）——仅经 `@http` 公开 API 耦合，禁止 fork/vendor；纯值对象无 IO（FR-011）；0.22.x 钉版、上游改动须人工批准；行为基准 OkHttp 5.5.0 + RFC 9110/3986，差异显式记录（宪法 III）；**敏感信息自动掩码（宪法「技术约束与合规」MUST）**——调试/展示输出对 `Authorization`/`Proxy-Authorization`/`Cookie`/`Set-Cookie` 与 URL 用户信息脱敏，本包经 FR-013（手写 `impl Debug` + 显式逃生口，无包级开关）与 FR-008（拒绝 userinfo）达成
+**Constraints**: 非侵入（宪法 I）——仅经 `@http` 公开 API 耦合，禁止 fork/vendor；纯值对象无 IO（FR-011）；0.22.x 钉版、上游改动须人工批准；行为基准 OkHttp 5.5.0 + RFC 9110/3986，差异显式记录（宪法 III）；**敏感信息默认不展示（宪法 v1.2.0 :112-117）**——本包不提供日志/展示/序列化输出类 API，明文输出面仅 derive 的 `Debug`（FR-013，R3-H1-A，走宪法展示例外程序，留痕＝分析报告 R3-M1）；URL 用户信息一侧由 FR-008 拒绝 userinfo 结构性保证；全部公开类型 `derive(Debug)` 默认实现 + N1-A 的显式 `pub extend` 口径；脱敏专版与可配置开关归 M3（欠账 F13/F12）
 
-**Scale/Scope**: 4 个值类型 + 1 个 Builder + 2 个错误枚举（`HttpUrlError`/`HeadersError`）；人力 ~3 人日（含 OkHttp 测试矩阵移植与脱敏 Debug 的额外 ~0.25 人日）
+**Scale/Scope**: 4 个值类型 + 1 个 Builder（双入口）+ 2 个错误枚举（`HttpUrlError`/`HeadersError`）；人力 ~2.75 人日（含 OkHttp 测试矩阵移植；原按脱敏 Debug 追加的 ~0.25 人日随 R3-H1-A 取消）
 
 ## Constitution Check
 
@@ -50,13 +53,28 @@ URL 错误四变体、头校验 raise `HeadersError`（FR-012）、调试输出�
 | I 非侵入底座 | ✅ 通过 | 仅使用 `@http` 公开 API：`CaseInsensitiveString`（pub(all)，已核实）、`Headers = Map[CaseInsensitiveString, String]`、`RequestMethod`、`Protocol` + `Protocol::default_port`（`request.mbt:17-25`，pub(all)，N2-A 复用）；无 fork/复制/vendor；上游 `resolve_url`/`resolve_host` 是 priv 且能力不足（见 research R11），HttpUrl 解析全量自建，不存在复制上游源码 |
 | II 性能优先 | ✅ 通过（附注） | 设计避免热路径分配放大（query 保留 encoded 原串、path 段非惰性但每请求一次解析、比较/哈希零分配）；本包无基准要求，P10 汇总覆盖——spec A3/「性能影响」已声明；A3 惰性化评估结论见上文 Performance Goals |
 | III OkHttp 语义对齐 | ✅ 通过 | 解析/规范化/resolve 规格与测试矩阵对齐 OkHttp 5.5.0；三处差异（userinfo 拒绝、method 封闭九值、折叠分隔符 `","`）在 spec A6 显式记录并给出理由；移植来源注明 Apache-2.0 |
-| IV 验收场景与测试先行 | ✅ 通过 | spec 已固化 US-1–US-4 验收场景与 15 条边界用例；实现顺序必须先写测试（红-绿-重构）；纯函数测试无网络依赖 |
-| V Target 策略 | ✅ 通过 | 矩阵显式：native/wasm ✅（双 target 测试双绿）、js ⚠️（仅 check）、wasm-gc ❌（@http 编译图阻塞，D9） |
+| IV 验收场景与测试先行 | ✅ 通过 | spec 已固化 US-1–US-4 验收场景与 14 条边界用例；实现顺序必须先写测试（红-绿-重构）；纯函数测试无网络依赖 |
+| V Target 策略 | ✅ 通过 | 宪法 v1.2.0 :67-77 口径：验证面 native/wasm（✅ 双 target 测试双绿、check 零错误零警告）；js/wasm-gc 显式标注「暂不验证」并挂欠账跟踪（F9，M5 target 收口；wasm-gc 阻塞源 @http 编译图，M5 前不建 stub，D9）——新宪法下此为**合规状态**而非需要例外的偏离（原 M4「V 行逐字不动」锁已由所有者作废，裁决源 R3-C1） |
 | VI 简洁与接口纪律 | ✅ 通过 | YAGNI 三处落地：裁剪 `Method::Custom`、path 段不惰性化、错误变体不过度细分；`moon info && moon fmt` + `.mbti` 审视列入 DoD（SC-004）；derive + 显式 `pub extend` 的配套写法（N1-A）新增的方法名并入 `.mbti` 冻结清单逐条核对，属**有意识的接口决定** |
 | VII 中文表达 | ✅ 通过 | 本 plan 及全部设计产物、代码注释中文优先 |
-| 技术约束与合规·敏感信息自动掩码 | ✅ 通过 | 宪法的掩码 MUST（constitution「技术约束与合规」）在 P01 的落地面有二：① **调试/展示输出**——HeadersV **不用 `derive(Debug)`**，改手写 `impl Debug`，对 `Authorization`/`Proxy-Authorization`/`Cookie`/`Set-Cookie` 的头值脱敏（FR-013 / SC-005），明文只可经显式逃生口方法取得，且测试与 `.snap` 快照禁用逃生口；② **URL 用户信息**——M1 显式拒绝 userinfo（FR-008），不存在携带明文凭证的 URL 值。脱敏不影响判等/哈希（只在输出层）。**运行期可配置掩码开关不在本包**：不引入包级可变状态（N4-A），该能力连同宪法留待补充的「不安全配置 opt-in」条款归 M3，已登记欠账 **F12**（`docs/roadmap/deferred-items.md`） |
+| 技术约束与合规·敏感信息默认不展示 | ⚠️ 例外跟踪 | 宪法 v1.2.0 :112-117：默认不展示敏感信息，自动掩码仅为可选手段，确需展示须事先人工确认。本包采用 `derive(Debug)` 默认明文输出，走宪法展示例外程序，所有者 2026-10-14 确认（留痕＝分析报告 R3-M1，见下「例外跟踪」节）；错误消息只携带定位片段（SC-005 ②）；URL 用户信息由 FR-008 结构性拒绝。脱敏实现挂 F13、可配置开关挂 F12（均归 M3） |
 
-**门评估：无违宪项。** Phase 1 设计后复检见文末「Post-Design Constitution Re-check」。
+**门评估：无违宪项**（掩码条目为 ⚠️ 例外跟踪态——宪法 v1.2.0 :112-117 展示例外程序使其合法，已获所有者人工确认）。Phase 1 设计后复检见文末「Post-Design Constitution Re-check」。
+
+## 例外跟踪
+
+- **敏感头 Debug 输出不脱敏**（2026-10-14 起）：
+  - **依据**：宪法 v1.2.0 :112-117 展示例外程序——「当某项开发或设计确需
+    展示敏感信息时，MUST 事先主动汇报项目所有者、经人工确认后方可实现」；
+    所有者已于 2026-10-14 确认（原文留痕＝分析报告 R3-M1 条目，
+    `docs/analysis/001-m1-p01-core-value-types/analysis-report.md`）。
+  - **形态**：全部公开类型 `derive(Debug)` 默认实现——明文输出面即 `Debug`
+    本身；本包不提供日志/展示/序列化输出类 API，也不提供逃生口方法
+    （R3-H1-A / R3-M3-A）。
+  - **纪律**：`.snap` 与测试中的敏感头样例值必须为明显合成的占位串（如
+    `Bearer test-token-123`），禁止任何真实/可用凭证——明文入库不可逆。
+  - **回补**：脱敏专版挂欠账 **F13**、可配置开关挂 **F12**，均归 M3
+    可观测性专版统一设计。
 
 ## Project Structure
 
@@ -73,7 +91,8 @@ specs/001-m1-p01-core-value-types/
 │   ├── http-url.md
 │   ├── headers.md
 │   └── method-error.md
-├── analysis-report.md   # /speckit-analyze 结论与决策登记表（C1–M6、L1–L6、N1–N4）
+├── （analysis-report.md 已迁至 docs/analysis/001-m1-p01-core-value-types/：
+│        /speckit-analyze 三轮结论与决策登记表 C1–M6、L1–L6、N1–N4、R2-*、R3-*）
 ├── checklists/
 │   └── requirements.md  # 规格质量清单（16/16 通过）
 └── tasks.md             # /speckit.tasks 产物（本命令不创建）
@@ -96,7 +115,7 @@ src/
     ├── http_url.mbt         # HttpUrl 值、parse、to_string、访问器（scheme 用 @http.Protocol）
     ├── resolve.mbt          # resolve(base, location) 相对引用解析
     ├── headers.mbt          # HeadersV（不可变）+ HeadersVBuilder（校验）+ to_http_map 折叠
-    │                        #   + 手写 impl Debug 脱敏 + 显式逃生口 + pub extend 配套
+    │                        #   + derive(Debug) 与 pub extend 配套（无手写 impl、无逃生口）
     ├── headers_fold_test.mbt # 折叠边界：无重复名恒等 / 重复名 "," 拼接与响应侧互逆还原
     └── *_test.mbt           # 黑盒测试：http_url_parse_test / http_url_resolve_test /
                              #   headers_test / method_error_test（OkHttp 矩阵移植分文件）
@@ -130,13 +149,15 @@ Phase 1 设计产物（data-model.md / contracts / quickstart.md）落地后复�
 - **IV 测试先行**：quickstart.md 的验证场景与 contracts 契约一一对应，可先行
   编写失败测试；SC-003 的两个不变量（无重复名恒等映射 / 重复名 `,` 拼接且与
   响应侧 parser 互逆还原）替换了原不可满足命题——✅ 维持通过。
-- **VI 接口纪律**：公开面为 4 值类型 + 1 Builder + 2 错误枚举 + parse/resolve/
-  to_string + 折叠与访问器 + 脱敏 Debug 的显式逃生口，无多余抽象（无 trait、
-  无泛型参数外泄）、**无自立 scheme 枚举**（N2-A）、**无包级可变掩码开关**
-  （N4-A）——✅ 维持通过；derive 配套的 `pub extend` 方法与逃生口均计入 `.mbti`
-  冻结清单，`.mbti` 检查移交 tasks/implement 执行。
-- **技术约束与合规·敏感信息自动掩码**：data-model 与 contracts/headers.md 把
-  「默认脱敏 + 显式逃生口 + 测试/快照禁用逃生口」写成可测条款，SC-005 给出
-  零明文泄漏判据；可配置开关以欠账 F12 归 M3 跟踪——✅ 通过（首轮 analyze 的
-  C1 CRITICAL 已在 spec/plan/design 三层闭环）。
+- **VI 接口纪律**：公开面为 4 值类型 + 1 Builder（双入口 R2-C1）+ 2 错误枚举
+  + parse/resolve/to_string + 折叠与访问器，无多余抽象（无 trait、无泛型参数
+  外泄）、**无自立 scheme 枚举**（N2-A）、**无输出类 API 与逃生口方法**
+  （FR-013，R3-H1-A/R3-M3-A）——✅ 维持通过；derive 配套的 `pub extend`
+  方法计入 `.mbti` 冻结清单，`.mbti` 检查移交 tasks/implement 执行。
+- **技术约束与合规·敏感信息默认不展示（v1.2.0 :112-117）**：data-model 与
+  contracts/headers.md 把「无输出类 API、`derive(Debug)` 默认实现、错误消息仅
+  定位片段、合成占位串纪律」写成可测条款，SC-005 给出三条输出面判据；Debug
+  明文输出走宪法展示例外程序（所有者 2026-10-14 确认，留痕 R3-M1，见
+  「例外跟踪」节）——**⚠️ 例外跟踪态（合法，非违宪）**；脱敏专版 F13、开关
+  F12 归 M3（首轮 analyze C1 的闭环形态已被第三轮 R3-H1-A 规范化取代）。
 - 其余原则（II/III/V/VII）无设计期新风险——✅ 全部维持通过。
