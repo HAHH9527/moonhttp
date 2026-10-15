@@ -1,3 +1,15 @@
+# 统一换行符：仓库内与工作区一律 LF，纯换行符差异不再进入 diff/提交。
+# .gitattributes 的优先级高于 core.autocrlf（本机 system 配置为 true）。
+* text=auto eol=lf
+
+# 未来可能加入的二进制资源：显式禁止任何换行符转换（后置规则覆盖上面的 *）
+*.wasm binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.gz binary
+*.zip binary
+
 # Git hooks must keep a POSIX shebang line ending; CRLF breaks `#!/bin/sh`
 # when core.autocrlf=true converts checkout.
 .githooks/* text eol=lf
