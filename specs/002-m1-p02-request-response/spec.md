@@ -1,6 +1,6 @@
 # Feature Specification: 请求/响应/体值模型与定长帧（M1-P02）
 
-**Feature Branch**: `m1-p02-request-response`（建议名；本项目未启用分支 hook，实际分支由人工决定）
+**Feature Branch**: `002-m1-p02-request-response`（实际已建立并在使用；specify 阶段的「建议名」口径已按实际分支回写）
 
 **Created**: 2026-10-15
 
@@ -242,10 +242,10 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
   `char_stream`（D5/D6）、自动头补齐、Cookie 注入、缓存条件 GET 改写
   均 MUST NOT 在本包引入（非目标见 A7）。
 - **FR-012**: 本包 MUST 引入 moonhttp 自持的请求/体错误类型（变体含：
-  `IncorrectBodyLength` 语义——声明长度与实际字节超写/欠写不符；方法/
-  体矩阵违例——GET/HEAD 带体或 POST/PUT/PATCH 缺体，FR-002；charset
-  违例——`text()` 声明集外 charset，FR-007），统一
-  包装上游错误，风格对齐 P01：suberror 形态、仅 `derive(Debug)`
+  `IncorrectBodyLength` 语义——声明长度与实际字节超写/欠写不符；
+  方法/体矩阵违例——GET/HEAD 带体或 POST/PUT/PATCH 缺体，FR-002；
+  charset 违例——`text()` 声明集外 charset，FR-007），统一包装上游错误，
+  风格对齐 P01：suberror 形态、仅 `derive(Debug)`
   可调试输出（不参与判等/哈希）、错误消息只携带定位片段、不回显原始
   输入。`Bytes` 构造期校验不通过 raise 该自持错误（FR-003）；发送期
   `@http.IncorrectBodyLength` MUST 映射为同一语义变体、保持类别可判别
