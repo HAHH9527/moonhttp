@@ -17,7 +17,7 @@
 
 | 里程碑 | 明细文件 | 条目数（未完成/总数） |
 | --- | --- | --- |
-| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 13 / 13 |
+| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 15 / 15 |
 | M2 完整门面 | （待 M2 拆分时创建） | — |
 | M3–M5 | （待对应里程碑拆分时创建） | — |
 
@@ -38,6 +38,8 @@
 | F11 | 响应头顺序不可保真（基准驱动·I6/I8） | 未排期 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F12 | 敏感信息掩码的运行期开关（P01 交付 derive(Debug) 默认明文输出，经宪法 v1.2.0 展示例外程序人工确认） | M3（Logger/EventListener） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F13 | 敏感信息脱敏专版（默认脱敏 + 按需展示形态，覆盖 HeadersV/调试输出及后续值类型） | M3（随 Logger/EventListener 与 F12 一并设计） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F14 | `text()` 受支持 charset 集扩展（M1 仅 UTF-8，集外可判别报错） | 未排期（需求驱动） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F15 | `tag` 占位升级评估（M1 保持 `Unit?`，需求驱动） | 未排期（需求驱动） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 
 ## 按里程碑速查（仅未完成）
 
@@ -47,4 +49,4 @@
   `trust` 字段生效。
 - **M4 拆分须核对**：F7（行为变化需 changelog）。
 - **M5 拆分须核对**：F9 + 汇总 M1–M4 全部 js 降级清单。
-- **未排期**：F8（需求驱动）、F10、F11（基准驱动）。
+- **未排期**：F8（需求驱动）、F10、F11（基准驱动）、F14（需求驱动）、F15（需求驱动）。

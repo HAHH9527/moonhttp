@@ -44,5 +44,12 @@
   Stream 中途抛错、0 字节响应体、未识别 charset、逗号合并值回读。
 - 非目标与范围边界显式（A7 + FR-011）；依赖与前置显式（A9：P01/P03）。
 - OkHttp 显式差异集中记录于 A6/SC-005（宪法 III）。
+- Clarify 会话（2026-10-15）：C1–C5 五题全部裁决并回写——C1=A（Writer
+  即底座 `@io.Writer`）、C3=自定义（不截断双向报错 + Bytes 构造期校验 +
+  自持错误类型 FR-012）、C5=A 修正矩阵（GET/HEAD 拒体、POST/PUT/PATCH
+  必体，种子说法已更正）、C4=A（受支持集仅 UTF-8，集外报错，欠账
+  F14）、C2=A（tag 占位 `Unit?`，欠账 F15）。复验通过，标记维持全过。
+- 遗留至 plan 阶段（非 spec 欠账）：错误类型命名与 P01 `.mbti` 一致性
+  核对、C5 矩阵对 5.5.0 tag 核对、进度回调「失败事件」精确契约。
 - Items marked incomplete require spec updates before `/speckit.clarify`
   or `/speckit.plan`

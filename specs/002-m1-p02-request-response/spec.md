@@ -8,6 +8,53 @@
 
 **Input**: User description: "docs/roadmap/M1/P02-request-response-bodies.md"（M1 工作包 P02 的 speckit 输入种子全文）
 
+## Clarifications
+
+### Session 2026-10-15
+
+- Q: `RequestBody` 的 `Stream((&Writer) -> Unit)` 形态中，回调收到的 Writer
+  应当是哪种写入口类型？ → A: 复用底座公开抽象——`Stream((&@io.Writer) ->
+  Unit)`，Writer 即 `@http.Client` 公开实现的 `@io.Writer`（`write` /
+  `write_once` / `write_reader`，async 0.22.4 `pkg.generated.mbti:86`）；
+  core 包不自立 Writer trait、也不暴露 `@http.Client` 具体类型（裁决 A；
+  宪法 I 非侵入、VI 零新抽象）
+- Q: 当请求体声明的 `content_length` 与实际写入的字节数不一致时，发送侧
+  应当如何处理？ → A: 行为语义选 A——发送侧不截断，超写/欠写均报错（对齐
+  @http `SendingFixed` 实证：多写 `send.mbt:124`、欠写 `end_body
+  :253-254` 均 `raise IncorrectBodyLength`）；`Bytes` 形态构造期 O(1)
+  校验 `content_length == data.len()`。错误模型：引入 moonhttp 自持错误
+  类型统一包装上游错误（含 `IncorrectBodyLength` 语义变体，风格对齐
+  P01：suberror、仅 `derive(Debug)`、错误消息只携带定位信息不回显原始
+  输入）——构造期校验不通过 raise 该自持错误，发送期
+  `@http.IncorrectBodyLength` 映射为同一变体且类别可判别。范围边界：
+  P02 只交付错误类型 + 构造期 raise + 映射契约，发送期实际 catch/映射
+  归 P05（FR-010 不含执行逻辑）；错误类型命名与 P01 冻结 `.mbti` 的
+  一致性核对留待 plan 阶段
+- Q: `RequestBuilder` 对「GET/HEAD 等方法携带请求体」应采取什么策略？ →
+  A: 选 A 的双向构造期校验，矩阵按核实过的 OkHttp 5.x 源码修正——带体
+  拒绝仅限 GET/HEAD（`permitsRequestBody = !(GET||HEAD)`）；缺体拒绝为
+  POST/PUT/PATCH（`requiresRequestBody`）；DELETE/OPTIONS/TRACE/CONNECT
+  体可选（不强制也不禁止）。校验在构造期、风格同 P01 HeadersVBuilder，
+  错误并入 FR-012 自持类型（命名随 plan）。种子「GET/HEAD 不强制禁止」
+  为事实错误，更正为对齐真实 OkHttp（宪法 III），双向矩阵在 A6 差异表
+  显式记录；逐方法以 OkHttp 5.x `HttpMethod.kt` 为准，plan 阶段核对
+  5.5.0 tag 一致性
+- Q: `ResponseBody::text()` 在 M1 应当支持哪些 charset，声明了不受支持的
+  charset 时如何表现？ → A: 选 A——M1 受支持集仅 {UTF-8}：缺省或声明
+  UTF-8 按 UTF-8 解码；声明集外 charset（gbk 等）可判别报错（不静默
+  降级、不乱码），报错并入 FR-012 自持错误类型语义变体；不引入任何
+  非 UTF-8 解码依赖（宪法 VI YAGNI），集外支持需求驱动回补并挂欠账
+  （F14）。对齐 OkHttp：其 `string()` 以 Content-Type charset 解码、
+  缺省 UTF-8，`Charset.forName` 对未知字符集抛异常、从不猜
+  （裁决 2026-10-15）
+- Q: `Request` 上的 `tag` 字段在 M1 应当采用哪种类型形态？ → A: 选 A——
+  M1 保持占位形态 `Unit?`：字段就位、语义零承诺，不做按 tag 定位/批量
+  取消（该用途依赖 Dispatcher（P09）与 Call.cancel（P05），M1 无调用
+  方）；不泛型化（避免类型参数传染 Request→P05 管线→重试/重定向整个
+  公开面），也不引入 Any/trait 动态值。需求出现时再评估升级，届时破坏
+  性变更走 spec 变更流程（0.x 实验期允许）并挂欠账跟踪（F15）
+  （裁决 2026-10-15）
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - 构造请求（Priority: P1）
@@ -28,6 +75,9 @@
    语义）。
 2. **Given** 未设置方法与体，**When** build，**Then** 方法默认 GET、
    body 为 None。
+3. **Given** Builder 为 GET 设置 body（或 POST 缺 body），**When**
+   build，**Then** raise 可判别的自持错误（方法/体矩阵，FR-002；
+   2026-10-15 裁决 C5 新增）。
 
 ---
 
@@ -72,8 +122,10 @@ fetch 管理，本故事在 js 仅 API 层验收）。
 
 1. **Given** 小响应（缓冲态），**When** `bytes()`/`text()`，**Then**
    `bytes()` 返回完整负载、`text()` 按 UTF-8 正确解码。
-2. **Given** `Content-Type` 带 `charset=gbk`（clarify 裁决后的受支持集
-   内），**When** `text()`，**Then** 按其解码。
+2. **Given** `Content-Type` 声明 `charset=UTF-8`，**When** `text()`，
+   **Then** 按 UTF-8 解码；**Given** 声明集外 charset（如
+   `charset=gbk`），**When** `text()`，**Then** raise 可判别错误
+   （FR-007/FR-012，不静默降级；2026-10-15 裁决 C4 改写）。
 
 ---
 
@@ -118,16 +170,19 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
 
 - 空体 POST：content_length=0 走定长帧（`Content-Length: 0`），不落
   chunked。
-- GET/HEAD 带 body：对齐 OkHttp——方法允许带体，不强制禁止；确切允许
-  策略随 clarify C5 裁决（见 A5）。
-- content_length 与实际字节数不一致：发送侧以先到者截断/报错，语义对齐
-  @http SendingFixed 行为；确切口径（截断 or 报错）随 clarify C3 裁决
-  （见 A3）。
-- Stream 源中途抛错：发送中断，回调收到失败事件（失败事件的具体形态随
-  clarify C1/C3 一并确认）。
+- 方法/体矩阵（构造期校验，FR-002）：GET/HEAD 带 body 一律拒绝（OkHttp
+  5.x 实证——种子「不强制禁止」说法已更正）；POST/PUT/PATCH 缺 body
+  拒绝；DELETE/OPTIONS/TRACE/CONNECT 体可选。
+- content_length 与实际字节数不一致：不截断——超写/欠写均报错（对齐
+  @http `SendingFixed` 的 `IncorrectBodyLength` 语义）；`Bytes` 形态
+  构造期 O(1) 校验即 raise 自持错误（FR-012），发送期映射为同一变体
+  （实际 catch/映射执行归 P05）。
+- Stream 源中途抛错：错误按 FR-012 自持错误类型可判别传播；进度回调的
+  「失败事件」精确契约在 plan 阶段对照 `with_progress` 设计定（C3 已裁
+  决错误模型，2026-10-15）。
 - 响应体为空（0 字节）：`bytes()` 返回空数据，不报错。
-- 超长/未识别 charset 参数：行为随 clarify C4 的受支持集口径显式定义
-  （降级 UTF-8 or 可判别报错，二选一，不得静默错解）。
+- 超长/未识别/集外 charset 参数：一律可判别报错（FR-007，M1 受支持集
+  仅 UTF-8），不静默降级、不乱码（2026-10-15 裁决 C4）。
 - Response.headers 由 @http 响应 Map 重建时含逗号合并值：须与 P01 折叠
   转换进出互逆（P01 SC-003 的对称性回读口径）；顺序为遍历序，不保证
   线上序。
@@ -140,12 +195,20 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
   不可变值对象语义（构造后字段不可变，值可安全跨重试/重定向复用）。
 - **FR-002**: Request MUST 经配套 Builder 构造（url / method / headers /
   tag / body 五要素）；method 未设置时 MUST 默认 GET，body 默认 None；
-  tag 在 M1 保持占位形态（假设 A2，clarify C2 裁决是否升级）。
+  tag 在 M1 保持占位形态 `Unit?`——字段就位、语义零承诺，MUST NOT
+  提供按 tag 定位/批量取消（澄清 2026-10-15，裁决 C2；升级评估挂欠账
+  F15）。Builder
+  MUST 在构造期校验方法/体矩阵（澄清 2026-10-15，裁决 C5）：GET/HEAD
+  带体拒绝、POST/PUT/PATCH 缺体拒绝、DELETE/OPTIONS/TRACE/CONNECT 体
+  可选；违例 raise FR-012 自持错误类型（变体命名随 plan 定）。
 - **FR-003**: RequestBody MUST 支持 Bytes / Stream 两形态：`Bytes(Bytes)`
-  （O(1) 克隆语义、可无限次重放）与 `Stream((&Writer) -> Unit)`（一次性
-  回调消费、不可重放）；RequestBody 另携带 `content_type` 与
+  （O(1) 克隆语义、可无限次重放）与 `Stream((&@io.Writer) -> Unit)`（一次性
+  回调消费、不可重放；Writer 为 `@http.Client` 公开实现的底座 `@io.Writer`，
+  澄清 2026-10-15 裁决 A）；RequestBody 另携带 `content_type` 与
   `content_length : Int64?`（None 表示未知长度）；**Bytes 形态 MUST
-  携带确切的 content_length**（定长帧规则），Stream 形态可为 None。
+  携带确切的 content_length**（定长帧规则）：构造期即 O(1) 校验
+  `content_length == data.len()`，不符 raise 自持错误类型（FR-012，
+  澄清 2026-10-15 裁决）；Stream 形态可为 None。
 - **FR-004**: 帧规则：未知长度体（content_length=None）MUST 走 chunked
   线上形态；已知长度体 MUST 走定长帧（`Content-Length` 头，经
   `extra_headers~{Content-Length}` 触发 @http `SendingFixed`）。
@@ -157,9 +220,12 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
 - **FR-006**: ResponseBody 流式形态 MUST 定义完整消费 / 显式 drop /
   未读完即弃三类析构事件契约，并提供默认行为；归池与毒化的真实接入归
   P04/P05。
-- **FR-007**: `text()` MUST 默认按 UTF-8 解码；`Content-Type` 声明的
-  charset 在受支持集内时 MUST 按其解码（受支持集口径见 A4，clarify C4
-  裁决）。
+- **FR-007**: `text()` MUST 默认按 UTF-8 解码；受支持 charset 集 M1 仅
+  {UTF-8}——缺省或声明 `charset=UTF-8` 按 UTF-8 解码；声明集外 charset
+  （gbk 等）MUST 可判别报错（并入 FR-012 自持错误类型语义变体），
+  MUST NOT 静默降级或错解（澄清 2026-10-15，裁决 C4；对齐 OkHttp
+  `string()` 语义——以 Content-Type charset 解码、缺省 UTF-8、未知
+  charset 抛错从不猜）。
 - **FR-008**: Response MUST 携带 code / reason / headers / cookies /
   body / prior 六要素：headers 由 @http 响应 Map 重建为 HeadersV（顺序
   为遍历序，**不保证线上序**——与 OkHttp 的显式差异，验收 MUST NOT
@@ -175,24 +241,43 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
 - **FR-011**: 接口面纪律（宪法 VI）：`BodySource::File`、`json()` /
   `char_stream`（D5/D6）、自动头补齐、Cookie 注入、缓存条件 GET 改写
   均 MUST NOT 在本包引入（非目标见 A7）。
+- **FR-012**: 本包 MUST 引入 moonhttp 自持的请求/体错误类型（变体含：
+  `IncorrectBodyLength` 语义——声明长度与实际字节超写/欠写不符；方法/
+  体矩阵违例——GET/HEAD 带体或 POST/PUT/PATCH 缺体，FR-002；charset
+  违例——`text()` 声明集外 charset，FR-007），统一
+  包装上游错误，风格对齐 P01：suberror 形态、仅 `derive(Debug)`
+  可调试输出（不参与判等/哈希）、错误消息只携带定位片段、不回显原始
+  输入。`Bytes` 构造期校验不通过 raise 该自持错误（FR-003）；发送期
+  `@http.IncorrectBodyLength` MUST 映射为同一语义变体、保持类别可判别
+  （映射契约）。发送期实际 catch/映射的执行逻辑归 P05——本包只交付
+  错误类型 + 构造期 raise + 映射契约（FR-010 不含执行逻辑，澄清
+  2026-10-15 裁决）。错误类型命名与 P01 冻结 `.mbti` 的一致性核对
+  留待 plan 阶段。
 
 ### Key Entities
 
 - **Request**: 不可变请求值对象；url（P01 HttpUrl）、method（P01
   Method，默认 GET）、headers（P01 HeadersV，保序可重复）、body
-  （RequestBody?）、tag（占位）；经 RequestBuilder 构造，值可跨重试/
+  （RequestBody?）、tag（`Unit?` 占位，C2 裁决）；经 RequestBuilder 构造，值可跨重试/
   重定向复用（FR-001）。
 - **RequestBuilder**: Request 的可变配套构造器（链式设置五要素）。
 - **RequestBody**: 请求体值；content_type、content_length（Int64?，
   None = 未知长度）、BodySource 两形态；`with_progress` 包装产出带
   进度的等价体。
 - **BodySource**: 体源两变体——`Bytes`（内存字节，可重放）与 `Stream`
-  （一次性写回调，不可重放）。
+  （一次性写回调，参数为 `@http.Client` 公开实现的 `@io.Writer`，不可
+  重放）。
 - **Response**: 不可变响应值；code、reason、headers（HeadersV，遍历序
   重建）、cookies（透传）、body（ResponseBody?）、prior（Response?，
   P06 填充）。
 - **ResponseBody**: 响应体两态——buffered（缓冲，`bytes()`/`text()`
   直接可用）与 stream（流式）；流式形态挂三类析构回调契约（FR-006）。
+- **请求/体错误类型**（命名待 plan 与 P01 `.mbti` 风格核对后定）：
+  moonhttp 自持可判别错误，变体含 `IncorrectBodyLength` 语义（长度
+  超写/欠写不符）、方法/体矩阵违例（FR-002）与 charset 违例（FR-007）；
+  构造期 raise 与发送期
+  映射共用目标类型（FR-012）；仅要求可调试输出（`derive(Debug)`），
+  不参与判等/哈希。
 
 ## Success Criteria *(mandatory)*
 
@@ -210,8 +295,9 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
 - **SC-004**: `moon info && moon fmt` 干净，`.mbti` 冻结 Request /
   RequestBody / Response / ResponseBody 公开面并经人工审视（宪法 VI）。
 - **SC-005**: 与 OkHttp 的语义差异在 spec 与实现文档显式记录（宪法
-  III）：响应头顺序不保真、File/json 裁剪、cookies 仅透传、GET/HEAD
-  带体策略（以 clarify 裁决为准）。
+  III）：响应头顺序不保真、File/json 裁剪、cookies 仅透传、方法/体
+  双向矩阵（2026-10-15 已裁决：对齐 OkHttp 5.x，种子说法已更正——
+  见 A5/A6）。
 - **SC-006**: L2 定长帧杠杆不回归：本包交付后请求体不再恒 chunked
   （线上形态以 SC-002 断言）；量化收益（线上字节/解析分支节省）在
   P10 基准的「POST 定长 vs chunked」场景可复现度量，本包不引入对既有
@@ -219,27 +305,43 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
 
 ## Assumptions
 
-- **A1（C1 默认，待 clarify 确认）**: Stream 形态的 Writer 采用 @http
-  的公开写入口（发送路径实际使用的公开 API），具体接口在 plan 阶段对照
-  registry 0.22.x 钉死；不经任何内部/私有通道（宪法 I 非侵入）。
-- **A2（C2 默认，待 clarify 确认）**: tag 在 M1 保持占位形态（原文
-  `Unit?`），字段就位、不做按 tag 定位/批量取消——M1 无调用方；泛型/
-  任意值 tag 待需求出现再评估（宪法 VI YAGNI）。
-- **A3（C3 默认，待 clarify 确认）**: content_length 与实际字节数不一致
-  时，发送侧语义对齐 @http SendingFixed 现行为（以先到者截断/报错）；
-  截断 or 报错的确切口径由 clarify 裁决后回写。
-- **A4（C4 默认，待 clarify 确认）**: `text()` 受支持 charset 集合 M1
-  以 UTF-8 为必须；gbk 等是否引入解码依赖由 clarify 裁决；未识别
-  charset 的行为（降级 UTF-8 or 可判别报错）随裁决显式定义，不得静默
-  错解。
-- **A5（C5 默认，待 clarify 确认）**: GET/HEAD 带 body 对齐 OkHttp——
-  方法允许带体、不强制禁止；确切允许策略由 clarify 裁决。
+- **A1（C1 已裁决，2026-10-15）**: Stream 形态的 Writer 确认为底座公开
+  抽象 `@io.Writer`（`@http.Client` 公开 `impl`，async 0.22.4
+  `pkg.generated.mbti:86`）；core 包的依赖面相应引入 `@io` 包，不经任何
+  内部/私有通道（宪法 I 非侵入）。原「plan 阶段对照 registry 再钉死」
+  的默认被本裁决取代。
+- **A2（C2 已裁决，2026-10-15）**: tag 在 M1 保持占位形态 `Unit?`——
+  字段就位、语义零承诺，不做按 tag 定位/批量取消（该用途依赖
+  Dispatcher（P09）与 Call.cancel（P05），M1 无调用方）；不泛型化、
+  不引入 Any/trait 动态值（宪法 VI YAGNI）。需求出现时再评估升级，
+  届时破坏性变更走 spec 变更流程（0.x 实验期允许），欠账 F15。
+- **A3（C3 已裁决，2026-10-15）**: 发送侧不截断，超写/欠写均报错——上游
+  `SendingFixed` 实证（`send.mbt:124` 多写、`:253-254` 欠写均 `raise
+  IncorrectBodyLength`），原「截断/报错误待裁决」默认被取代。错误经
+  moonhttp 自持错误类型统一包装（FR-012）；错误类型命名与 P01 冻结
+  `.mbti` 的一致性核对留待 plan 阶段。
+- **A4（C4 已裁决，2026-10-15）**: `text()` 受支持 charset 集 M1 仅
+  {UTF-8}；声明集外可判别报错、不静默降级（对齐 OkHttp
+  `Charset.forName` 抛错从不猜的语义）；不引入任何非 UTF-8 解码依赖
+  （宪法 VI YAGNI），集外（latin1/gbk 等）需求驱动回补并挂欠账（F14）；
+  报错并入 FR-012 语义变体。原「受支持集待裁决」默认被取代。
+- **A5（C5 已裁决，2026-10-15）**: RequestBuilder 构造期双向校验方法/体
+  矩阵——带体拒绝仅 GET/HEAD（`permitsRequestBody = !(GET||HEAD)`），
+  缺体拒绝 POST/PUT/PATCH（`requiresRequestBody`），DELETE/OPTIONS/
+  TRACE/CONNECT 体可选；校验风格同 P01 HeadersVBuilder，错误并入
+  FR-012 自持类型。**种子修正**：P02 种子「HEAD/GET 不强制禁止」为
+  事实错误——OkHttp 5.5.0 实证拒绝 GET/HEAD 带体（宪法 III 显式记录，
+  见 A6）；逐方法矩阵以 OkHttp 5.x `HttpMethod.kt` 为准，plan 阶段
+  核对 5.5.0 tag 一致性。
 - **A6（行为基准与显式差异，宪法 III）**: 行为基准为 OkHttp 5.5.0；已知
   显式差异：① Response.headers 顺序不保真（上游 Map 无序，验收不得
   断言线上序）；② BodySource::File、json()/char_stream 裁剪（D5/D6，
   M2 回补）；③ cookies 仅透传、不建 Jar（M2/11）；④ Host/UA/
   Accept-Encoding 自动头不做（@http 连接层已写，Bridge 级自动头随
-  M2/04）。
+  M2/04）；⑤ 方法/体双向矩阵（2026-10-15 裁决 C5）：对齐 OkHttp——
+  GET/HEAD 拒体、POST/PUT/PATCH 必体、DELETE/OPTIONS/TRACE/CONNECT
+  体可选，同时是对 P02 种子括号说法（「GET/HEAD 不强制禁止」）的
+  显式更正。
 - **A7（非目标）**: 任何连接/执行/取消逻辑（P04/P05）、Cookie 注入
   （M2/11）、缓存条件 GET 改写（M4/05）、自动头补齐（M2/04）、
   File/json/char_stream（M2），均不在本包范围。
