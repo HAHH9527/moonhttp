@@ -38,7 +38,7 @@
 | F11 | 响应头顺序不可保真（基准驱动·I6/I8） | 未排期 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F12 | 敏感信息掩码的运行期开关（P01 交付 derive(Debug) 默认明文输出，经宪法 v1.2.0 展示例外程序人工确认） | M3（Logger/EventListener） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F13 | 敏感信息脱敏专版（默认脱敏 + 按需展示形态，覆盖 HeadersV/调试输出及后续值类型） | M3（随 Logger/EventListener 与 F12 一并设计） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
-| F14 | `text()` 受支持 charset 集扩展（M1 仅 UTF-8，集外可判别报错） | 未排期（需求驱动） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F14 | `text()` 受支持 charset 集扩展（M1 仅 UTF-8，集外按 UTF-8 降级 + stderr 告警——2026-10-16 裁决 B） | 未排期（需求驱动） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F15 | `tag` 占位升级评估（M1 保持 `Unit?`，需求驱动） | 未排期（需求驱动） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 
 ## 按里程碑速查（仅未完成）
