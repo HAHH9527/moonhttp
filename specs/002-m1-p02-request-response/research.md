@@ -144,7 +144,7 @@
        "chunked")` 并移除 Content-Length（定长/chunked 互斥）；
        :57-68：Host/Connection/Accept-Encoding 才是「缺了才补」。
      - `okhttp/src/commonJvmAndroid/kotlin/okhttp3/Request.kt`
-       :248-256：`Builder.header(name, value)` 为**替换语义**（同名头全部
+       :247-256：`Builder.header(name, value)` 为**替换语义**（同名头全部
        替换）；:262-263 文档自认 Content-Length/Content-Encoding 可由
        body 派生值替换。
      - **机制差异（上游实现差异，非行为偏离）**：帧头由上游自管——上游

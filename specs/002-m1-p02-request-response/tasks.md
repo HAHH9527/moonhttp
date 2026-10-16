@@ -183,8 +183,11 @@ FR-004/005、SC-003）
   N 次输出逐字节相同（SC-003）；② path 重组：`HttpUrl` 的
   path_segments 重组为 `/a/c` 形态、有 query 时追加 `?query`、fragment
   不出现在输出；③ Bytes 体（n=len）→ headers 含 `Content-Length: n`；
-  Stream 体（None）→ 无 Content-Length；④ Content-Type 注入与用户头
-  优先（headers 已含时不覆盖、body.content_type 静默忽略）；⑤ Bytes
+  Stream 体（None）→ 无 Content-Length；④ Content-Type/Content-Length
+  **覆盖**（~~注入与用户头优先、headers 已含时不覆盖、body.content_type
+  静默忽略~~——**2026-10-16 裁决 A 撤销**；现行 = body 元信息 `Some(v)`
+  覆盖同名 Content-Type、`Some(n)` 覆盖 Content-Length、`None` 删除该键、
+  body=None 不动）；⑤ Bytes
   体重放 N 次内容逐字节一致（SC-003 重放性）；⑥ 空体 Bytes（n=0）→
   headers 含 `Content-Length: 0`（spec 边界用例「空体 POST 不落
   chunked」，U1 补锚 2026-10-15；线上形态断言随 T009/P03）
@@ -193,10 +196,13 @@ FR-004/005、SC-003）
   `pub(all) struct @http.Request`，零新类型）：meth 经 P01
   `Method::to_request_method` 封闭映射；path 由 `HttpUrl` 的
   path_segments 以 `/` 重组 + `?query`（无 query 不追加、fragment 剥除）；
-  headers = `HeadersV::to_http_map()` 基底 + Content-Length 注入
-  （`body.content_length is Some(n)` 时，大小写不敏感查重、已含不覆盖）
-  + Content-Type 注入（折叠结果不含且 `body.content_type is Some(v)`
-  时注入；research R5）；**无状态、无 memoization**（L3 缓存归 P05/P07，
+  headers = `HeadersV::to_http_map()` 基底 + Content-Length 覆盖
+  （`body.content_length is Some(n)` 时写 n、`None` 时删除该键；
+  ~~大小写不敏感查重、已含不覆盖~~——**2026-10-16 裁决 A 撤销**）
+  + Content-Type 覆盖（`body.content_type is Some(v)` 时大小写不敏感
+  单键替换；~~折叠结果不含才注入~~；research R5）；**MUST NOT 注入
+  Transfer-Encoding**（上游 forbidden_headers 自管帧头，spec FR-005/
+  contracts 条款 4）；**无状态、无 memoization**（L3 缓存归 P05/P07，
   research R7）（依赖 T004/T007）
 - [ ] T009 [US2] 线上字节断言接线（**⚠️ 前置 P03 裸 TCP 对端夹具**，spec
   A8/quickstart 步骤 2）：以 `to_http_request` 输出直接驱动
@@ -215,6 +221,20 @@ FR-004/005、SC-003）
   > 排期闭环。T007/T008 已覆盖转换层可离线验收的全部锚点（注入规则、
   > 纯函数性、path 重组、空体 Content-Length: 0 元信息面）；不伪造
   > 任何线上断言。本欠账不阻塞 T010+。
+  >
+  > **注记①（target 口径，converge 2026-10-16，以 spec SC-002/A8 原文为准）**：
+  > 线上原始字节捕获仅在 native 执行；wasm 以转换层输出断言代验（机制
+  > 等价）；js 不适用（fetch 语义由浏览器管理，仅 API 层验收，A8）。故
+  > P03 夹具就位后的本任务验收面 = native 线上字节 + wasm 转换层代验，
+  > 不要求 wasm 捕获裸字节。
+  >
+  > **注记②（人类处置口径，owner 2026-10-16 授权）**：converge 命令契约
+  > 无 `already_tracked` 出路——§4:143-144 不看勾选态纳入盘点、:59-60 与
+  > §7:207-208 剩余工作只能以新 `T{M+1}` 追加、§7:221-222 禁止触碰既有
+  > Convergence phase、§7:224-228 的 `converged` 分支要求无 actionable
+  > finding——故后续每次 converge pass 必然把本条重复登记为新编号。届时
+  > 处置：删除新编号 + 留墓碑（同 Phase 9 墓碑）；**T009 恒为 SC-002 唯一
+  > 跟踪点**。
 
 **Checkpoint**: US2 纯函数面独立可用（T007/T008 绿）；线上形态断言随
 P03 就位闭环（SC-002），L2 杠杆机制就位
@@ -396,12 +416,15 @@ conversion-errors.md 条款 7）
   > C5 九方法矩阵逐条核对**一致，无 spec 回改诉求**；显式差异（宪法 III）：
   > requiresRequestBody 的 PROPPATCH/QUERY/REPORT 不在 moonhttp 九方法
   > 封闭枚举（P01 FR-007），枚举扩展时须同步对齐——已记入 research R2。
-  > 附带取证（research R5）：BridgeInterceptor.kt :40-54 + Request.kt
-  > :248-256 证实 OkHttp 注入为 body 覆盖语义——moonhttp 已裁决的
-  > 「用户头优先/已含不覆盖」按宪法 III 更正定性为显式差异（规则与
+  > 附带取证（research R5）：BridgeInterceptor.kt:42-54 + Request.kt:247-256
+  > 证实 OkHttp 注入为 body 覆盖语义。
+  > ~~「用户头优先/已含不覆盖」按宪法 III 更正定性为显式差异（规则与
   > 实现不变；spec FR-005 侧的「对齐」措辞修正留待 owner，本轮禁改
   > spec.md；spec Clarifications 中先前「网络受限未闭环」的留痕一并
-  > 交 owner 处置）。
+  > 交 owner 处置）。~~——**2026-10-16 裁决 A 撤销**：spec FR-005 已回写
+  > 为 body 覆盖语义（用户头不优先、body 值覆盖同名头），并存两套说法
+  > 已消除；本条「规则与实现不变」「措辞修正留待 owner」「网络受限未
+  > 闭环」三处过期表述一并作废。
 - [X] T020 质量门：`moon check`（native/wasm 双 target）零错误零警告
   （含 [0079]/[0027]）；`moon test --target native` 与
   `moon test --target wasm` 双双全绿（SC-001；宪法合入门 :130-133）
@@ -504,3 +527,55 @@ Task: T012 response.mbt Response + from_http（依赖 T011 的类型定义合入
 - SC-006（L2 杠杆量化）归 P10 基准——本包只保 SC-002 形态断言不回归
 - Avoid: 跨故事同文件并行、先实现后补测试、把 P05/P04 职责
   （发送期映射执行、归池/毒化触发）写进本包
+
+---
+
+## Phase 9: Convergence
+
+> `/speckit.converge`（2026-10-16）对照 spec/plan/tasks 与当前 `src/core`
+> 实现后追加：只登记尚未满足的剩余工作，不改动既有任务与 spec/plan。
+> 现状核对：`moon test --target native` 与 `--target wasm` 各 115/115 全绿、
+> 双 target `moon check` 零错误零警告、`moon info && moon fmt` 干净——
+> SC-001/SC-004/SC-005 达成、SC-003 由 T007①⑤ 属性断言覆盖、SC-002 随
+> P03 排期、SC-006 归 P10 基准；US-1/US-3/US-4/US-5 全验收场景与转换层
+> 离线锚点均有测试覆盖并已通过。
+
+- [X] T024 [Polish] 将 tasks.md 内 T007④/T008/T019 备注的注入规则措辞同步为
+  2026-10-16 裁决 A 的覆盖语义 per FR-005 (contradicts)
+  - 核对时现状：T007④ 仍写「headers 已含时不覆盖、body.content_type 静默
+    忽略」、T008 仍写「大小写不敏感查重、已含不覆盖」、T019 备注仍写
+    「用户头优先/已含不覆盖（规则与实现不变）」——三处均被 2026-10-16
+    裁决 A 撤销。
+  - 冲突源：spec FR-005（body 值覆盖用户同名 Content-Type/Content-Length，
+    `None` 删键）与 Clarifications I2「不留相互矛盾的两套说法」；当前
+    实现/contracts/测试已按裁决 A，故**无需改码**，只差 tasks 措辞同步
+    （否则 tasks 与 spec 脱节，未来 pass 可能据旧措辞回退实现）。
+  - 处置（**owner 2026-10-16 授权的人类编辑**，超出 converge append-only
+    自主写权限）：按既有「划线旧措辞 + 裁决注记」模式改写 T007④/T008/
+    T019 三处（旧「headers 已含时不覆盖 / body.content_type 静默忽略 /
+    大小写不敏感查重已含不覆盖 / 用户头优先（规则与实现不变）」全部作废，
+    现行 = 裁决 A body 覆盖语义），作废 T019 备注「规则与实现不变」「措辞
+    修正留待 owner」「网络受限未闭环」三处过期表述，并补「MUST NOT 注入
+    Transfer-Encoding」。纯文档同步，无码改动、不影响收口门。
+
+> **去重墓碑（T023，owner 2026-10-16 授权的人类编辑）**：本次 converge
+> 另产出 `T023 [US2] 接线 US-2 线上字节断言 per SC-002 (missing)`。经逐项
+> 核对，T023 与既有开放任务 T009 纯冗余：四态断言清单在 T009 正文与
+> 欠账备注（Phase 4 T009 条目）全有、前置同为 P03 裸 TCP 夹具、驱动面
+> （`to_http_request` 直接驱动 `@http.Client`、不经 P05）逐字同义，且 T009
+> 还多记一条 T023 漏掉的组合断言依赖（T016）。据 owner 授权删除 T023、
+> 编号作废不复用（合 §7:221-222），不留「在清单中但不执行」的僵尸 `[ ]`
+> 项（违 §7:207-208 的 actionable 语义）；T023 唯一净增量（SC-002 target
+> 口径）归位到 T009 备注注记①。
+
+> **Convergence 结论（2026-10-16）**：无宪法 MUST 违背、无 CRITICAL 缺口。
+> 剩余工作仅 SC-002/T009 线上字节断言一项未勾（T009 保持未勾，待 P03 裸
+> TCP 对端夹具就位后闭环）。**后续 pass 预期（契约缺口，非执行疏忽）**：
+> 只要 T009 保持未勾，`/speckit.converge` 下次仍会另发一个新编号重复登记
+> SC-002——§4:143-144 要求不看勾选态把每条既有任务纳入盘点，:59-60 与
+> §7:207-208 要求把剩余工作以新 `T{M+1}` 追加，§7:221-222 禁止触碰既有
+> Convergence phase，§7:224-228 的 `converged` 分支又要求「无 actionable
+> finding」方可不动 tasks.md（而 SC-002 未满足即构成 actionable finding）。
+> 故 T009 恒为 SC-002 的唯一跟踪点：届时删除新编号 + 留墓碑（同本处处置）。
+> 根治需在 `.opencode/commands/speckit.converge.md` 增加 `already_tracked`
+> 类出路，属命令契约修订、不在本特性范围。
