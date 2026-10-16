@@ -22,33 +22,47 @@ pub fn Request::to_http_request(Self) -> @http.Request
 3. **path**：origin-form 请求目标——`/` 起始的 path 段重组 + `?query`
    （有 query 时）；**fragment 剥除**（不参与线上）。上游把该串原样写入
    请求行（send.mbt:334）。
-4. **headers（folded）**：
+4. **headers（folded）注入/覆盖规则**（**2026-10-16 owner 裁决 A：对齐
+   OkHttp body 覆盖语义**，5.5.0 取证 = BridgeInterceptor.kt:42-54 +
+   Request.kt:247-256 `header()` 同名全部替换）：
    - 基底 = `HeadersV::to_http_map()`（P01 折叠，同名无空格 `,` 合并）；
-   - 注入 `Content-Length: <n>`：`body.content_length is Some(n)` 时
-     （大小写不敏感查重，头已含时不覆盖——调用方显式声明优先）；
-   - 注入 `Content-Type`：仅当折叠结果**不含** Content-Type 且
-     `body.content_type is Some(v)`（research R5，对齐 OkHttp Bridge
-     「头缺失才从 body 补」；用户头优先，body 元信息静默忽略）。
+   - **Content-Type 覆盖**：body != None 且 `body.content_type = Some(v)`
+     → 覆盖用户同名 Content-Type（大小写不敏感单键替换）；body = None
+     或 content_type = None → 用户 Content-Type 保持不动；
+   - **Content-Length 覆盖**：body != None 且 `content_length = Some(n)`
+     → 覆盖 Content-Length 为 n（用户设错值也被覆盖）；
+   - **Content-Length 删除**：body != None 且 `content_length = None`
+     → 从输出 Map **删除** Content-Length 键（等价 OkHttp
+     `removeHeader`）；chunked 由上游在无 Content-Length 时自行写出；
+   - **body = None** → 不注入也不删除 Content-Length（用户显式声明
+     透传，帧长由上游按其值处理）；
+   - **MUST NOT 注入 Transfer-Encoding**（机制差异，上游实现自管：上游
+     `forbidden_headers` 丢弃调用方 TE，chunked 由上游自行写出——
+     send.mbt:37-39/:296-306/:103）。
 5. **纯函数性（SC-003）**：同一 Request 重复调用产出逐字节相同的三元组；
    实现无状态、无 memoization（L3「每 call 一次折叠、重放零折叠」缓存归
    P05/P07 call 对象，research R7）。
 6. 本函数不触网络、不写发送状态机；定长帧由上游在 `Client::request` 时从
    headers 提取 Content-Length 触发 `SendingFixed`（send.mbt:343-345）。
 7. **with_progress 组合不变式**：进度包装只改变写粒度（分块回调），不得
-   改变 content_length 元信息与注入结果——Bytes + with_progress 的线上
-   形态仍为 `Content-Length: n`、无 `Transfer-Encoding`（进度分块不得
-   降级 chunked；SC-002 锚点见下表末行）。
+   改变 content_length 元信息与注入结果——进度承诺仅 Stream 形态
+   （FR-009，2026-10-16 裁决 C）；Bytes + with_progress 的
+   `to_http_request` 输出与未包装逐字节相同（元信息恒等）。
 
 **验收锚点**（spec US-2、Edge Cases、SC-003）：
 
 | Given | When | Then |
 | --- | --- | --- |
 | Bytes 体（n=len） | to_http_request | headers 含 `Content-Length: n` |
-| Stream 体（None） | to_http_request | headers 无 Content-Length → 线上 chunked |
+| Stream 体（None） | to_http_request | 输出无 Content-Length 键（用户声明的也被删除）→ 线上 chunked |
 | 带 query 的 url | to_http_request | path = `/...?query`；fragment 不出现 |
-| headers 已含 Content-Type | to_http_request | 不覆盖；body.content_type 忽略 |
+| 用户已设 Content-Type + body 带 type | to_http_request | 输出为 body 值（覆盖，2026-10-16 裁决 A） |
+| 用户设错 Content-Length + body Some(n) | to_http_request | 输出为 n（覆盖） |
+| Stream(None) + 用户声明 Content-Length | to_http_request | 该键被删除、线上 chunked（2026-10-16 裁决 A） |
+| body = None + 用户声明 Content-Length/Content-Type | to_http_request | 两键原样透传（不注入不删除） |
 | 同一 Request 转换 N 次 | 属性测试 | 输出逐字节相同 |
-| Bytes 体 + with_progress 包装 | to_http_request → 发送（P03 夹具） | 线上仍 `Content-Length: n`、无 `Transfer-Encoding`（分块回调不降级 chunked，SC-002） |
+| 空体 Bytes（n=0） | to_http_request → 发送（P03 夹具） | 含 `Content-Length: 0`、不落 chunked（spec 边界用例「空体 POST」；U1 补锚 2026-10-15；覆盖语义下不变） |
+| Bytes 体 + with_progress 包装 | to_http_request | 输出与未包装逐字节相同（裁决 C：Bytes 不承诺回调，元信息恒等） |
 
 ## HttpMessageError（错误类型 + 映射契约）
 
@@ -56,10 +70,14 @@ pub fn Request::to_http_request(Self) -> @http.Request
 pub(all) suberror HttpMessageError {
   MethodBodyMismatch
   IncorrectBodyLength
-  UnsupportedCharset(String)
 } derive(@debug.Debug)
 pub extend HttpMessageError with Debug::{to_repr}   // .mbti 产物 to_repr，P01 同款
 ```
+
+> **2026-10-16 owner 裁决 B**：删除 `UnsupportedCharset(String)` 变体——
+> FR-007 改为集外 charset 按 UTF-8 降级解码（不 raise），该变体失去唯一
+> 触发点；保留永不触发的变体是错误面的虚假承诺（宪法 VI 最小接口），
+> F14 回补时新增变体走 spec 变更。
 
 **契约条款**：
 

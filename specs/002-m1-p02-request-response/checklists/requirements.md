@@ -48,7 +48,11 @@
   即底座 `@io.Writer`）、C3=自定义（不截断双向报错 + Bytes 构造期校验 +
   自持错误类型 FR-012）、C5=A 修正矩阵（GET/HEAD 拒体、POST/PUT/PATCH
   必体，种子说法已更正）、C4=A（受支持集仅 UTF-8，集外报错，欠账
-  F14）、C2=A（tag 占位 `Unit?`，欠账 F15）。复验通过，标记维持全过。
+  F14）——**2026-10-16 owner 裁决 B 覆写集外语义**：集外按 UTF-8 降级解码
+  （`decode_lossy`）+ stderr 告警、MUST NOT raise，`UnsupportedCharset` 变体
+  删除（本行「集外报错」仅保留为 2026-10-15 会话历史轨迹，现行规范源
+  = spec.md FR-007/FR-012）、C2=A（tag 占位 `Unit?`，欠账 F15）。复验通过，
+  标记维持全过。
 - 遗留至 plan 阶段（非 spec 欠账）：错误类型命名与 P01 `.mbti` 一致性
   核对、C5 矩阵对 5.5.0 tag 核对、进度回调「失败事件」精确契约。
 - Items marked incomplete require spec updates before `/speckit.clarify`

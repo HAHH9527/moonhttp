@@ -101,12 +101,17 @@ pub(all) enum BodySource {
    `IncorrectBodyLength` 报错（P05 映射，research R3）。Writer 参数类型为
    底座 `@io.Writer`（`@http.Client` 公开 impl；C1 裁决——本包不自立
    Writer trait、不暴露 `@http.Client` 具体类型）。
-3. `with_progress`：成功完成时 `on_bytes` 累计值**单调递增且终值 =
-   content_length**（FR-009）；Bytes 按分块回调、Stream 包计数 Writer 委托。
+3. `with_progress`：**进度承诺仅 Stream 形态**（FR-009，2026-10-16
+   裁决 C）：Stream 按计数 Writer 委托，成功完成时 `on_bytes` 累计值
+   **单调递增且终值 = content_length**。Bytes 形态**不承诺回调**：
+   `with_progress` 对 Bytes 仅保证 content_type/content_length 元信息与
+   `to_http_request` 转换输出与未包装逐字节恒等。
    失败路径不回调 `on_bytes`、以错误终止表达（research R4）。
 4. 帧规则不进本文件实现——转换层按 `content_length` 注入（见
    [conversion-errors.md](conversion-errors.md)）；本文件只约束元信息。
-5. Debug 不整打体字节（payload 可能含凭证；research R10）。
+5. Debug 不整打体字节（输出实用性：避免调试打印转储大块字节，非脱敏/
+   掩码措施——owner 2026-10-15 裁定，掩码与可配置开关归 M3 F13/F12；
+   research R10）。
 
 **验收锚点**（spec US-2、US-5、Edge Cases）：
 
@@ -115,5 +120,6 @@ pub(all) enum BodySource {
 | bytes(data, Some(n)≠len) | 构造 | raise `IncorrectBodyLength` |
 | bytes(data, n=len) | 构造 | 成功；重放 N 次逐字节一致 |
 | stream + content_length=None | 转换/发送 | 线上 chunked（P03 夹具断言） |
-| 1MB Bytes + with_progress | 发送 | 累计单调递增、终值 = content_length |
+| Stream 体 + with_progress | 发送 | 累计单调递增、终值 = content_length（FR-009 仅 Stream 承诺，裁决 C） |
+| Bytes + with_progress | to_http_request | 输出与未包装逐字节相同（不承诺回调，裁决 C） |
 | Stream 源中途抛错 | 发送 | 错误可判别传播；on_bytes 不再回调 |

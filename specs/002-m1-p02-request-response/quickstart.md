@@ -30,9 +30,11 @@ moon test --target wasm     # 期望：全绿
 [contracts/response.md](contracts/response.md)、
 [contracts/conversion-errors.md](contracts/conversion-errors.md) 的锚点表）：
 方法/体矩阵双向校验、Bytes 构造期长度校验、重放逐字节一致、转换层纯函数
-属性（N 次转换逐字节相同 + Content-Length/Content-Type 注入 + fragment
-剥除）、with_progress 累计单调且终值 = content_length、text() charset
-三态（utf-8 任意写法/集外报错/缺省）、0 字节响应、流式三类生命周期事件
+属性（N 次转换逐字节相同 + Content-Length/Content-Type 覆盖语义
+（2026-10-16 裁决 A）+ fragment 剥除）、with_progress 累计单调且终值 =
+content_length（仅 Stream 形态承诺，裁决 C）、text() charset 三态
+（utf-8 任意写法/集外降级 UTF-8 + stderr 告警（裁决 B）/缺省）、
+0 字节响应、流式三类生命周期事件
 （Consumed/Dropped/Abandoned 互斥时序，桩 = `@io.MemoryReader`/`pipe`）、
 Response.headers 重建与 P01 折叠互逆。
 
@@ -45,10 +47,9 @@ Response.headers 重建与 P01 折叠互逆。
 ```
 
 **看什么**：定长帧真正触发 `SendingFixed`（research R3 send.mbt:343-345
-机制）、chunked 形态含块编码；**Bytes + with_progress 组合**线上仍
-`Content-Length: n`、无 `Transfer-Encoding`——进度分块不得降级 chunked
-（锚点见 [contracts/conversion-errors.md](contracts/conversion-errors.md)
-条款 7 与锚点表末行）。js 不适用（fetch 语义由浏览器管理，仅 API
+机制）、chunked 形态含块编码；**Stream(None) + 用户声明 Content-Length**
+线上为 chunked（该键被删除——2026-10-16 裁决 A；TE 由上游自管、转换层
+不注入）。js 不适用（fetch 语义由浏览器管理，仅 API
 层验收，spec A8）；wasm 侧以转换层输出断言为准（线上捕获仅 native）。
 
 ### 3. 零警告门禁与接口冻结（宪法 VI；对齐 P01 SC-004 口径）
@@ -70,11 +71,13 @@ API 或其他意外泄漏。手写 Debug 的三个类型（BodySource/RequestBod
 ResponseBody）计入冻结清单逐条审视（research R10）。验证面为 native/wasm；
 js 与 wasm-gc「暂不验证」（宪法 V；欠账 F9）。
 
-### 4. 输出面与测试纪律抽查（宪法敏感信息条款；沿 P01 A9）
+### 4. 输出面与测试纪律抽查（①③ 宪法敏感信息条款；② 输出实用性；沿 P01 A9）
 
-**看什么**：① 错误消息只带定位片段（方法名/长度对/charset 名），不回显
-头值、体字节、URL 全文；② RequestBody/ResponseBody 的 Debug 不印体内容；
-③ 测试与 `.snap` 中敏感头样例值为合成占位串（如 `Bearer test-token-123`），
+**看什么**：① 错误消息只带定位片段（方法名/长度对），不回显
+头值、体字节、URL 全文；② RequestBody/ResponseBody 的 Debug 不印体内容
+（**输出实用性检查**——避免调试打印转储大块字节，非脱敏/掩码验收项；
+owner 2026-10-15 裁定，掩码与可配置开关归 M3 F13/F12）；③ 测试与
+`.snap` 中敏感头样例值为合成占位串（如 `Bearer test-token-123`），
 `git grep` 无真实形态凭证串。
 
 ### 5. OkHttp 移植对拍清单（宪法 III/IV）

@@ -13,9 +13,12 @@
   **不参与判等/哈希、不使用 `derive(Show)`**。变体清单（唯一规范源见
   [data-model.md §5](data-model.md)）：
   `MethodBodyMismatch`（方法/体矩阵违例，FR-002）、
-  `IncorrectBodyLength`（声明长度与实际字节超写/欠写，语义对齐上游同名错误）、
-  `UnsupportedCharset(String)`（`text()` 声明集外 charset，载荷仅 charset 名
-  定位片段，不回显整个头值）。**配套写法适用本包全部 `derive(Debug)` 类型**：
+  `IncorrectBodyLength`（声明长度与实际字节超写/欠写，语义对齐上游同名错误）。
+  **（2026-10-16 owner 裁决 B）**：原第三变体 `UnsupportedCharset(String)`
+  **删除**——FR-007 改为集外 charset 按 UTF-8 降级解码（不 raise），
+  该变体失去唯一触发点；封闭二变体（宪法 VI 最小接口），F14 回补时
+  新增变体走 spec 变更。
+  **配套写法适用本包全部 `derive(Debug)` 类型**：
   P01 `error.mbt` 决策 N1-A 留痕——工具链 0.1.20261012 下 `derive(Debug)`
   一经使用（含同包测试 `debug_inspect`）即触发 `implicit_impl_as_method`
   [0079]，须显式 `pub extend ... with Debug::{to_repr}` 消除；
@@ -30,31 +33,42 @@
   不冲突。
 - **Alternatives**：`RequestError`（响应侧 charset 违例语义错位，弃）；
   `BodyError`（不含方法/体矩阵违例，弃）；拆 Request/Response 两个错误类型
-  （违背 spec C3/C4「并入同一自持类型」裁决，弃）；`UnsupportedCharset` 不带
-  载荷（丢失唯一有判别价值的定位信息，弃——charset 名非敏感信息，宪法掩码
-  条款不适用）。
+  （违背 spec C3/C4「并入同一自持类型」裁决，弃）；~~`UnsupportedCharset`
+  不带载荷~~（**2026-10-16 裁决 B**：整个变体已删除——FR-007 改降级语义，
+  charset 维度不再产生错误）。
 
 ## R2 OkHttp 方法/体矩阵核实（C5 裁决的佐证链）
 
 - **Decision**：构造期矩阵按 C5 裁决实现——**拒体仅 GET/HEAD；必体为
-  POST/PUT/PATCH；DELETE/OPTIONS/TRACE/CONNECT 体可选**。逐方法最终以
-  OkHttp 5.5.0 tag `HttpMethod.kt` 行号复核，作为 tasks 的独立核对项。
-- **Rationale**：三角证据（本次 plan 期取得）：
-  1. OkHttp 官方 issue
+  POST/PUT/PATCH；DELETE/OPTIONS/TRACE/CONNECT 体可选**。✅ **已按 OkHttp
+  5.5.0 逐方法核对通过（取自本机 tag parent-5.5.0，复核日期 2026-10-15）**：
+  `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/HttpMethod.kt`
+  - :33-41 `requiresRequestBody(method)` = POST / PUT / PATCH /
+    PROPPATCH / QUERY / REPORT（:38 PROPPATCH、:39 QUERY、:41 REPORT，
+    后三者为 WebDAV / OkHttp 5.x query 方法）；
+  - :45 `permitsRequestBody(method) = !(method == "GET" || method == "HEAD")`。
+  逐方法对照 C5 矩阵：拒体组 GET/HEAD ↔ :45（拒体集恰为其补集语义）；
+  必体组 POST/PUT/PATCH ↔ :33-41 的 moonhttp 九方法内子集；可选组
+  DELETE/OPTIONS/TRACE/CONNECT ↔ permit=true（OPTIONS 允许带体）且
+  require=false。**无矩阵不一致，无 spec 回改诉求。**
+  **显式差异（宪法 III）**：OkHttp `requiresRequestBody` 另含
+  PROPPATCH/QUERY/REPORT 三方法——不在 moonhttp M1 九方法封闭枚举内
+  （P01 FR-007 裁剪 `Custom` 的既定口径）；Method 枚举未来若扩展，须
+  同步对齐该清单（本包不涉及）。
+- **Rationale**：三角证据（按证据强度排序）：
+  1. **tag 快照直读（本机 `parent-5.5.0`，2026-10-15）**：上方行号级
+     核对，为最终依据。
+  2. OkHttp 官方 issue
      [#6674](https://github.com/square/okhttp/issues/6674)（2021-05）原文引用
      源码：`permitsRequestBody(String method) { return !(method.equals("GET")
      || method.equals("HEAD")); }`，且 issue 标题实证 `OPTIONS` 返回 true
-     （允许带体）——与 C5 裁决矩阵一致，排除「CONNECT/OPTIONS/TRACE/DELETE
+     （允许带体）——与 ：45 一致，排除「CONNECT/OPTIONS/TRACE/DELETE
      入拒体集」的旧版记忆。
-  2. 上游 `@http` 便捷 `get` 自带守卫标签
+  3. 上游 `@http` 便捷 `get` 自带守卫标签
      `` `GET` request should not contain a body ``（0.22.4
      `pkg.generated.mbti:12,15,70`）——上游对 GET 拒体同立场。
-  3. `Request.Builder` 对 GET 带体抛 `IllegalArgumentException: method GET
+  4. `Request.Builder` 对 GET 带体抛 `IllegalArgumentException: method GET
      must not have a request body` 的行为自 2014 引入、master 仍存（检索实证）。
-  本次环境直连 GitHub raw/jsdelivr 失败（网络受限），**5.5.0 tag 的行号级
-  复核未能在 plan 期完成**——已在上方 Decision 声明为 tasks 核对项
-  （`requiresRequestBody` 的伴随清单 POST/PUT/PATCH/PROPPATCH/REPORT 中，
-  PROPPATCH/REPORT 不在 moonhttp 九方法内，不涉）。
 - **Alternatives**：按种子原文「HEAD/GET 不强制禁止」实现——已被证伪（宪法
   III 要求对齐真实基准并显式记录，spec A5/A6⑤ 已更正），弃。
 
@@ -112,23 +126,54 @@
 ## R5 Content-Type 注入与 charset 参数解析规则
 
 - **Decision**：
-  1. 转换层注入规则：`folded_headers` **不含** `Content-Type`（大小写不敏感）
-     且 `body.content_type` 有值时，注入 `Content-Type`；用户已显式设置时
-     用户头优先、`body.content_type` 静默忽略（不报错）——对齐 OkHttp
-     Bridge「请求头缺失才从 body.contentType() 补」的语义。`Content-Length`
-     注入规则不变（spec FR-005）。
-  2. 响应 charset 解析规则（`text()` 用）：取响应头 Map 中 `Content-Type`
-     的合并值，按 RFC 9110 参数语法在其中找**首个** `charset=` 参数
-     （参数名与值大小写不敏感、值可带双引号）；未找到 → UTF-8；值 ≠
-     `utf-8`（忽略大小写）→ raise `UnsupportedCharset(该值原文)`。
-     病态场景（多 Content-Type 被上游逗号合并）按「首个参数」确定性取值，
-     契约文档记录。
+  1. 转换层注入/覆盖规则（**2026-10-16 owner 裁决 A 定稿：对齐 OkHttp
+     body 覆盖语义**；5.5.0 取证见下）：`folded_headers` 基底 =
+     `HeadersV::to_http_map()`；body != None 且 `body.content_type =
+     Some(v)` → **覆盖**用户同名 Content-Type（大小写不敏感单键替换）；
+     `body.content_length = Some(n)` → **覆盖** Content-Length 为 n；
+     `body.content_length = None` → **删除** Content-Length 键（等价
+     OkHttp `removeHeader`）；body = None → 不注入也不删除。用户头优先
+     的 2026-10-15 I2 口径**作废**（不留两套说法）。`Content-Length`
+     注入规则不变之表述同步作废。
+     ✅ **OkHttp 取证（本机 tag parent-5.5.0，复核日期 2026-10-15/16）**：
+     - `okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/http/BridgeInterceptor.kt`
+       :40-45：body 非空且 `body.contentType()` 非空即
+       `requestBuilder.header("Content-Type", contentType.toString())`；
+       :47-54：`contentLength != -1` 即 `header("Content-Length", …)` 并
+       `removeHeader("Transfer-Encoding")`，否则 `header("Transfer-Encoding",
+       "chunked")` 并移除 Content-Length（定长/chunked 互斥）；
+       :57-68：Host/Connection/Accept-Encoding 才是「缺了才补」。
+     - `okhttp/src/commonJvmAndroid/kotlin/okhttp3/Request.kt`
+       :248-256：`Builder.header(name, value)` 为**替换语义**（同名头全部
+       替换）；:262-263 文档自认 Content-Length/Content-Encoding 可由
+       body 派生值替换。
+     - **机制差异（上游实现差异，非行为偏离）**：帧头由上游自管——上游
+       `forbidden_headers` 丢弃调用方 Transfer-Encoding，chunked 由上游
+       在无 Content-Length 时自行写出（send.mbt:37-39/:296-306/:103），
+       转换层 MUST NOT 注入 TE。
+  2. 响应 charset 解析规则（`text()` 用；**2026-10-16 owner 裁决 B 覆写**）：
+     取响应头 `Content-Type` 合并值中**首个** `charset=` 参数（名值大小写
+     不敏感、值可带双引号）；缺省/`utf-8`（忽略大小写）→ UTF-8；
+     **其余任何 charset 值 → 按 UTF-8 降级解码（`@utf8.decode_lossy`）并
+     输出一条 stderr 告警，不 raise**。病态场景（多 Content-Type 被上游
+     逗号合并）按「首个参数」确定性取值。
+     ✅ **OkHttp 取证（同上 tag）**：`okhttp/src/commonJvmAndroid/kotlin/
+     okhttp3/MediaType.kt` :44-51 `charset(defaultValue)`——`parameter(
+     "charset")`（:57-59 大小写不敏感）取值，解析失败 `Charset.forName`
+     回退 `defaultValue`；`ResponseBody.string()` 按 UTF_8 + U+FFFD 替换。
+     **可观测面有意差异（宪法 III 显式记录）**：OkHttp 静默回退；moonhttp
+     额外输出 stderr 告警（本地化增强，不改变返回值），唯一出口
+     `warn_charset_fallback`（包内私有，每次调用都告警、不去重）。
 - **Rationale**：@http 头 Map 值已合并（R3），响应侧重建与解析只能基于合并
   值；「首个 charset 参数」是确定性规则，避免合并序歧义。OkHttp
-  `MediaType.charset(...)` 同为大小写不敏感、支持引号值。
+  `MediaType.charset(...)` 参数词法口径（大小写不敏感、引号值）与 R5 一致。
 - **Alternatives**：charset 解析放 P05（撕裂 `text()` 自足性，弃）；多值
   Content-Type 报错（病态输入引入新错误类，YAGNI，弃）；body.content_type
-  与用户头冲突时报错（偏离 OkHttp 静默语义，弃）。
+  与用户头冲突时报错（偏离 OkHttp 覆盖语义，弃——2026-10-16 裁决 A 改
+  覆盖后此分叉消失）；~~用户头优先、body 静默忽略~~（2026-10-15 I2 口径，
+  **2026-10-16 裁决 A 撤销**——改为对齐 OkHttp 覆盖语义）；~~集外 charset
+  raise `UnsupportedCharset`~~（2026-10-15 C4 口径，**2026-10-16 裁决 B
+  撤销**——改为降级 UTF-8 + stderr 告警）。
 
 ## R6 UTF-8 解码机制
 
@@ -207,7 +252,9 @@
   语义（P04 池键由 HttpUrl+HeadersV 判等承担，不涉体）。Debug 形态：
   `BodySource`/`RequestBody`/`ResponseBody` **手写 `impl @debug.Debug`**——
   Stream 印 `<stream fn>`、Bytes 印元信息（content_type/content_length）
-  **不整打字节内容**（payload 可能含凭证，宪法掩码精神的最小适用）、
+  **不整打字节内容**（输出实用性：避免调试打印转储大块字节，非脱敏/
+  掩码措施——owner 2026-10-15 裁定；敏感头掩码与可配置开关归 M3
+  F13/F12）、
   ResponseBody 印状态与长度元信息（不印 reader 内部与 body 字节）；
   `Request`/`Response` 字段由此全部可 Debug，仍可 derive。
 - **Rationale**：derive 对函数/trait 对象字段不可行（编译事实，非风格选择）；
@@ -216,4 +263,5 @@
   沿 P01 已确认的展示例外口径（R3-M1 留痕；F13 明文覆盖后续
   Request/Response 值类型）。
 - **Alternatives**：给 Request/RequestBody 强造 Eq/Hash（函数字段参与判等
-  无定义，弃）；Debug 印全量 body 字节（敏感信息放大面，违宪风险，弃）。
+  无定义，弃）；Debug 印全量 body 字节（调试输出转储大块字节、实用性差，
+  弃——非违宪判定；脱敏/掩码归 M3 F13/F12，owner 2026-10-15 裁定）。

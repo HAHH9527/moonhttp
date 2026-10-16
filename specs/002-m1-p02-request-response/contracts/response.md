@@ -46,7 +46,7 @@ pub fn ResponseBody::stream(reader : &@io.Reader,
                             on_event? : (ResponseBodyEvent) -> Unit) -> ResponseBody
 
 pub async fn ResponseBody::bytes(Self) -> Bytes raise @io.Error   // buffered 直取；stream 读到底
-pub async fn ResponseBody::text(Self) -> String raise @io.Error, HttpMessageError
+pub async fn ResponseBody::text(Self) -> String raise @io.Error   // charset 集外降级 UTF-8（裁决 B，不 raise HttpMessageError）
 pub async fn ResponseBody::read_some(Self, max_len? : Int) -> Bytes? raise @io.Error
 pub fn ResponseBody::drop(Self) -> Unit                      // 幂等；未 consumed 时触发 Dropped
 pub fn ResponseBody::consumed(Self) -> Bool
@@ -66,16 +66,22 @@ pub fn ResponseBody::dropped(Self) -> Bool
    `Consumed`/`Dropped` 至多其一，`Abandoned` 仅由 P04/P05 所有者在收尾
    按 `consumed()/dropped()` 查询结果触发；默认回调 no-op（FR-006）。
    测试桩：`@io.MemoryReader` / `@io.pipe`（research R3）。
-3. **charset（`text()`）**：受支持集 M1 仅 {UTF-8}（C4 裁决）。解析规则
-   （research R5）：取 `Content-Type` 合并值中首个 `charset=` 参数，
-   名值大小写不敏感、值可带引号；缺省/`utf-8` → UTF-8；集外 → raise
-   `UnsupportedCharset(该值原文)`（不静默降级）。解码 `@utf8.decode_lossy`
-   （畸形序列替换 U+FFFD，对齐 OkHttp；BOM 不嗅探为已记录差异，research
-   R6）。`text()` = `bytes()` + 解码（stream 态先触发 `Consumed`）。
+3. **charset（`text()`）**：解码集 M1 仅 {UTF-8}（**2026-10-16 owner
+   裁决 B 覆写**）。解析规则（research R5）：取 `Content-Type` 合并值中
+   首个 `charset=` 参数，名值大小写不敏感、值可带引号；缺省/`utf-8` →
+   UTF-8；**其余任何 charset 值 → 按 UTF-8 降级解码（`@utf8.decode_lossy`，
+   畸形序列替换 U+FFFD）并输出一条 stderr 告警，MUST NOT raise**——
+   降级语义对齐 OkHttp 5.5.0（MediaType.kt:44-51 解析失败回退默认 +
+   ResponseBody.string() 按 UTF_8）；stderr 告警为本地化增强（OkHttp
+   静默），登记为可观测面有意差异（宪法 III），不改变返回值；告警唯一
+   出口 = 包内私有 `warn_charset_fallback`，消息只带 charset 名定位
+   片段。`text()` = `bytes()` + 解码（stream 态先触发 `Consumed`）。
 4. **长度语义 = 解压后长度**（FR-010）：上游已透明 gzip（research R3），
    本包不重复处理、不感知 Content-Encoding。
 5. `bytes()/read_some/text()` 的 IO 错误沿上游 raise 面（`@io.Error`）
-   透传；本包只对 charset 维度加可判别错误（FR-012）。
+   透传；charset 维度不产生错误（集外降级 UTF-8 + stderr 告警，
+   2026-10-16 裁决 B），FR-012 自持错误类型仅覆盖方法/体矩阵与体长度
+   两类违例。
 
 **验收锚点**（spec US-3、US-4、Edge Cases、SC-002/003）：
 
@@ -83,7 +89,8 @@ pub fn ResponseBody::dropped(Self) -> Bool
 | --- | --- | --- |
 | 小缓冲响应 | bytes()/text() | 完整负载；UTF-8 正确解码 |
 | Content-Type: charset=utf-8（任意大小写/引号） | text() | 按 UTF-8 解码 |
-| charset=gbk（集外） | text() | raise `UnsupportedCharset("gbk")` |
+| charset=gbk（集外） | text() | 返回 UTF-8 lossy 解码结果（不抛错）+ stderr 告警（裁决 B） |
+| 同一 gbk 声明 | text() 返回值 | == `@utf8.decode_lossy(原始字节)`；bytes()/consumed 状态机不受影响（裁决 B 补锚） |
 | 无 Content-Type | text() | 按 UTF-8 解码 |
 | 畸形 UTF-8 字节 | text() | U+FFFD 替换、不抛 |
 | 0 字节响应 | bytes() | 空数据、不报错 |

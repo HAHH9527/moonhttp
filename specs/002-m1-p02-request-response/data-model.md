@@ -7,18 +7,20 @@
 
 | 实体 | 形态 | 判等/哈希 | Debug | 一句话职责 |
 | --- | --- | --- | --- | --- |
-| Request | 不可变 struct | 无（含体源） | derive | 请求五要素值（url/method/headers/tag/body） |
-| RequestBuilder | 可变 struct | 无 | derive | 构造期校验（方法/体矩阵）与组装 |
+| Request | 不可变 struct | 无（含体源） | derive + to_repr | 请求五要素值（url/method/headers/tag/body） |
+| RequestBuilder | 可变 struct | 无 | derive + to_repr | 构造期校验（方法/体矩阵）与组装 |
 | RequestBody | 不可变 struct | 无 | **手写** | 体元信息 + Bytes/Stream 两形态 |
 | BodySource | enum（两变体） | 无 | **手写** | Bytes（可重放）/ Stream（一次性回调） |
-| Response | 不可变 struct | 无（含体） | derive | 响应六要素值（code/reason/headers/cookies/body/prior） |
+| Response | 不可变 struct | 无（含体） | derive + to_repr | 响应六要素值（code/reason/headers/cookies/body/prior） |
 | ResponseBody | 不可变外观 + 内部状态 | 无 | **手写** | buffered/stream 两态 + 生命周期事件 |
-| HttpMessageError | `pub(all) suberror` | 无（错误不判等） | derive + to_repr | 方法/体矩阵、体长度、charset 三类违例 |
-| ResponseBodyEvent | enum（三变体） | 无 | derive | 流式体生命周期事件（Consumed/Dropped/Abandoned） |
+| HttpMessageError | `pub(all) suberror` | 无（错误不判等） | derive + to_repr | 方法/体矩阵、体长度两类违例（2026-10-16 裁决 B：charset 维度不再入错误类型） |
+| ResponseBodyEvent | enum（三变体） | 无 | derive + to_repr | 流式体生命周期事件（Consumed/Dropped/Abandoned） |
 
 > 判等/哈希不承诺的原因与 Debug 手写范围见 research R10；P01 的
 > Eq/Hash 口径（FR-006）是 P01 类型面的局部决策，不外溢到含函数/reader
-> 字段的 P02 类型。
+> 字段的 P02 类型。`to_repr` 列口径：凡 `derive(Debug)` 的类型（本表 5 个）
+> 均须紧随 `pub extend T with Debug::{to_repr}` 消 [0079]（N1-A/R1；
+> P01 实证 `.mbti`:37/:52/:74/:93），冻结核对项见 tasks T017。
 
 ## 1. Request + RequestBuilder
 
@@ -67,9 +69,10 @@
   `IncorrectBodyLength` 报错、P05 映射，research R3）。
 
 **with_progress**：`with_progress(on_bytes : (Int64) -> Unit) -> RequestBody`
-——Bytes 分块回调累计值；Stream 包计数 `@io.Writer` 委托。承诺：成功完成时
-累计单调递增且终值 = content_length；失败路径不回调、以错误终止表达
-（research R4）。
+——**进度承诺仅 Stream 形态**（2026-10-16 owner 裁决 C）：Stream 包计数
+`@io.Writer` 委托，成功完成时累计单调递增且终值 = content_length；Bytes
+形态不承诺回调，仅保证 content_type/content_length 元信息与转换输出恒等。
+失败路径不回调、以错误终止表达（research R4）。
 
 ## 3. Response
 
@@ -101,11 +104,14 @@
 `pub async fn`——stream 态读 `&@io.Reader` 走上游 async 读取面，
 buffered 态同签名对齐（plan review 修订；contracts/response.md 同步）。
 
-**charset 语义（`text()`）**：解码集 = {UTF-8}（C4 裁决）；规则按 research
-R5（首个 `charset=` 参数、大小写不敏感、引号值；缺省 UTF-8；集外 raise
-`UnsupportedCharset`）；解码用 `@utf8.decode_lossy`（畸形序列替换 U+FFFD，
-对齐 OkHttp；BOM 不嗅探为已记录差异，research R6）。长度语义 = 解压后长度
-（FR-010，research R3）。
+**charset 语义（`text()`）**：解码集 = {UTF-8}（**2026-10-16 owner 裁决 B
+覆写 C4**）；规则按 research R5（首个 `charset=` 参数、大小写不敏感、引号
+值；缺省 UTF-8）；**集外 charset → 按 UTF-8 降级解码（`decode_lossy`）并
+输出一条 stderr 告警（唯一出口包内私有 `warn_charset_fallback`，消息只带
+charset 名定位片段），不 raise**——降级语义对齐 OkHttp 5.5.0（MediaType.kt
+:44-51 + ResponseBody.string()）；告警为可观测面有意差异（宪法 III）；
+解码用 `@utf8.decode_lossy`（畸形序列替换 U+FFFD，BOM 不嗅探差异记录 R6）。
+长度语义 = 解压后长度（FR-010，research R3）。
 
 **生命周期状态机**（流式态）：
 
@@ -130,9 +136,13 @@ R5（首个 `charset=` 参数、大小写不敏感、引号值；缺省 UTF-8；
 pub(all) suberror HttpMessageError {
   MethodBodyMismatch          // 方法/体矩阵违例（§1 构造期校验）
   IncorrectBodyLength         // 声明长度 ≠ 实际字节（Bytes 构造期；Stream 发送期经 P05 映射）
-  UnsupportedCharset(String)  // text() 声明集外 charset（载荷 = charset 名定位片段）
 } derive(Debug)               // + 显式 pub extend Debug::{to_repr}
 ```
+
+> **2026-10-16 owner 裁决 B**：删除 `UnsupportedCharset(String)` 变体
+> （FR-007 改为集外 charset 按 UTF-8 降级解码 + stderr 告警，不再 raise；
+> 保留永不触发的变体是错误面的虚假承诺，宪法 VI 最小接口；F14 回补时
+> 新增变体走 spec 变更）。
 
 **触发点与映射契约**：
 
@@ -140,10 +150,9 @@ pub(all) suberror HttpMessageError {
 | --- | --- | --- | --- |
 | `MethodBodyMismatch` | `RequestBuilder::build()` | 本包 | 无 |
 | `IncorrectBodyLength` | `RequestBody::bytes(...)` 构造期 | 本包 | 发送期 P05 将 `@http.IncorrectBodyLength`（pub suberror，0.22.4 mbti:37）映射为**同一变体**，类别可判别 |
-| `UnsupportedCharset(String)` | `ResponseBody::text()` | 本包 | 无 |
 
 风格条款：仅 `derive(Debug)` + `to_repr`，不判等不哈希不用 `Show`；错误
-消息只携带定位片段（charset 名、方法名、长度对），不回显头值/体内容
+消息只携带定位片段（方法名、长度对），不回显头值/体内容
 （宪法敏感信息口径；P01 同款条款继承）。
 
 ## 6. 事件模型 ResponseBodyEvent
@@ -164,7 +173,8 @@ pub extend ResponseBodyEvent with Debug::{to_repr}   // N1-A：消 [0079]（R1�
    （机制锚点 research R3 send.mbt:333-348）。
 4. 转换层纯函数：同 Request 多次转换输出逐字节相同（FR-005/SC-003）。
 5. Response.headers 重建与 P01 折叠互逆；验收禁止断言线上序（FR-008）。
-6. `text()`：集外 charset 可判别报错；畸形 UTF-8 替换不抛（§4）。
+6. `text()`：集外 charset 按 UTF-8 降级解码（stderr 告警，不抛错——
+   2026-10-16 裁决 B）；畸形 UTF-8 替换不抛（§4）。
 7. 生命周期三事件互斥时序（§4 状态机）。
 8. 全体值类型不可变（FR-001）；构造后无任何可变公开面。
 
