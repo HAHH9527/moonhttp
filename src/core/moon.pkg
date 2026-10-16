@@ -1,5 +1,21 @@
+// `method` 是 spec FR-002 冻结契约的五要素字段/方法名（contracts/request.md），
+// 同时是 MoonBit 保留字——使用处触发 [0035]（reserved_keyword，解析期警告，
+// 声明级 #warnings 属性无法抑制）。按包级配置精确关闭该警告（T020 零警告
+// 门的显式、有理由例外；其余警告不受影响）。
+options(
+  warnings: "-reserved_keyword",
+)
+
 import {
   "moonbitlang/async/http",
+  "moonbitlang/async/io",
+  "moonbitlang/core/encoding/utf8",
 }
+
+// 黑盒测试（*_test.mbt）的 async test / @async.with_task_group 基础设施
+// （T013 生命周期三路径与 T015 进度回调的异步测试所需；任务 T001 落点）。
+import {
+  "moonbitlang/async",
+} for "test"
 
 pkgtype(kind: "library")

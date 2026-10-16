@@ -3,6 +3,7 @@ package "hahh9527/moonhttp/core"
 
 import {
   "moonbitlang/async/http",
+  "moonbitlang/async/io",
   "moonbitlang/core/debug",
 }
 
@@ -15,6 +16,12 @@ pub(all) suberror HeadersError {
 } derive(@debug.Debug)
 pub fn HeadersError::to_repr(Self) -> @debug.Repr
 
+pub(all) suberror HttpMessageError {
+  MethodBodyMismatch
+  IncorrectBodyLength
+} derive(@debug.Debug)
+pub fn HttpMessageError::to_repr(Self) -> @debug.Repr
+
 pub(all) suberror HttpUrlError {
   InvalidHost
   InvalidPort
@@ -24,6 +31,13 @@ pub(all) suberror HttpUrlError {
 pub fn HttpUrlError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+pub(all) enum BodySource {
+  Bytes(Bytes)
+  Stream((&@io.Writer) -> Unit)
+}
+pub fn BodySource::to_repr(Self) -> @debug.Repr
+pub impl @debug.Debug for BodySource
+
 pub struct HeadersV {
   entries : Array[(@http.CaseInsensitiveString, String)]
 } derive(Eq, Hash, @debug.Debug)
@@ -92,6 +106,81 @@ pub fn Method::hash_combine(Self, Hasher) -> Unit
 pub fn Method::not_equal(Self, Self) -> Bool
 pub fn Method::to_repr(Self) -> @debug.Repr
 pub fn Method::to_request_method(Self) -> @http.RequestMethod
+
+pub struct Request {
+  url : HttpUrl
+  method : Method
+  headers : HeadersV
+  tag : Unit?
+  body : RequestBody?
+} derive(@debug.Debug)
+pub fn Request::to_http_request(Self) -> @http.Request
+pub fn Request::to_repr(Self) -> @debug.Repr
+
+pub struct RequestBody {
+  content_type : String?
+  content_length : Int64?
+  source : BodySource
+}
+pub fn RequestBody::bytes(Bytes, Int64, content_type? : String?) -> Self raise HttpMessageError
+pub fn RequestBody::stream((&@io.Writer) -> Unit, content_length? : Int64?, content_type? : String?) -> Self
+pub fn RequestBody::to_repr(Self) -> @debug.Repr
+pub fn RequestBody::with_progress(Self, (Int64) -> Unit) -> Self
+pub impl @debug.Debug for RequestBody
+
+pub struct RequestBuilder {
+  url : HttpUrl
+  method : Method
+  headers : HeadersVBuilder
+  tag : Unit?
+  body : RequestBody?
+} derive(@debug.Debug)
+pub fn RequestBuilder::body(Self, RequestBody) -> Self
+pub fn RequestBuilder::build(Self) -> Request raise HttpMessageError
+pub fn RequestBuilder::header(Self, String, String) -> Unit raise HeadersError
+pub fn RequestBuilder::headers(Self, HeadersV) -> Self
+pub fn RequestBuilder::method(Self, Method) -> Self
+pub fn RequestBuilder::new(HttpUrl) -> Self
+pub fn RequestBuilder::tag(Self, Unit?) -> Self
+pub fn RequestBuilder::to_repr(Self) -> @debug.Repr
+
+pub struct Response {
+  code : Int
+  reason : String
+  headers : HeadersV
+  cookies : Array[@http.Cookie]
+  body : ResponseBody?
+  prior : Response?
+} derive(@debug.Debug)
+pub fn Response::body(Self) -> ResponseBody?
+pub fn Response::code(Self) -> Int
+pub fn Response::cookies(Self) -> Array[@http.Cookie]
+pub fn Response::from_http(Int, String, Map[@http.CaseInsensitiveString, String], Array[@http.Cookie], body? : ResponseBody?, prior? : Self?) -> Self
+pub fn Response::headers(Self) -> HeadersV
+pub fn Response::prior(Self) -> Self?
+pub fn Response::reason(Self) -> String
+pub fn Response::to_repr(Self) -> @debug.Repr
+
+pub struct ResponseBody {
+  // private fields
+}
+pub fn ResponseBody::buffered(Bytes) -> Self
+pub async fn ResponseBody::bytes(Self) -> Bytes
+pub fn ResponseBody::consumed(Self) -> Bool
+pub fn ResponseBody::drop(Self) -> Unit
+pub fn ResponseBody::dropped(Self) -> Bool
+pub async fn ResponseBody::read_some(Self, max_len? : Int) -> Bytes?
+pub fn ResponseBody::stream(&@io.Reader, on_event? : (ResponseBodyEvent) -> Unit) -> Self
+pub async fn ResponseBody::text(Self) -> String
+pub fn ResponseBody::to_repr(Self) -> @debug.Repr
+pub impl @debug.Debug for ResponseBody
+
+pub(all) enum ResponseBodyEvent {
+  Consumed
+  Dropped
+  Abandoned
+} derive(@debug.Debug)
+pub fn ResponseBodyEvent::to_repr(Self) -> @debug.Repr
 
 // Type aliases
 
