@@ -131,7 +131,9 @@
 - [ ] T025 `.mbti` diff 审视 + 格式门：`moon info` 后逐条审 diff——**因迁移/公开面产生的 diff 必须唯一归因于 C1 裁决**（`src/fixtures → src/internal/fixtures`，internal 包 `.mbti` 非对外承诺；core 等公开包期望零 diff，违零即查）；`moon fmt --check` 通过
 - [ ] T026 收口六门（最终轮先 `moon clean` 再全量）：`moon clean` → `moon check --target native --deny-warn` → `moon check --target wasm --deny-warn` → `moon test --target native --deny-warn` → `moon test --target wasm --deny-warn` → `moon fmt --check` → `moon info` 后审 diff；随后按「B-01～B-15 ↔ 任务 ↔ 元测试映射表」对账包级 DoD-2（B-07 标缺口），并核对 FR/SC 覆盖核对表（下两表）无缺项；另确认 T004 已产出「防御性分支未测」的显式记录（若适用，analyze F6 对账点）
 - [ ] T027 文档收口：`src/internal/fixtures/frames.mbt` 文件头判停口径注释更新为新状态机口径（含新上限与大小行行缓冲）；FR-015 两份观测清单（native/wasm 各一份）随交付归档（quickstart §3 命令产出）
-- [ ] T028 T009 回勾（**整包收口的最后一项**）：回勾 `specs/002-m1-p02-request-response/tasks.md:207-237` 的 T009 条目。**owner 2026-10-18 常设授权：满足判据即可回勾，无需再次请示**——下列三条须同时成立：① T026 六门全绿（含 `moon clean` 后全量重跑）；② 包级 DoD 全通过，含「B-01～B-15 ↔ 任务 ↔ 元测试」映射表对账（B-07 按缺口显式标注口径满足）；③ FR/SC 覆盖核对表无缺项。**反例约束**：仅「002 T009 的技术内容已在 P02 交付并通过」（2026-10-16 native+wasm 126/126）**不足以**触发回勾——owner 2026-10-16 裁决把勾与 P03 整包交付绑定，两者都要满足；判据不全时不得自主勾选。回勾时必须在本包留一行证据（六门结果 + 对账结论；引用位置：002 tasks.md T009 条目、本条、plan.md「收尾事项」第 2 条、quickstart §6）
+- [x] T028 T009 回勾（**整包收口的最后一项**）：回勾 `specs/002-m1-p02-request-response/tasks.md:207-237` 的 T009 条目。**owner 2026-10-18 常设授权：满足判据即可回勾，无需再次请示**——下列三条须同时成立：① T026 六门全绿（含 `moon clean` 后全量重跑）；② 包级 DoD 全通过，含「B-01～B-15 ↔ 任务 ↔ 元测试」映射表对账（B-07 按缺口显式标注口径满足）；③ FR/SC 覆盖核对表无缺项。**反例约束**：仅「002 T009 的技术内容已在 P02 交付并通过」（2026-10-16 native+wasm 126/126）**不足以**触发回勾——owner 2026-10-16 裁决把勾与 P03 整包交付绑定，两者都要满足；判据不全时不得自主勾选。回勾时必须在本包留一行证据（六门结果 + 对账结论；引用位置：002 tasks.md T009 条目、本条、plan.md「收尾事项」第 2 条、quickstart §6）。
+>
+> **回勾证据（2026-10-18 执行）**：三判据同时成立——① T026 收口六门全绿（moon clean 后全量：check native/wasm --deny-warn 通过、test native 160/160 / wasm 160/160、mt --check 通过、moon info 后 .mbti 零 diff）；② 包级 DoD-2 对账通过（映射表 B-01～B-15 全行已交付、B-07 按缺口显式标注口径满足；见本文件映射表与 FR/SC 核对表）；③ FR-001～015 / SC-001～006 核对表无缺项。已回勾 specs/002-m1-p02-request-response/tasks.md T009 并留同口径证据行（引用四处同口径）。
 
 ---
 

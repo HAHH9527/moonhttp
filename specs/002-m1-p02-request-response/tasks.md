@@ -204,7 +204,7 @@ FR-004/005、SC-003）
   Transfer-Encoding**（上游 forbidden_headers 自管帧头，spec FR-005/
   contracts 条款 4）；**无状态、无 memoization**（L3 缓存归 P05/P07，
   research R7）（依赖 T004/T007）
-- [ ] T009 [US2] 线上字节断言接线（**⚠️ 前置 P03 裸 TCP 对端夹具**，spec
+- [x] T009 [US2] 线上字节断言接线（**⚠️ 前置 P03 裸 TCP 对端夹具**，spec
   A8/quickstart 步骤 2）：以 `to_http_request` 输出直接驱动
   `@http.Client`（不经 P05），经 P03 对端捕获原始字节断言——Bytes 体
   （Some(n)）含 `Content-Length: n` 且无 `Transfer-Encoding`；Stream 体
@@ -236,6 +236,18 @@ FR-004/005、SC-003）
   > finding——故后续每次 converge pass 必然把本条重复登记为新编号。届时
   > 处置：删除新编号 + 留墓碑（同 Phase 9 墓碑）；**T009 恒为 SC-002 唯一
   > 跟踪点**。
+  >
+  > **回勾证据（2026-10-18，owner 常设授权三判据成立；引用 002
+  > tasks.md:207-237、P03 tasks T028、P03 plan.md 收尾事项 2、P03
+  > quickstart §6 四处同口径）**：① P03 T026 收口六门全绿（moon clean
+  > 后全量：check native/wasm --deny-warn 通过；test native 160/160、
+  > wasm 160/160；fmt --check 通过；moon info 后 .mbti 零 diff）；
+  > ② P03 包级 DoD-2 对账通过——「B-01～B-15 ↔ 任务 ↔ 元测试」映射表
+  > B-01～B-06/B-08～B-15 已交付、B-07 按缺口显式标注（M1 缺口·推迟，
+  > 裁决 D4）口径满足；③ P03 FR-001～015 / SC-001～006 覆盖核对表无缺项
+  > （SC-003 双 target 实测未触限，R1 不成立）。本条四条线上字节断言
+  > （T009a-d）在 P03 全护栏绿状态下复验通过（core 118/118 含 T009 取证
+  > 输出）。
 
 **Checkpoint**: US2 纯函数面独立可用（T007/T008 绿）；线上形态断言随
 P03 就位闭环（SC-002），L2 杠杆机制就位
