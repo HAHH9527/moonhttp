@@ -1,0 +1,12 @@
+// T009 复核追加诊断（D3a，owner 2026-10-16 授权工单；一次性探针）。
+// 目的：钉死 frames.mbt parse_decimal Int32 溢出路径的实际症状
+// （Broken 上限 / Complete+空 body / slice 越界 abort / NeedMore 超时）。
+// 只回报，不修。宪法 IV：仅 127.0.0.1。不含 *_test.mbt。
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/socket",
+  "hahh9527/moonhttp/fixtures",
+}
+
+pkgtype(kind: "executable")

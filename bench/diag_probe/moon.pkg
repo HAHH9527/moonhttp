@@ -1,0 +1,20 @@
+// T009 复核追加诊断（D1/D2/D3b，owner 2026-10-16 授权工单；一次性探针）。
+//
+// 用途：
+//   D1 —— chunked 64KiB 线上帧逐字节解剖对账（头行/大小行/CRLF/终止块/帧后字节）；
+//   D2 —— RawPeer（带扫描）vs 自建 CheapPeer（不扫描）同臂对照，分离
+//          发送方成本 / 对端扫描成本 / 连接底座；
+//   D3b —— walk_chunks 自递归在不同 chunk 数下的实测（配 diag_crashctl 栈对照）。
+//
+// 代码自建（D8）；全部连接仅 127.0.0.1（宪法 IV）；不含 *_test.mbt。
+// 跑完后本包移至 bench/（处置结果写入报告）。
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/http",
+  "moonbitlang/async/socket",
+  "hahh9527/moonhttp/core",
+  "hahh9527/moonhttp/fixtures",
+}
+
+pkgtype(kind: "executable")

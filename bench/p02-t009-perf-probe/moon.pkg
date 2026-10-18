@@ -1,0 +1,22 @@
+// T009 独立复核性能探针（B3，owner 2026-10-16 授权工单）。
+//
+// 定位：临时 microbenchmark 包，仅 `moon run` 执行，不含任何 *_test.mbt
+// （不污染 `moon test` 基线）。正式基准门归 P10（roadmap），本包数字仅指示性。
+//
+// 代码自建，不搬运上游 examples/bench 资产（roadmap 差异 D8、宪法 I）。
+//
+// 现状（owner 2026-10-16 处置）：已从 src/perf_probe 移出到 bench/，因
+// moon.mod 的 source = "src" 只覆盖 src，本目录不是 moon 包，不参与
+// check/test/fmt 门禁，也不能直接 `moon run`。P10 建正式基准门时按此
+// 手法在 src 下重建（并修掉「端到端口径混入对端夹具扫描成本」的归因缺陷）。
+// 复用本仓库 P02 公开面（@core 转换层）与 src/fixtures 夹具（宪法 IV：
+// 全部连接仅 127.0.0.1 回环）。
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/http",
+  "hahh9527/moonhttp/core",
+  "hahh9527/moonhttp/fixtures",
+}
+
+pkgtype(kind: "executable")
