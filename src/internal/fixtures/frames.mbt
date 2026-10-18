@@ -315,6 +315,12 @@ fn FrameScanner::resolve_head(
   head : Bytes,
   head_end : Int32,
 ) -> Signal? {
+  // FR-008（T020）：重复 Content-Length 判畸形——与 TE 在场无关、在 TE
+  // 分派之前判定（防走私向量）；同值/异值双头均畸形。单 CL + TE:chunked
+  // 的既有优先序不变（count=1 时照常走 TE 分派）。
+  if header_count(head, head_end, b"content-length") >= 2 {
+    return Some(Failed("重复 Content-Length"))
+  }
   let te = header_value(head, head_end, b"transfer-encoding")
   let cl = header_value(head, head_end, b"content-length")
   if te is Some((vs, ve)) && ci_contains(head, vs, ve, b"chunked") {
@@ -472,8 +478,32 @@ fn value_bounds(buf : Bytes, from : Int32, to : Int32) -> (Int32, Int32) {
 }
 
 ///|
+// 头部区 [0, head_end) 内统计字段名 name（全小写 ASCII）的出现次数
+// （FR-008：重复 Content-Length 判定用——与只取首个的 header_value 互补）
+fn header_count(buf : Bytes, head_end : Int32, name : Bytes) -> Int32 {
+  let mut line_start = 0
+  let mut count = 0
+  while line_start < head_end {
+    match find_crlf(buf, line_start) {
+      None => line_start = head_end
+      Some(idx) => {
+        match index_of_byte(buf, line_start, idx, b':') {
+          Some(colon) =>
+            if ci_equal(buf, line_start, colon, name) {
+              count = count + 1
+            }
+          None => ()
+        }
+        line_start = idx + 2
+      }
+    }
+  }
+  count
+}
+
+///|
 // 头部区 [0, head_end) 内查找字段名 name（全小写 ASCII），返回值的字节区间。
-// 只取首个同名行；无冒号的行跳过（T020 将收紧重复 CL 语义）。
+// 只取首个同名行；无冒号的行跳过（重复出现次数由 header_count 判定）。
 fn header_value(buf : Bytes, head_end : Int32, name : Bytes) -> (Int32, Int32)? {
   let mut line_start = 0
   let mut result : (Int32, Int32)? = None

@@ -395,3 +395,41 @@ async test "P03-B13⑫ US-3：同一请求重放两次捕获逐字节相同" {
     )
   }
 }
+
+///|
+// FR-008 端到端（T020 红阶段）：Capture 程序对双 CL 请求——complete=false、
+// note 可辨认、raw/head 全留存。红阶段：现行按首个 CL 收完（complete=true）。
+async test "P03-B13⑬ FR-008 端到端：双 CL 捕获 complete=false、note 可辨认、字节全留存" {
+  let sent = b"POST /dup HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 5\r\nContent-Length: 4\r\n\r\nhello"
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let capture = group.spawn(() => peer.run(timeout_ms=2000))
+    let conn = connect_peer(peer.port())
+    conn.write(sent)
+    let _ = conn.read_all().text()
+    conn.close()
+    let cap = capture.wait()
+    peer.close()
+    assert_eq(
+      cap.complete,
+      false,
+      msg="双 CL 未判畸形（红因：只取首个同名头）",
+    )
+    match cap.note {
+      Some(n) =>
+        assert_true(n.contains("重复"), msg="note 不可辨认：\{n}")
+      None => fail("双 CL 必须给出 note")
+    }
+    // raw/head 全留存：畸形路径不丢已匹配字节
+    assert_eq(cap.raw, sent, msg="捕获与线上字节不符")
+    assert_true(
+      cap.head_text().contains("Content-Length: 5"),
+      msg="首个 CL 头不在 head 区间",
+    )
+    assert_true(
+      cap.head_text().contains("Content-Length: 4"),
+      msg="第二个 CL 头不在 head 区间",
+    )
+  }
+}

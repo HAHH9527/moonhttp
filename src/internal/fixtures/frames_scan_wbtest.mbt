@@ -142,3 +142,32 @@ async test "P03-WB③ FR-007：chunk 大小行 FFFFFFFF 即时超出夹具上限
       )
   }
 }
+
+///|
+// FR-008（T020 红阶段）：重复 Content-Length 判畸形——走私向量防御，
+// 与 TE 在场无关、在 TE 分派之前判定；同值/异值双头均畸形。
+// 红阶段口径：现行头解析只取首个同名行——双 CL 正常收完（红因）。
+async test "P03-WB④ FR-008：重复 Content-Length（同值）判畸形" {
+  let s = b"POST /dup HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nhello"
+  match FrameScanner::new().feed(s) {
+    Some(Failed(note)) =>
+      assert_true(note.contains("重复"), msg="note 不如实：\{note}")
+    Some(Done(_, _, _)) =>
+      fail(
+        "双 CL（同值）未判畸形——现行只取首个同名头（红因）",
+      )
+    None => fail("双 CL 未即时判停")
+  }
+}
+
+///|
+async test "P03-WB⑤ FR-008：重复 Content-Length（异值）判畸形" {
+  let s = b"POST /dup HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\nContent-Length: 4\r\n\r\nhello"
+  match FrameScanner::new().feed(s) {
+    Some(Failed(note)) =>
+      assert_true(note.contains("重复"), msg="note 不如实：\{note}")
+    Some(Done(_, _, _)) =>
+      fail("双 CL（异值）未判畸形——静默取其一即走私向量")
+    None => fail("双 CL 未即时判停")
+  }
+}
