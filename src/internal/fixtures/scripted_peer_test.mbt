@@ -117,9 +117,11 @@ async test "P03-B11① 三截断点穷举：线上截断字节计数与声明一
 
 ///|
 // B-11 错误分类（D3 钉死可观测集合）：仅 BadRequest / ReaderClosed 两类；
-// 其余形态返回 None＝集合外（spec 变更信号）。is 表达式判别（模式位置的
-// 包路径不计入 unused_package 检查）。
+// 其余形态返回 None＝集合外（spec 变更信号）。is 表达式判别；首行以表达式
+// 位置引用 @io 一次——工具链的 unused_package 检查不统计模式/is 位置的包
+// 路径（怪癖留痕 t004-record.md）。
 fn classify_client_error(e : Error) -> String? {
+  ignore(@io.ReaderClosed)
   if e is @http.BadRequest {
     return Some("BadRequest")
   }
@@ -134,8 +136,9 @@ fn classify_client_error(e : Error) -> String? {
 // 钉死可观测集合 {BadRequest, ReaderClosed} 内；出现集合外形态（含「拿到
 // 完整响应」）即 fail——spec 变更信号，停手回报，不得扩集或放宽。
 // 集合≠可重试集合（F17）：可重试分流归 P07，不在本判据。
-// 红阶段记录：骨架发 0 字节即断时客户端已落 ReaderClosed（集合内），本层
-// 落笔即绿＝未红判据（显式记录）；判据弱化防护由 ①的字节计数层承担。
+// 2026-10-18 owner 裁决 A：未读请求即 close 曾致四截断点 × 双 target 全落
+// OSError（raw 层 RST，@http 错误面未触达）；drain 无条件内置后 close 走
+// FIN，判据集合不动。逐截断点 println 记录实测错误类型。
 async test "P03-B11② 三截断点穷举：客户端错误落钉死集合 {BadRequest, ReaderClosed}" {
   for case in cut_cases() {
     @async.with_task_group() <| group => {

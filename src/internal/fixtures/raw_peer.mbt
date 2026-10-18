@@ -291,17 +291,41 @@ pub async fn ScriptedPeer::run(
         }
         frame
       }
-      // B-11（T013）：canned 响应字节按 CutPoint 截断前缀上线（字节形态
-      // 取证见 frames.mbt 文件头：状态行 17 字节 + "Content-Length: 0" 头行
-      // + 空行），then_close=true 则写完即断
+      // B-11（T013，owner 裁决 A 收尾）：**先 drain 客户端请求（无条件内置，
+      // 不加公开枚举字段）**，再按 CutPoint 上线 canned 前缀，再按
+      // then_close 关闭。
+      //
+      // 为什么必须 drain（owner 裁决理由，锚点逐条）：
+      // 1. spec.md Clarification D2（spec.md:32-35）明文「不得把 RST 写成
+      //    可稳定断言的交付行为」，close 的 FIN/RST 归属 FR-015 观测清单；
+      //    D3 判据 {BadRequest, ReaderClosed} 建立在 @http 错误面上，前提是
+      //    客户端能走到 parser.mbt。未读请求即 close ⇒ raw socket 层就
+      //    OSError ⇒ D3 推演根本没被触达。B-11 的诚实语义是「服务端已收到
+      //    请求、开始回响应后中断」——spec.md:33「夹具 MUST 如实声明注入
+      //    形态」正是要求补这一条（drain 即声明的一部分）。
+      // 2. 2026-10-18 探针自证了不可稳定断言：骨架版 Nothing（不写直接
+      //    close）落 ReaderClosed，转绿版 Nothing（同一路径）落 OSError——
+      //    同一 socket 行为两种结局＝判据踩在竞态上。drain 清空接收队列 →
+      //    close 走 FIN → 消除竞态。与本机实测事实一致：「唯一间接 RST
+      //    途径是 close 时接收队列仍有未读数据，其结果依 OS 与在途数据
+      //    而变」。
+      // 3. PartialResponse(cut, then_close) 签名与 .mbti 公开面零新增，
+      //    contracts §2 不动。
+      //
+      // drain 实现：复用 read_frame 读尽请求（只排空、不裁决内容）；
+      // 帧未收完（客户端提前关/畸形）时不得写入——直接按如实 note 收尾。
+      // 若客户端不发请求：read_frame 阻塞到 run 的超时兜底收尾（slot 清理
+      // 关连接），不悬挂（FR-004）。
       PartialResponse(cut, then_close) => {
+        let req_frame = read_frame(conn, raw)
         let total = canned_response.length()
+        let status_line = 17
         let prefix = match cut {
           Nothing => 0
-          MidStatusLine(n) => if n < 17 { n } else { 17 }
-          AfterStatusLine => 17
+          MidStatusLine(n) => if n < status_line { n } else { status_line }
+          AfterStatusLine => status_line
           MidHeaderLine(n) => {
-            let p = 17 + n
+            let p = status_line + n
             if p < total {
               p
             } else {
@@ -309,23 +333,35 @@ pub async fn ScriptedPeer::run(
             }
           }
         }
-        if prefix > 0 {
-          // 裸 Tcp 写无公开 flush 面；小体（≤38B）写后立即 close，TCP 收发
-          // 保证已写数据先行上线（close 不丢弃已排队字节）
-          conn.write(canned_response[:prefix])
+        match req_frame {
+          Complete(_, _, _) => {
+            // 帧收完才注入（帧未收完＝对端已关/畸形，写入会触发写错误并
+            // 掩盖真实判定）
+            if prefix > 0 {
+              // 裸 Tcp 写无公开 flush 面；小体（≤38B）写后立即 close，
+              // TCP 收发保证已写数据先行上线（close 不丢弃已排队字节）
+              conn.write(canned_response[:prefix])
+            }
+            if then_close {
+              conn.close()
+              slot.conn = None
+              return broken_early(
+                raw.to_bytes(),
+                "PartialResponse：drain 请求后按截断点上线 \{prefix}B 后关闭",
+              )
+            }
+            broken_early(
+              raw.to_bytes(),
+              "PartialResponse：前缀已上线，连接保持",
+            )
+          }
+          _ =>
+            // 请求帧未收完：不写入，如实收尾（close 由 run 收尾路径执行）
+            broken_early(
+              raw.to_bytes(),
+              "PartialResponse：请求帧未收完，未注入",
+            )
         }
-        if then_close {
-          conn.close()
-          slot.conn = None
-          return broken_early(
-            raw.to_bytes(),
-            "PartialResponse：按截断点上线 \{prefix}B 后关闭",
-          )
-        }
-        broken_early(
-          raw.to_bytes(),
-          "PartialResponse：前缀已上线，连接保持",
-        )
       }
       // T014/T015 逐程序转绿；未实现程序在红阶段给出可归因失败
       _ => {
