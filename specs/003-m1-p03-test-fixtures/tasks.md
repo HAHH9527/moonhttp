@@ -25,7 +25,7 @@
 
 **Purpose**: 迁移与改写前固化基线，供后续 diff 归因与回归对照
 
-- [ ] T001 记录迁移前基线：依次运行 `moon check --target native --deny-warn`、`moon check --target wasm --deny-warn`、`moon test --target native --deny-warn`、`moon test --target wasm --deny-warn`、`moon fmt --check`、`moon info`，将六门结果与 `src/fixtures/pkg.generated.mbti`、`src/core/pkg.generated.mbti` 快照存入本特性目录 `baseline.md`（对照物：T003/T025）
+- [x] T001 记录迁移前基线：依次运行 `moon check --target native --deny-warn`、`moon check --target wasm --deny-warn`、`moon test --target native --deny-warn`、`moon test --target wasm --deny-warn`、`moon fmt --check`、`moon info`，将六门结果与 `src/fixtures/pkg.generated.mbti`、`src/core/pkg.generated.mbti` 快照存入本特性目录 `baseline.md`（对照物：T003/T025）
 
 ---
 
