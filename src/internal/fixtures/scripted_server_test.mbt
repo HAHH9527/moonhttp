@@ -536,3 +536,102 @@ async test "P03-B05③ Chunked 滴流：逐块大小行可见、无 CL、终止�
     )
   }
 }
+
+///|
+// B-06：close_after_response=true ⇒ 响应携带 Connection: close 头，
+// 且应答后连接实际关闭。实际关闭的可观测证明：raw 客户端 read_all 以
+// EOF 收尾的耗时必须远小于夹具 serve 超时（若服务端不主动关，read_all
+// 只能等 serve_once 超时关连接才返回）。
+async test "P03-B06① close_after_response：Connection: close 头 + 实际关闭" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/close", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"bye"),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=2000))
+    let conn = connect_peer(server.port())
+    let t0 = @async.now()
+    conn.write(b"GET /close HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    let raw = bytes_text(conn.read_all().binary())
+    let elapsed_ms = @async.now() - t0
+    conn.close()
+    serving.wait()
+    server.close()
+    let head_end = match raw.find("\r\n\r\n") {
+      Some(pos) => pos
+      None => fail("响应缺少头体分隔：\{raw}")
+    }
+    let head = raw[:head_end].to_owned()
+    assert_true(
+      head.contains("Connection: close"),
+      msg="线上头缺 Connection: close（红因＝close_after_response 语义未实现）：\{head}",
+    )
+    assert_eq(body_slice(raw, head_end), "bye", msg="应答体不符")
+    // 实际关闭：远早于 serve 超时（2000ms）返回即证明服务端主动关连接
+    assert_true(
+      elapsed_ms < 1000L,
+      msg="read_all 耗时 \{elapsed_ms}ms——服务端未在应答后主动关闭（等到夹具超时才收尾）",
+    )
+  }
+}
+
+///|
+// 头体分隔切片助手（B-05/B-06 共用）
+fn body_slice(raw : String, head_end : Int32) -> String {
+  raw[head_end + 4:].to_owned()
+}
+
+///|
+// B-08：401/407 挑战——status + 对应 Authenticate 头按声明下发（M1 仅
+// 编排 + 自证；凭证语义归 M2/F6）。说明：status+headers 透传面在 T007
+// 建立，本测试预期落笔即绿＝未红判据（显式记录），定位为挑战编排护栏。
+async test "P03-B08① 401/407 挑战脚本声明下发" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/private", {
+      status: 401,
+      headers: [("WWW-Authenticate", "Basic realm=\"moonhttp-test\"")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    server.mount("GET", "/via-proxy", {
+      status: 407,
+      headers: [("Proxy-Authenticate", "Basic realm=\"moonhttp-test\"")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let cases = [
+      (
+        "GET", "/private", 401, "WWW-Authenticate", "Basic realm=\"moonhttp-test\"",
+      ),
+      (
+        "GET", "/via-proxy", 407, "Proxy-Authenticate", "Basic realm=\"moonhttp-test\"",
+      ),
+    ]
+    for case in cases {
+      let serving = group.spawn(() => server.serve_once(timeout_ms=2000))
+      let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+      client.request(Get, case.1)
+      let resp = client.end_request()
+      let challenge = resp.headers.get(@http.CaseInsensitiveString(case.3))
+      client.close()
+      serving.wait()
+      assert_eq(resp.code, case.2, msg="\{case.1} 挑战状态码不符")
+      assert_eq(
+        challenge,
+        Some(case.4),
+        msg="\{case.1} 挑战头未按声明下发",
+      )
+    }
+    server.close()
+  }
+}

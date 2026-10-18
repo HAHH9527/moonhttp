@@ -214,7 +214,17 @@ async fn ScriptedServer::serve_connection(
     }
     let script = self.routes.get((method_name(req.meth), req.path))
     let keep = match script {
-      Some(script) => self.serve_script(conn, req, script)
+      Some(script) => {
+        let served = self.serve_script(conn, req, script)
+        if served && script.close_after_response {
+          // B-06（T010）：应答后实际关闭——头已随响应下发，此处关连接
+          // （ServerConnection::close 幂等，server.mbt:60-67），循环终止
+          conn.close()
+          false
+        } else {
+          served
+        }
+      }
       None => {
         // 未声明路由：404 收尾并关连接（防误用把夹具拖入无限循环）
         send_simple(conn, 404, "Not Found")
@@ -320,15 +330,18 @@ async fn ScriptedServer::serve_script(
   // 据此获得可归因失败（夹具还没有该行为）。
   // 分派：按 body plan 为主线，framing 决定 CL 有无（send.mbt:190-197
   // 公开契约——extra_headers 带 CL ⇒ 定长帧；不带 ⇒ 首次写体转 chunked）。
-  // 未实现的编排一律 501「Not Implemented」+ 关连接收尾——后续任务的红阶段
-  // 据此获得可归因失败（夹具还没有该行为）。
+  let extra = extra_headers_of(script.headers)
+  if script.close_after_response {
+    // B-06（T010）：夹具派生 Connection: close 头（与声明值覆盖语义一致，
+    // close_after_response 是声明位，头由夹具统一落头）
+    extra[@http.CaseInsensitiveString("Connection")] = "close"
+  }
   match script.body {
     // B-05（T009）：定长/chunked 可选；chunked 路径块边界经 flush 保真（R3）
     Static(bytes) =>
       match script.framing {
         Fixed => {
           let _ = req
-          let extra = extra_headers_of(script.headers)
           extra[@http.CaseInsensitiveString("Content-Length")] = "\{bytes.length()}"
           conn.send_response(
             script.status,
@@ -339,12 +352,10 @@ async fn ScriptedServer::serve_script(
             conn.write(bytes)
           }
           conn.end_response()
-          // B-06 的「实际关闭」语义归 T010；骨架阶段靠对端 EOF/超时收尾
           true
         }
         Chunked => {
           let _ = req
-          let extra = extra_headers_of(script.headers)
           conn.send_response(
             script.status,
             reason_of(script.status),
@@ -363,7 +374,6 @@ async fn ScriptedServer::serve_script(
     // Chunked 逐块自成帧（小写块经 flush 保块边界）
     Drip(block_bytes, blocks, interval_ms) => {
       let _ = req
-      let extra = extra_headers_of(script.headers)
       match script.framing {
         Fixed =>
           extra[@http.CaseInsensitiveString("Content-Length")] = "\{block_bytes * blocks}"
@@ -398,7 +408,6 @@ async fn ScriptedServer::serve_script(
       buf.write_bytes(ascii_bytes("\{id}:"))
       buf.write_bytes(req_body)
       let body = buf.to_bytes()
-      let extra = extra_headers_of(script.headers)
       match script.framing {
         Fixed =>
           extra[@http.CaseInsensitiveString("Content-Length")] = "\{body.length()}"
