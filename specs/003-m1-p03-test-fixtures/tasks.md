@@ -86,7 +86,7 @@
 
 **Independent Test**: `moon test -p hahh9527/moonhttp/internal/fixtures --target native|wasm`（按包运行；需收窄用测试名 glob `-f "P03-B13*"`，旗标语义见 Notes）
 
-- [ ] T016 [US3] US-3 两判据补全（`src/internal/fixtures/raw_peer_test.mbt`）：① 定长 POST ⇒ 捕获可解析出 `Content-Length` 且**显式断言不含 `Transfer-Encoding`**（spec US-3 场景 1，P02 US-2 判据源）；② 同一请求重放两次 ⇒ 两次捕获字节逐字节相同（spec US-3 场景 2）。性质为**回归锚点**：底座已交付（spec 既定事实登记），预期落笔即绿；若出现红即为底座回归，修复归本任务（与实现同任务成对的口径在本任务体现为「判据补全 + 缺口即修」）
+- [x] T016 [US3] US-3 两判据补全（`src/internal/fixtures/raw_peer_test.mbt`）：① 定长 POST ⇒ 捕获可解析出 `Content-Length` 且**显式断言不含 `Transfer-Encoding`**（spec US-3 场景 1，P02 US-2 判据源）；② 同一请求重放两次 ⇒ 两次捕获字节逐字节相同（spec US-3 场景 2）。性质为**回归锚点**：底座已交付（spec 既定事实登记），预期落笔即绿；若出现红即为底座回归，修复归本任务（与实现同任务成对的口径在本任务体现为「判据补全 + 缺口即修」）
 
 **Checkpoint**: US-3 判据面闭合，为 Phase 6 重写提供护栏
 
