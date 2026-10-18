@@ -104,6 +104,35 @@ pub fn CapturedRequest::raw_text(self : CapturedRequest) -> String {
 }
 
 ///|
+/// FR-009 断言辅助的期望形态：请求行是断言入参，辅助不预设方法/路径
+/// （contracts/fixtures-api.md §3；取代消费方硬编码 POST / 的旧前提）。
+pub(all) struct RequestLineExpect {
+  method : String
+  target : String
+}
+
+///|
+/// 断言：帧收完 ∧ 请求行前缀 == "<method> <target> HTTP/1.1\r\n"。
+/// tag 用于失败定位。失败即 fail（错误面，非返回值）。
+pub fn CapturedRequest::assert_matches(
+  self : CapturedRequest,
+  expect : RequestLineExpect,
+  tag : String,
+) -> Unit raise {
+  let note_text = match self.note {
+    Some(n) => n
+    None => "无"
+  }
+  assert_true(self.complete, msg="\{tag}：帧未收完（note=\{note_text}）")
+  let prefix = "\{expect.method} \{expect.target} HTTP/1.1\r\n"
+  let head = self.head_text()
+  assert_true(
+    head.find(prefix) == Some(0),
+    msg="\{tag}：请求行不符——期望前缀 \{prefix}，实际 \{head}",
+  )
+}
+
+///|
 /// 只监听回环地址的裸 TCP 程序化对端。一次 mount 一个程序、服务一条连接。
 pub struct ScriptedPeer {
   priv server : @socket.TcpServer

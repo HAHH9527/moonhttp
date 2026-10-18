@@ -127,9 +127,12 @@ async fn wire_capture(
 }
 
 ///|
-// 断言面公共前提：帧收完、请求行为 `POST / HTTP/1.1`
+// 断言面公共前提（FR-009 参数化，T021）：帧收完、请求行前缀符合**显式
+// 传入**的期望形态——不再硬编码 `POST / HTTP/1.1`（旧前提经夹具
+// CapturedRequest::assert_matches 同款语义参数化）
 fn assert_captured_frame(
   cap : @fixtures.CapturedRequest,
+  expect : @fixtures.RequestLineExpect,
   tag : String,
 ) -> Unit raise {
   assert_true(
@@ -137,7 +140,7 @@ fn assert_captured_frame(
     msg="\{tag}：帧未收完（note=\{note_text(cap.note)}）",
   )
   assert_true(
-    cap.head_text().has_prefix("POST / HTTP/1.1\r\n"),
+    cap.head_text().has_prefix("\{expect.method} \{expect.target} HTTP/1.1\r\n"),
     msg="\{tag}：请求行异常：\{wire_visible(cap.head_text())}",
   )
 }
@@ -155,7 +158,8 @@ async test "T009a 线上：Bytes 体 Content-Length: 7、无 Transfer-Encoding" 
     .body(body)
     .build()
   let cap = wire_capture(req)
-  assert_captured_frame(cap, "a")
+  let expect_a : @fixtures.RequestLineExpect = { method: "POST", target: "/", }
+  assert_captured_frame(cap, expect_a, "a")
   let head = cap.head_text()
   assert_true(
     head.contains("Content-Length: 7\r\n"),
@@ -192,7 +196,8 @@ async test "T009b 线上：Stream 体 Transfer-Encoding: chunked 与块编码" {
   )
   // 回调确实收到 Client 的 Writer 面（C1 裁决的线上侧印证）
   assert_eq(holder.length(), 1)
-  assert_captured_frame(cap, "b")
+  let expect_b : @fixtures.RequestLineExpect = { method: "POST", target: "/", }
+  assert_captured_frame(cap, expect_b, "b")
   let head = cap.head_text()
   assert_true(
     head.contains("Transfer-Encoding: chunked\r\n"),
@@ -224,7 +229,8 @@ async test "T009c 线上：空体 POST Content-Length: 0、不落 chunked" {
     .body(body)
     .build()
   let cap = wire_capture(req)
-  assert_captured_frame(cap, "c")
+  let expect_c : @fixtures.RequestLineExpect = { method: "POST", target: "/", }
+  assert_captured_frame(cap, expect_c, "c")
   let head = cap.head_text()
   assert_true(
     head.contains("Content-Length: 0\r\n"),
@@ -257,7 +263,8 @@ async test "T009d 线上：Bytes+with_progress 组合不降级 chunked" {
     .body(body)
     .build()
   let cap = wire_capture(req)
-  assert_captured_frame(cap, "d")
+  let expect_d : @fixtures.RequestLineExpect = { method: "POST", target: "/", }
+  assert_captured_frame(cap, expect_d, "d")
   let head = cap.head_text()
   assert_true(
     head.contains("Content-Length: 7\r\n"),

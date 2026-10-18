@@ -21,4 +21,12 @@ import {
   "moonbitlang/async/io",
 } for "test"
 
+// RequestLineExpect 的字段名 `method` 与 contracts/fixtures-api.md §3 契约
+// 一致（断言面语义：method/target），与保留字冲突——按 core/moon.pkg 先例
+// 做包级显式抑制（有理由例外；其余警告不受影响，T021 落点）。
+
+options(
+  warnings: "-reserved_keyword",
+)
+
 pkgtype(kind: "library")

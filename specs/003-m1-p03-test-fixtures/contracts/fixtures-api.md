@@ -135,7 +135,7 @@ pub(all) struct CapturedRequest {
 pub fn CapturedRequest::head_text(self) -> String   // Latin-1 渲染，既有
 pub fn CapturedRequest::raw_text(self) -> String    // 既有
 
-pub struct RequestLineExpect { method : String, target : String }
+pub(all) struct RequestLineExpect { method : String, target : String }
 /// FR-009：请求形态是断言入参，辅助不预设方法/路径
 pub fn CapturedRequest::assert_matches(
   self : CapturedRequest, expect : RequestLineExpect, tag : String

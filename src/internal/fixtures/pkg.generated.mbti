@@ -20,6 +20,7 @@ pub(all) struct CapturedRequest {
   complete : Bool
   note : String?
 }
+pub fn CapturedRequest::assert_matches(Self, RequestLineExpect, String) -> Unit raise
 pub fn CapturedRequest::head_text(Self) -> String
 pub fn CapturedRequest::raw_text(Self) -> String
 
@@ -41,6 +42,11 @@ pub(all) enum PeerProgram {
   PartialResponse(CutPoint, Bool)
   SlowReceive(Int, Int)
   Capture
+}
+
+pub(all) struct RequestLineExpect {
+  method : String
+  target : String
 }
 
 pub(all) struct ResponseScript {
