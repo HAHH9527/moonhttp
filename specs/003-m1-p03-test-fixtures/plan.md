@@ -124,7 +124,7 @@ private` 模块级且未支持（P-g）。另一条（原位公开包）的代�
 | --- | --- | --- |
 | 1 相位假 Broken（frames.mbt:270-275） | 大小行改行缓冲＋`max_size_line_bytes` 自身长度上界，废弃绝对偏移充当上界 | `frames_scan_wbtest`：>64KiB 流 × 劈中大小行的切分相位 ⇒ 完整收完 |
 | 2 Int32 溢出三型（frames.mbt:195-217/236-258） | 封顶累加，>16MiB 即时 Broken，回绕在构造上不可能 | `frames_scan_wbtest`：CL=99999999999 / chunk=FFFFFFFF ⇒ 即时超上限，无假收完无滞留 |
-| 3 平方成本（raw_peer.mbt:112-123） | FrameScanner 喂进式增量推进，每字节处理一次，raw 仅一次终态 to_bytes | `sc003_sc004_test`：t8 ≤ 5×t2 且 t8 ≤ 2s |
+| 3 平方成本（raw_peer.mbt 旧版 :112-123；T018 重写后 read_frame 现位于 :192-215，喂进式） | FrameScanner 喂进式增量推进，每字节处理一次，raw 仅一次终态 to_bytes | `sc003_sc004_test`：t8 ≤ 5×t2 且 t8 ≤ 2s |
 | 4 只取首个同名头（frames.mbt:172-191） | 头解析收集全部 CL，≥2 即 Broken（TE 分派前） | `frames_scan_wbtest` + `raw_peer_test`：双 CL 同值/异值 ⇒ 畸形可辨认、字节全留存 |
 | 5 硬编码 POST /（core/wire_form_test.mbt:129-142） | `RequestLineExpect{method,target}` 参数化辅助 | `sc003_sc004_test`：GET/PUT/带查询路径三形态同辅助全过 |
 

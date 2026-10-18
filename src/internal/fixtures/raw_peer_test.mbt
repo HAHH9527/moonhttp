@@ -46,7 +46,7 @@ async test "P03① 连通性自证：bind 127.0.0.1:0 取非 0 端口、Tcp::con
     conn.close()
     peer.close()
     assert_true(cap.complete)
-    // head 含各行结尾 CRLF、不含空行的 CRLF（判停口径见 frames.mbt scan_frame）
+    // head 含各行结尾 CRLF、不含空行的 CRLF（判停口径见 frames.mbt 的 FrameScanner.feed 状态机）
     assert_eq(
       visible(cap.head_text()),
       "GET /probe HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nAccept: */*\\r\\n",

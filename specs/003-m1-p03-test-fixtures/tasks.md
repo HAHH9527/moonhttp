@@ -127,7 +127,7 @@
 
 **Purpose**: 风险验证、门禁收口、文档与对账
 
-- [ ] T024 风险 R1 验证：SC-003 的 2s 绝对阈值在 **wasm/moonrun** 上实测（运行 `sc003_sc004_test.mbt --target wasm` 记录 t2/t8）；超限处置顺序＝先查算法回归，确因宿主吞吐则**走 spec 变更流程附双 target 数据**（不得静默放宽判据）；结论记入任务产出
+- [x] T024 风险 R1 验证：SC-003 的 2s 绝对阈值在 **wasm/moonrun** 上实测（运行 `sc003_sc004_test.mbt --target wasm` 记录 t2/t8）；超限处置顺序＝先查算法回归，确因宿主吞吐则**走 spec 变更流程附双 target 数据**（不得静默放宽判据）；结论记入任务产出
 - [ ] T025 `.mbti` diff 审视 + 格式门：`moon info` 后逐条审 diff——**因迁移/公开面产生的 diff 必须唯一归因于 C1 裁决**（`src/fixtures → src/internal/fixtures`，internal 包 `.mbti` 非对外承诺；core 等公开包期望零 diff，违零即查）；`moon fmt --check` 通过
 - [ ] T026 收口六门（最终轮先 `moon clean` 再全量）：`moon clean` → `moon check --target native --deny-warn` → `moon check --target wasm --deny-warn` → `moon test --target native --deny-warn` → `moon test --target wasm --deny-warn` → `moon fmt --check` → `moon info` 后审 diff；随后按「B-01～B-15 ↔ 任务 ↔ 元测试映射表」对账包级 DoD-2（B-07 标缺口），并核对 FR/SC 覆盖核对表（下两表）无缺项；另确认 T004 已产出「防御性分支未测」的显式记录（若适用，analyze F6 对账点）
 - [ ] T027 文档收口：`src/internal/fixtures/frames.mbt` 文件头判停口径注释更新为新状态机口径（含新上限与大小行行缓冲）；FR-015 两份观测清单（native/wasm 各一份）随交付归档（quickstart §3 命令产出）
@@ -139,21 +139,21 @@
 
 | 行为 | 任务 | 元测试（文件） | 状态 |
 | --- | --- | --- | --- |
-| B-01 延迟响应头 | T006 | scripted_server_test.mbt（US-1 场景 1） | 计划 |
-| B-02 滴流（块数/间隔可调） | T006、T023 | scripted_server_test.mbt（场景 1 + US-4 场景） | 计划 |
-| B-03 重定向链 | T007 | scripted_server_test.mbt（US-1 场景 2 + 307/308/畸形） | 计划 |
-| B-04 echo 唯一 id | T008 | scripted_server_test.mbt（US-1 场景 3 并发 N） | 计划 |
-| B-05 定长/chunked 可选 | T009 | scripted_server_test.mbt（线上字节断帧） | 计划 |
-| B-06 Connection: close | T010 | scripted_server_test.mbt | 计划 |
+| B-01 延迟响应头 | T006 | scripted_server_test.mbt（US-1 场景 1） | 已交付（P03-B01①） |
+| B-02 滴流（块数/间隔可调） | T006、T023 | scripted_server_test.mbt（场景 1 + US-4 场景） | 已交付（P03-B01① + P03-US4①） |
+| B-03 重定向链 | T007 | scripted_server_test.mbt（US-1 场景 2 + 307/308/畸形） | 已交付（P03-B03①②） |
+| B-04 echo 唯一 id | T008 | scripted_server_test.mbt（US-1 场景 3 并发 N） | 已交付（P03-B04①，高水位结构判据） |
+| B-05 定长/chunked 可选 | T009 | scripted_server_test.mbt（线上字节断帧） | 已交付（P03-B05①②③） |
+| B-06 Connection: close | T010 | scripted_server_test.mbt | 已交付（P03-B06①） |
 | **B-07 gzip** | — | — | **M1 缺口·推迟（裁决 D4），不排任务** |
-| B-08 401/407 挑战 | T010 | scripted_server_test.mbt | 计划 |
-| B-09 accept 后 close | T012 | scripted_peer_test.mbt（US-2 场景 1） | 计划 |
-| B-10 关闭形态观测清单 | T015 | fr015_observation_test.mbt（双 target 各一份） | 计划 |
-| B-11 半截响应头（截断点参数化） | T013 | scripted_peer_test.mbt（三截断点穷举，US-2 场景 2） | 计划 |
-| B-12 慢速接收滴流 | T014 | scripted_peer_test.mbt | 计划 |
+| B-08 401/407 挑战 | T010 | scripted_server_test.mbt | 已交付（P03-B08①；未红判据=T007 透传面，显式记录） |
+| B-09 accept 后 close | T012 | scripted_peer_test.mbt（US-2 场景 1） | 已交付（P03-B09①；未红判据=骨架同形，显式记录） |
+| B-10 关闭形态观测清单 | T015 | fr015_observation_test.mbt（双 target 各一份） | 已交付（P03-B10①②③；清单归档 fr015-observations.md） |
+| B-11 半截响应头（截断点参数化） | T013 | scripted_peer_test.mbt（三截断点穷举，US-2 场景 2） | 已交付（P03-B11①②；drain 裁决 A） |
+| B-12 慢速接收滴流 | T014 | scripted_peer_test.mbt | 已交付（P03-B12①） |
 | B-13 原始字节捕获 | T016、T018 | raw_peer_test.mbt ①–⑦⑪⑫⑬ + frames_scan_wbtest.mbt（P03-WB① 相位矩阵） | 已交付（US-5 重写后全护栏绿；本包回归完成） |
-| B-14 端口分配/冲突重试 | T004 | raw_peer_test.mbt（生命周期组） | 计划 |
-| B-15 生命周期/超时保护 | T004、T005 | raw_peer_test.mbt + scripted_server_test.mbt | 计划 |
+| B-14 端口分配/冲突重试 | T004 | raw_peer_test.mbt（生命周期组） | 已交付（P03⑧⑩；bind 冲突分支防御性未测，显式记录） |
+| B-15 生命周期/超时保护 | T004、T005 | raw_peer_test.mbt + scripted_server_test.mbt | 已交付（P03⑧⑨⑩ + serve_n/serve_once 超时面） |
 
 ## FR-001～FR-015 覆盖核对表
 
@@ -181,7 +181,7 @@
 | --- | --- | --- |
 | SC-001 清单 100% 覆盖 + 双绿 | T026（映射表对账 + 四门） | 无 |
 | SC-002 零改库编排骨 | T006–T010 用法即证 + T026 审计 | 无 |
-| SC-003 2MB/8MB ≤5× 且 ≤2s | T022（native/wasm）+ T024（wasm 实测裁决） | 无（wasm 超限走 spec 变更流程，不得静默放宽） |
+| SC-003 2MB/8MB ≤5× 且 ≤2s | T022（native/wasm）+ T024（wasm 实测裁决） | 已清账：双 target 实测未触限（t8 native 146ms / wasm 204ms；隔离态 137–175ms）——R1 不成立，判据未修订 |
 | SC-004 ≥5 相位 100% 一致 | T018（白盒矩阵）+ T022（端到端） | 无 |
 | SC-005 外部网络依赖 0 | T026（FR-003 审计佐证） | 无 |
 | SC-006 无泄漏/必返回 | T004（close 幂等/超时）+ T026（全套连续运行） | 无 |
