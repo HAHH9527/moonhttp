@@ -25,6 +25,16 @@
 宪法 I 约束：不搬运上游 async 仓库的 `test_programs`/`examples`/`mio` 资产
 （README 差异 D8），手法对齐、代码自建。
 
+> **既定事实登记（2026-10-16，P02/T009 先行落地实测，作为本包 specify 种子）**：
+> 第 2 类夹具中的「原始字节捕获」已在 `src/fixtures` 落地（`RawPeer` 捕获
+> 对端 + 帧边界判停，基于 `@socket`/`@async` 公开 API，仅连 127.0.0.1，
+> 附自证元测试），且 native + wasm 双 target 可跑（wasm 侧由 moonrun/WASI
+> 宿主提供平台专用 socket 导入，`moon test --target wasm` 实测全绿、捕获
+> 端口逐次不同；口径见 spec 002 A8 方案 c 回写）。P03 的 specify/plan 以此
+> 为既有底座，不必从零起；第 1 类脚本化 HTTP 服务端与第 2 类其余行为
+> （close/RST、半截响应注入、慢速滴流等）仍待 P03 交付。夹具宿主位置是否
+> 调整（README:117）由 P03 的 plan 自行处置，本登记不代 P03 决定。
+
 ## 范围
 
 包含：
