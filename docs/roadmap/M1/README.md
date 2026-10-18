@@ -25,6 +25,13 @@
 | [P01](P01-core-value-types.md) | core 值对象 | HttpUrl 解析/规范化/resolve + HeadersV 有序多头 | 无 | ~2.75d | 01 §3.2/§3.4 |
 | [P02](P02-request-response-bodies.md) | 请求/响应/体模型 | Request/Response/RequestBody/ResponseBody + 定长帧（L2） | P01, P03 | ~1.5d | 01 §3.3/§3.6、14 §2 L2 |
 | [P03](P03-test-server-fixtures.md) | 可控服务端测试基建 | 可编程本地服务端/裸 TCP 对端夹具库 | 无 | ~1d | 各篇 §8 汇总 |
+| [P04](P04-connection-pool.md) | 连接池 | Address/Lease/LIFO 归还/驱逐/毒化（L1） | P01, P03 | ~3d | 03 §3.1–§3.4 |
+| [P05](P05-call-engine-cancel.md) | Call 执行骨架与取消 | execute 直连管线、cancel 三通道、重放零折叠（L3） | P01, P02, P04 | ~1.5d | 01 §3.5/§6 |
+| [P06](P06-redirects.md) | 自动重定向 | follow-up 循环、3xx 决策表、priorResponse 链 | P05 | ~1.5d | 02 §3.1/§3.2 |
+| [P07](P07-stale-retry.md) | 连接失败重试 | stale-retry 判定、阶段化发送、毒化计数 | P04, P05, P06 | ~1.5d | 02 §3.3 |
+| [P08](P08-timeouts-builder.md) | 四类超时与 per-call 配置 | connect/write/read/call 超时接线 + builder 派生 | P05, P06 | ~2d | 10 §3.1/§3.2/§3.4 |
+| [P09](P09-dispatcher.md) | Dispatcher 与 enqueue | 双闸并发上限 + FIFO 公平出队 + 可取消 enqueue | P05 | ~1.5d | 10 §3.3、01 §3.5(enqueue) |
+| [P10](P10-benchmark-gate.md) | 基准套件与 M1 门禁 | 场景矩阵、三臂对比、≥20× 门禁与基线归档 | P04–P07 | ~1d | 14 §5、03 §8 |
 
 > **P03 交付状态（2026-10-18）**：已交付。交付口径＝收口六门全绿（`moon clean`
 > 后全量：check native/wasm `--deny-warn` 通过、test native 160/160 /
@@ -33,14 +40,6 @@
 > M1 缺口·推迟（裁决 D4），不建模不实现**。过程账目见
 > `specs/003-m1-p03-test-fixtures/t004-record.md`，观测清单见同目录
 > `fr015-observations.md`。
-
-| [P04](P04-connection-pool.md) | 连接池 | Address/Lease/LIFO 归还/驱逐/毒化（L1） | P01, P03 | ~3d | 03 §3.1–§3.4 |
-| [P05](P05-call-engine-cancel.md) | Call 执行骨架与取消 | execute 直连管线、cancel 三通道、重放零折叠（L3） | P01, P02, P04 | ~1.5d | 01 §3.5/§6 |
-| [P06](P06-redirects.md) | 自动重定向 | follow-up 循环、3xx 决策表、priorResponse 链 | P05 | ~1.5d | 02 §3.1/§3.2 |
-| [P07](P07-stale-retry.md) | 连接失败重试 | stale-retry 判定、阶段化发送、毒化计数 | P04, P05, P06 | ~1.5d | 02 §3.3 |
-| [P08](P08-timeouts-builder.md) | 四类超时与 per-call 配置 | connect/write/read/call 超时接线 + builder 派生 | P05, P06 | ~2d | 10 §3.1/§3.2/§3.4 |
-| [P09](P09-dispatcher.md) | Dispatcher 与 enqueue | 双闸并发上限 + FIFO 公平出队 + 可取消 enqueue | P05 | ~1.5d | 10 §3.3、01 §3.5(enqueue) |
-| [P10](P10-benchmark-gate.md) | 基准套件与 M1 门禁 | 场景矩阵、三臂对比、≥20× 门禁与基线归档 | P04–P07 | ~1d | 14 §5、03 §8 |
 
 依赖关系（`X → Y` 表示 Y 依赖 X）：
 
