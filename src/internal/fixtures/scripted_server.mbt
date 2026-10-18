@@ -58,6 +58,7 @@ pub struct ScriptedServer {
   priv server : @http.Server
   priv routes : Map[(String, String), ResponseScript]
   priv mut closed : Bool
+  priv mut next_id : Int32 // B-04 echo 单调 id（FR-013）
 }
 
 ///|
@@ -128,7 +129,7 @@ pub async fn ScriptedServer::start() -> ScriptedServer {
   for _attempt in 0..<bind_retry {
     try {
       let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
-      return { server, routes: Map([], capacity=8), closed: false, }
+      return { server, routes: Map([], capacity=8), closed: false, next_id: 1, }
     } catch {
       err => last_error = Some(err)
     }
@@ -227,11 +228,85 @@ async fn ScriptedServer::serve_connection(
 }
 
 ///|
+/// 串行 accept、并发处理的多连接服务面（T008 owner 裁决 A，2026-10-18）。
+///
+/// 为什么 accept 必须串行：上游 `TcpServer::accept` 并发调用不安全——
+/// 同一监听句柄挂两个 accept 等待时 native 直接 PanicError 崩溃
+/// （0xc0000409）、wasm/moonrun 悬挂不醒（2026-10-18 双 target 实测，
+/// 探针即用即删已复现；机制锚点 network_windows.mbt:194-213
+/// `accept_windows` 经 `handle.wait_read_result` 在同一句柄挂等待）。
+/// 上游唯一自证可行的形态即 `run_forever`（tcp.mbt:141-172）：循环内单次
+/// 串行 `accept()`（三分支见 tcp.mbt:223/:231/:239），连接接受后经任务组
+/// `spawn_bg` 并发处理——本原语照此收口（欠账 F18：上游缺口待回补，
+/// 向 moonbitlang/async 提 issue/PR 须事先人工批准，宪法 I）。
+///
+/// FR-004/SC-006：accept 循环整体受 with_timeout_opt(timeout_ms) 保护；
+/// 每条连接的处理亦受同额超时保护并在收尾时关闭连接；任务组在返回前
+/// 等待全部在途连接处理完成。close() 幂等优雅停止：循环内发现 closed
+/// 即停；accept 因监听句柄关闭而报错同样按停止收尾（不视为故障）。
+pub async fn ScriptedServer::serve_n(
+  self : ScriptedServer,
+  n : Int32,
+  timeout_ms~ : Int32 = 5000,
+) -> Unit {
+  if self.closed {
+    return
+  }
+  @async.with_task_group() <| group => {
+    let outcome : Result[Unit?, Error] = try {
+      let r = @async.with_timeout_opt(timeout_ms) <| () => {
+        for _i in 0..<n {
+          if self.closed {
+            break
+          }
+          // 串行 accept：同一时刻至多一个在途 accept（上游约束，见上）
+          let (conn, _peer_addr) = self.server.accept()
+          group.spawn_bg(() => {
+            let _ = @async.with_timeout_opt(timeout_ms) <| () => {
+              self.serve_connection(conn)
+            }
+            conn.close()
+          })
+        }
+      }
+      Ok(r)
+    } catch {
+      e => Err(e)
+    } noraise {
+      r => r
+    }
+    match outcome {
+      Ok(_) => ()
+      Err(err) =>
+        // close 与 accept 的竞争窗口：句柄已关导致的报错＝优雅停止信号
+        if self.closed {
+          ()
+        } else {
+          raise err
+        }
+    }
+  }
+}
+
+///|
+// ASCII 串 → Bytes（逐码点取低 8 位；仅用于恒为 ASCII 的 id 前缀，
+// 调用方须保证无多字节字符）
+fn ascii_bytes(s : String) -> Bytes {
+  let arr = FixedArray::make(s.length(), b'\x00')
+  let mut i = 0
+  for ch in s {
+    arr[i] = ch.to_int().to_byte()
+    i = i + 1
+  }
+  arr.unsafe_reinterpret_as_bytes()
+}
+
+///|
 // 按脚本应答一次请求；返回是否继续在该连接上读下一个请求（keep-alive）。
 // 分派按任务增量放开：未实现的编排一律 501「Not Implemented」+ 关连接收尾
-// ——后续任务（T006～T010）的红阶段据此获得可归因失败（夹具还没有该行为）。
+// ——后续任务（T009/T010）的红阶段据此获得可归因失败（夹具还没有该行为）。
 async fn ScriptedServer::serve_script(
-  _self : ScriptedServer,
+  self : ScriptedServer,
   conn : @http.ServerConnection,
   req : @http.Request,
   script : ResponseScript,
@@ -260,12 +335,12 @@ async fn ScriptedServer::serve_script(
     }
     // B-02 滴流（T006）：定长帧——CL 预先声明总量，体按块 write + flush，
     // 块间 sleep(interval_ms)；末块后不 sleep（间隔语义＝块与块之间）
-    (200, Fixed, Drip(block_bytes, blocks, interval_ms)) => {
+    (status, Fixed, Drip(block_bytes, blocks, interval_ms)) => {
       let _ = req
       let total = block_bytes * blocks
       let extra = extra_headers_of(script.headers)
       extra[@http.CaseInsensitiveString("Content-Length")] = "\{total}"
-      conn.send_response(200, "OK", extra_headers=extra)
+      conn.send_response(status, reason_of(status), extra_headers=extra)
       let block = drip_block(block_bytes)
       for i in 0..<blocks {
         conn.write(block)
@@ -276,6 +351,24 @@ async fn ScriptedServer::serve_script(
           @async.sleep(interval_ms)
         }
       }
+      conn.end_response()
+      true
+    }
+    // B-04 echo 唯一 id（T008，FR-013）：体 = "<单调id>:<请求体原样>"。
+    // 字节保真路径：id 段恒 ASCII，请求体字节原样拼接，多字节 UTF-8 不经
+    // 字符串重编码（客户端以请求体逐字节回显为判据）。
+    (status, Fixed, Echo) => {
+      let req_body = conn.read_all().binary()
+      let id = self.next_id
+      self.next_id = id + 1
+      let buf = Buffer()
+      buf.write_bytes(ascii_bytes("\{id}:"))
+      buf.write_bytes(req_body)
+      let body = buf.to_bytes()
+      let extra = extra_headers_of(script.headers)
+      extra[@http.CaseInsensitiveString("Content-Length")] = "\{body.length()}"
+      conn.send_response(status, reason_of(status), extra_headers=extra)
+      conn.write(body)
       conn.end_response()
       true
     }

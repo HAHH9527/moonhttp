@@ -70,7 +70,7 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
 逐条登记如下（原文不回改）。其中牵扯后续里程碑的条目另提取为跨里程碑跟踪：
 总入口 [`../deferred-items.md`](../deferred-items.md)，M1 明细
 [`../deferred-items/deferred-items-m1.md`](../deferred-items/deferred-items-m1.md)
-（F1–F17，M2–M5 拆分必读）：
+（F1–F18，M2–M5 拆分必读）：
 
 | # | 差异 | 原文出处 | 理由与处理 |
 | --- | --- | --- | --- |
@@ -84,6 +84,7 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
 | D8 | **测试与基准夹具自建**：原报告引用的上游仓库资产（`test_programs` cancellation 基建、`examples/http_server_benchmark`、`mio/_connmeasure` Python 夹具）不搬运，P03 自建等价物 | 03 §8、14 §5 | 宪法 I 禁止复制/vendor 上游源码；方法论对齐 round1–3，目标值以其报告数字为参考 |
 | D9 | **target 执行口径**（2026-10-14 按宪法 v1.2.0 更新）：M1 不建 wasm-gc stub 与 js 适配层（16 属 M5）；验证面为 native+wasm（check 零错误零警告 + 测试双绿），js/wasm-gc 依宪法 v1.2.0 原则 V（:67-77）标注「暂不验证」并挂欠账（F9），M5 收口时恢复 js 门禁（:130-133） | 16-target-support 属 M5 | 里程碑边界；宪法 v1.2.0 target 条款为口径依据，矩阵标注仍在每包落实 |
 | D10 | **故障注入能力口径**（2026-10-18）：原可行性报告 02 §8「服务端 accept 后立即 RST（或 close 不回包）」的手法在本项目不可照做——上游 moonbitlang/async 公开 API 无 shutdown/SO_LINGER（src/socket 全目录无 shutdown，Tcp 只有幂等全双工 close），只能交付 accept 后 close/FIN 与依实测钉死的 FIN/RST 观测清单；RST 属上游能力缺口（欠账 F16，**需人工批准的上游 PR 候选**） | 02 §8（P07 来源） | P03 已按 `specs/003-m1-p03-test-fixtures/spec.md` 澄清 D2 交付（B-10＝close 注入 + 观测清单，FR-015）；P07 相关判据已按 F17 同步改写（见 P07 文档：钉死集合 {BadRequest, ReaderClosed}） |
+| D11 | **服务端并发 accept 能力口径**（2026-10-18）：上游 `TcpServer::accept` 并发调用不安全——同一监听句柄挂 2 个并发 accept，native 直接 PanicError 崩溃（0xc0000409）、wasm/moonrun 悬挂不醒（P03 T008 双 target 探针实测，零夹具代码复现；机制锚点 network_windows.mbt:194-213）。原报告 02 §8/03 §8 各处「并发连接」服务端场景按「串行 accept + spawn_bg 并发处理」形态落地（即上游 run_forever tcp.mbt:141-172 的唯一自证可行形态） | 02 §8、03 §8（多连接服务端场景） | P03 夹具按 owner T008 裁决 A 以 `serve_n` 收口 accept 循环（测试代码保持零 accept 循环，FR-012）；B-04 行为判据不弱化（客户端侧真实并发 N=8 + 交错自证断言并发处理）；上游缺口登记欠账 F18（**需人工批准候选**，宪法 I） |
 
 补充口径说明（非差异，仅为落地澄清）：
 

@@ -29,6 +29,17 @@ pub async fn ScriptedServer::serve_once(
   self : ScriptedServer, timeout_ms~ : Int = 5000
 ) -> Unit raise
 
+/// 串行 accept、并发处理的多连接服务面（T008 owner 裁决 A，2026-10-18）：
+/// 同一时刻至多一个在途 accept——上游 `TcpServer::accept` 并发调用不安全
+/// （native PanicError 崩溃 / wasm 悬挂，2026-10-18 双 target 实测，欠账
+/// F18）；连接接受后经任务组 spawn_bg 并发处理（上游 run_forever 同款
+/// 形态，tcp.mbt:141-172）。每连接处理受 with_timeout_opt 保护并在收尾
+/// 关闭（FR-004/SC-006）；返回前等待全部在途连接收尾。close() 幂等优雅
+/// 停止：循环内发现 closed 即停，accept 因句柄关闭报错按停止收尾。
+pub async fn ScriptedServer::serve_n(
+  self : ScriptedServer, n : Int, timeout_ms~ : Int = 5000
+) -> Unit raise
+
 /// 幂等停止：关监听不再 accept；在途连接由其操作超时上限收尾（FR-004）
 pub fn ScriptedServer::close(self : ScriptedServer) -> Unit
 ```

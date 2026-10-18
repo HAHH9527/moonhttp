@@ -275,3 +275,106 @@ async test "P03-B03② 307/308 与畸形 Location 声明值原样下发" {
     server.close()
   }
 }
+
+///|
+// US-1 场景 3（B-04 echo 唯一 id，FR-013）：并发 N≥8 个带唯一 id 的请求，
+// 响应体 = "<单调id>:<请求体原样>"，id↔请求体一一对应、无串号无重复。
+// 客户端侧真实并发发起 N=8（task group × Client），行为判据不弱化；
+// 服务侧 accept 收口在夹具 serve_n（串行 accept + spawn_bg 并发处理，
+// 上游 run_forever 同款形态；owner T008 裁决 A——并发 serve_once 触发
+// 上游缺口：native PanicError / wasm 悬挂，欠账 F18）。
+// 交错自证：echo 脚本带 120ms 头延迟，8 条连接并发处理的总耗时必须
+// 显著低于串行化形态（native ≥960ms；wasm/moonrun 单连接更慢，串行化
+// 实际 ≥1.2s）。判据 <800ms：并发实测 native ~129ms / wasm ~635ms，
+// 贴近上界仍远低于任一 target 的串行化形态，区分度保住。
+// 体含多字节 UTF-8（负载）以顺带钉死字节保真回显。
+async test "P03-B04① US-1 场景3：并发 N=8 echo 唯一 id 一一对应" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("POST", "/echo", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Echo,
+      head_delay_ms: 120,
+      close_after_response: true,
+    })
+    let n = 8
+    // 服务侧：单次 serve_n 调用（FR-012 审计口径：测试代码零 accept 循环）
+    let t0 = @async.now()
+    let serving = group.spawn(() => server.serve_n(n, timeout_ms=6000))
+    // 客户端侧：并发 N 个带唯一 id 的请求；各自把回显体落入自己的槽位
+    let bodies : Array[String?] = Array::make(n, None)
+    let client_tasks = []
+    for i in 0..<n {
+      let k = i
+      let task = group.spawn(() => {
+        let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+        client.request(Post, "/echo")
+        client.write("req-\{k}:负载\{k}")
+        let resp = client.end_request()
+        let body = client.read_all().text()
+        client.close()
+        assert_eq(
+          resp.code,
+          200,
+          msg="echo 请求 \{k} 未按脚本应答（红因应为 501 占位）",
+        )
+        bodies[k] = Some(body)
+      })
+      client_tasks.push(task)
+    }
+    for task in client_tasks {
+      task.wait()
+    }
+    serving.wait()
+    server.close()
+    // 交错自证（owner 裁决 3）：总耗时须显著低于串行下界，证明 8 条连接
+    // 的处理在事件循环上真实交错（并发处理），而非逐条串行
+    let total_ms = @async.now() - t0
+    println(
+      "[B-04 交错自证] N=8 并发处理总耗时=\{total_ms}ms（串行化形态 native≥960ms / wasm≥1.2s，判据 <800ms）",
+    )
+    assert_true(
+      total_ms < 800L,
+      msg="8 连接处理总耗时 \{total_ms}ms 追平串行化形态——处理疑似被串行化",
+    )
+    // 对账：N 个响应、id 段（首个 ':' 前）全为数字且两两不同、
+    // 每个响应体精确为 "<id>:req-<k>:负载<k>"（无串号）
+    let ids : Array[StringView] = []
+    for i in 0..<n {
+      let body = match bodies[i] {
+        Some(body) => body
+        None => fail("echo 请求 \{i} 未收到响应体")
+      }
+      let colon = match body.find(":") {
+        Some(colon) => colon
+        None => fail("响应体缺少 id 前缀：\{body}")
+      }
+      assert_true(colon > 0, msg="响应体 id 段为空：\{body}")
+      let id_view = body[:colon]
+      let mut all_digits = true
+      for ch in id_view {
+        if ch < '0' || ch > '9' {
+          all_digits = false
+        }
+      }
+      assert_true(all_digits, msg="id 段非单调数字：\{body}")
+      assert_eq(
+        body,
+        "\{id_view}:req-\{i}:负载\{i}",
+        msg="echo 串号：id \{id_view} 应答 \{body}",
+      )
+      ids.push(id_view)
+    }
+    let mut distinct = true
+    for i in 0..<n {
+      for j in 0..<n {
+        if i != j && ids[i] == ids[j] {
+          distinct = false
+        }
+      }
+    }
+    assert_true(distinct, msg="echo id 出现重复")
+  }
+}

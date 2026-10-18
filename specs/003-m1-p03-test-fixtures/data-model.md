@@ -50,13 +50,22 @@ pub struct ScriptedServer { priv server : @http.Server, priv routes, priv state 
 
 状态机： Stopped ──start()──▶ Listening ──close()──▶ Closed
                     │  mount()*          ▲
-                    └──serve_once()*─────┘（Serving 为 Listening 上的瞬态；
-                       analyze F8：并发由测试侧 task group × serve_once 承载，不设 serve_n）
+                    └──serve_once()*/serve_n()*──┘（Serving 为 Listening 上的瞬态）
 
 * mount(method, path, ResponseScript)：仅 Listening 态可声明（声明式编排面）
 * serve_once(timeout_ms~)：accept 一条连接 → 循环 read_request → 路由匹配 →
   按 ResponseScript 编排应答 → 对端关闭/EOF/超时为止；整体受
   @async.with_timeout_opt(timeout_ms) 保护（公开面，async mbti:50）
+* serve_n(n, timeout_ms~)（T008 owner 裁决 A，2026-10-18）：串行 accept 至多
+  n 条连接、连接接受后经任务组 spawn_bg 并发处理。原「并发由测试侧
+  task group × serve_once 承载、不设 serve_n」的注记已被 T008 实测推翻——
+  上游 TcpServer::accept 并发调用不安全（native PanicError / wasm 悬挂，
+  2026-10-18 双 target 探针实测，机制锚点 network_windows.mbt:194-213
+  accept_windows 经 wait_read_result 在同一监听句柄挂等待；上游唯一自证
+  可行形态即 run_forever 的「循环内串行 accept + spawn_bg 并发处理」，
+  tcp.mbt:141-172）。accept 循环收口在夹具内（FR-012 审计口径保持：测试
+  代码零 accept 循环）；上游缺口登记欠账 F18（向 moonbitlang/async 提
+  issue/PR 须事先人工批准，宪法 I）
 * close()：幂等；关监听，不再 accept；在途连接由其操作超时上限收尾
   （优雅关闭语义，spec FR-004）
 不变量：start 后 port() > 0（bind 127.0.0.1:0，冲突重试 ≤3，FR-011/FR-003）；
