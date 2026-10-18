@@ -26,11 +26,11 @@
 /// 响应编排声明（FR-012 声明式面；data-model 实体 1）。一次 mount 声明一个
 /// 路由的完整响应编排；字段全部由测试编写者声明构造。
 pub(all) struct ResponseScript {
-  status : Int // 200/301/302/303/307/308/401/407…
+  status : Int32 // 200/301/302/303/307/308/401/407…
   headers : Array[(String, String)] // Location / WWW-Authenticate / 等，原样下发
   framing : Framing // B-05：定长 / chunked
   body : BodyPlan
-  head_delay_ms : Int // B-01：回响应头前的延迟
+  head_delay_ms : Int32 // B-01：回响应头前的延迟
   close_after_response : Bool // B-06：Connection: close 头 + 应答后实际关闭
 }
 
@@ -48,7 +48,7 @@ pub(all) enum Framing {
 pub(all) enum BodyPlan {
   Static(Bytes)
   Echo
-  Drip(Int, Int, Int) // block_bytes, blocks, interval_ms
+  Drip(Int32, Int32, Int32) // block_bytes, blocks, interval_ms
 }
 
 ///|
@@ -90,9 +90,9 @@ fn extra_headers_of(script_headers : Array[(String, String)]) -> @http.Headers {
 // 无体简单应答（404/501 等夹具自管收尾），带 CL:0，应答后由调用方决定连接去向
 async fn send_simple(
   conn : @http.ServerConnection,
-  code : Int,
+  code : Int32,
   reason : String,
-) -> Unit raise {
+) -> Unit {
   let extra : @http.Headers = Map([], capacity=4)
   extra[@http.CaseInsensitiveString("Content-Length")] = "0"
   conn.send_response(code, reason, extra_headers=extra)
@@ -102,16 +102,12 @@ async fn send_simple(
 ///|
 /// 绑定 127.0.0.1:0 并监听；bind 冲突自动重试 ≤ bind_retry 次（FR-011/FR-003，
 /// 复用 T004 的 raw_peer.mbt 同名常量——防御性分支未测口径同 T004 记录）。
-pub async fn ScriptedServer::start() -> ScriptedServer raise {
+pub async fn ScriptedServer::start() -> ScriptedServer {
   let mut last_error : Error? = None
   for _attempt in 0..<bind_retry {
     try {
       let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
-      return {
-        server,
-        routes: Map([], capacity=8),
-        closed: false,
-      }
+      return { server, routes: Map([], capacity=8), closed: false, }
     } catch {
       err => last_error = Some(err)
     }
@@ -121,7 +117,7 @@ pub async fn ScriptedServer::start() -> ScriptedServer raise {
 
 ///|
 /// OS 回填的实际监听端口（bind :0，恒 > 0；B-14 server 侧）。
-pub fn ScriptedServer::port(self : ScriptedServer) -> Int {
+pub fn ScriptedServer::port(self : ScriptedServer) -> Int32 {
   self.server.addr.port()
 }
 
@@ -146,8 +142,8 @@ pub fn ScriptedServer::mount(
 /// 超时或出错均关闭连接收尾，不悬挂（SC-006）。
 pub async fn ScriptedServer::serve_once(
   self : ScriptedServer,
-  timeout_ms~ : Int = 5000,
-) -> Unit raise {
+  timeout_ms~ : Int32 = 5000,
+) -> Unit {
   if self.closed {
     return
   }
@@ -182,15 +178,14 @@ pub async fn ScriptedServer::serve_once(
 async fn ScriptedServer::serve_connection(
   self : ScriptedServer,
   conn : @http.ServerConnection,
-) -> Unit raise {
+) -> Unit {
   for ;; {
-    let req = match (try {
-      conn.read_request()
-    } catch {
-      e => Err(e)
-    } noraise {
-      r => Ok(r)
-    }) {
+    let req = match
+      (try conn.read_request() catch {
+        e => Err(e)
+      } noraise {
+        r => Ok(r)
+      }) {
       // EOF/连接级错误＝对端收尾，正常路径
       Err(_) => break
       Ok(req) => req
@@ -219,11 +214,16 @@ async fn ScriptedServer::serve_script(
   conn : @http.ServerConnection,
   req : @http.Request,
   script : ResponseScript,
-) -> Bool raise {
-  // T005 骨架：仅放行 200 + Static + Fixed 的最小路径（T005 判据面）；
-  // 其余编排（延迟/滴流/重定向/echo/chunked/挑战/关闭）逐任务转绿。
-  match script {
-    { status: 200, framing: Fixed, body: Static(bytes), .. } => {
+) -> Bool {
+  // B-01：头延迟——send_response 前 sleep（T006 起；0 视为不延迟）
+  if script.head_delay_ms > 0 {
+    @async.sleep(script.head_delay_ms)
+  }
+  // T005 骨架路径（200 + Static + Fixed）；分派按任务增量放开：
+  // 未实现的编排一律 501「Not Implemented」+ 关连接收尾——后续任务的红阶段
+  // 据此获得可归因失败（夹具还没有该行为）。
+  match (script.status, script.framing, script.body) {
+    (200, Fixed, Static(bytes)) => {
       let _ = req
       let extra = extra_headers_of(script.headers)
       extra[@http.CaseInsensitiveString("Content-Length")] = "\{bytes.length()}"
@@ -235,11 +235,39 @@ async fn ScriptedServer::serve_script(
       // B-06 的「实际关闭」语义归 T010；骨架阶段靠对端 EOF/超时收尾
       true
     }
+    // B-02 滴流（T006）：定长帧——CL 预先声明总量，体按块 write + flush，
+    // 块间 sleep(interval_ms)；末块后不 sleep（间隔语义＝块与块之间）
+    (200, Fixed, Drip(block_bytes, blocks, interval_ms)) => {
+      let _ = req
+      let total = block_bytes * blocks
+      let extra = extra_headers_of(script.headers)
+      extra[@http.CaseInsensitiveString("Content-Length")] = "\{total}"
+      conn.send_response(200, "OK", extra_headers=extra)
+      let block = drip_block(block_bytes)
+      for i in 0..<blocks {
+        conn.write(block)
+        // R3：写有缓冲语义（server.mbt:128-129「MAY be buffered」），
+        // flush 保证块准时上线，客户端侧才能观测到滴流节奏
+        conn.flush()
+        if i < blocks - 1 {
+          @async.sleep(interval_ms)
+        }
+      }
+      conn.end_response()
+      true
+    }
     _ => {
       send_simple(conn, 501, "Not Implemented")
       false
     }
   }
+}
+
+///|
+// 滴流填充块：n 个 'x'（0x78）。内容确定性由元测试断言（B-02 总量/内容）。
+// 返回视图即可——底层 FixedArray 由 GC 与视图共同保活（raw_peer.mbt 同款手法）。
+fn drip_block(n : Int32) -> BytesView {
+  FixedArray::make(n, b'x').unsafe_reinterpret_as_bytes()
 }
 
 ///|
