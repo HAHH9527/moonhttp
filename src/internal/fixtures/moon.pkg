@@ -1,15 +1,17 @@
-// P03 裸 TCP 对端夹具（T009 线上字节断言前置，specs/002-m1-p02-request-response
-// /tasks.md:207-237、spec.md:383-387 SC-002）。
+// P03 测试夹具库（specs/003-m1-p03-test-fixtures）：两类可控服务端——
+// 第 1 类 @http 声明式编排服务端（scripted_server，B-01～B-06/B-08）、
+// 第 2 类裸 TCP 程序化对端（raw_peer → ScriptedPeer 演进，B-09～B-13），
+// 外加端口/生命周期驱动辅助（B-14/B-15）。
 //
-// 宪法 I：只经 moonbitlang/async 公开 API（@socket / @async），不 fork、不复制、
-// 不 vendor 上游源码；上游 test_programs/examples/mio 测试资产一律不搬运
-// （roadmap 差异 D8，proj-init-docs/okhttp-on-async-http/README.md），手法可参考、
-// 代码自建。上游代码禁改。
-// 宪法 IV：只监听 127.0.0.1（回环），绝不触外部网络。
+// 宪法 I：只经 moonbitlang/async 公开 API（@http / @socket / @io / @async），
+// 不 fork、不复制、不 vendor 上游源码；上游 test_programs/examples/mio 测试资产
+// 一律不搬运（roadmap 差异 D8），手法可参考、代码自建。上游代码禁改。
+// 宪法 IV：只监听/连接 127.0.0.1（回环），绝不触外部网络。
 // 宪法 VII：注释与文档中文。
 
 import {
   "moonbitlang/async",
+  "moonbitlang/async/http",
   "moonbitlang/async/socket",
 }
 

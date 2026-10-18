@@ -6,6 +6,12 @@ package "hahh9527/moonhttp/internal/fixtures"
 // Errors
 
 // Types and methods
+pub(all) enum BodyPlan {
+  Static(Bytes)
+  Echo
+  Drip(Int, Int, Int)
+}
+
 pub(all) struct CapturedRequest {
   head : Bytes
   body : Bytes
@@ -17,6 +23,11 @@ pub(all) struct CapturedRequest {
 pub fn CapturedRequest::head_text(Self) -> String
 pub fn CapturedRequest::raw_text(Self) -> String
 
+pub(all) enum Framing {
+  Fixed
+  Chunked
+}
+
 pub struct RawPeer {
   // private fields
 }
@@ -24,6 +35,24 @@ pub async fn RawPeer::capture_one(Self, timeout_ms? : Int) -> CapturedRequest
 pub fn RawPeer::close(Self) -> Unit
 pub fn RawPeer::port(Self) -> Int
 pub async fn RawPeer::start() -> Self
+
+pub(all) struct ResponseScript {
+  status : Int
+  headers : Array[(String, String)]
+  framing : Framing
+  body : BodyPlan
+  head_delay_ms : Int
+  close_after_response : Bool
+}
+
+pub struct ScriptedServer {
+  // private fields
+}
+pub fn ScriptedServer::close(Self) -> Unit
+pub fn ScriptedServer::mount(Self, String, String, ResponseScript) -> Unit
+pub fn ScriptedServer::port(Self) -> Int
+pub async fn ScriptedServer::serve_once(Self, timeout_ms? : Int) -> Unit
+pub async fn ScriptedServer::start() -> Self
 
 // Type aliases
 
