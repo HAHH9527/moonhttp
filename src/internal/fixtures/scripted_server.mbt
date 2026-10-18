@@ -318,34 +318,67 @@ async fn ScriptedServer::serve_script(
   // T005 骨架路径（200 + Static + Fixed）；分派按任务增量放开：
   // 未实现的编排一律 501「Not Implemented」+ 关连接收尾——后续任务的红阶段
   // 据此获得可归因失败（夹具还没有该行为）。
-  match (script.status, script.framing, script.body) {
-    // B-03/B-08 编排面（T007 起）：status + headers（Location /
-    // WWW-Authenticate 等）按声明原样下发，跟随/凭证语义归消费方测试
-    (status, Fixed, Static(bytes)) => {
-      let _ = req
-      let extra = extra_headers_of(script.headers)
-      extra[@http.CaseInsensitiveString("Content-Length")] = "\{bytes.length()}"
-      conn.send_response(status, reason_of(status), extra_headers=extra)
-      if bytes.length() > 0 {
-        conn.write(bytes)
+  // 分派：按 body plan 为主线，framing 决定 CL 有无（send.mbt:190-197
+  // 公开契约——extra_headers 带 CL ⇒ 定长帧；不带 ⇒ 首次写体转 chunked）。
+  // 未实现的编排一律 501「Not Implemented」+ 关连接收尾——后续任务的红阶段
+  // 据此获得可归因失败（夹具还没有该行为）。
+  match script.body {
+    // B-05（T009）：定长/chunked 可选；chunked 路径块边界经 flush 保真（R3）
+    Static(bytes) =>
+      match script.framing {
+        Fixed => {
+          let _ = req
+          let extra = extra_headers_of(script.headers)
+          extra[@http.CaseInsensitiveString("Content-Length")] = "\{bytes.length()}"
+          conn.send_response(
+            script.status,
+            reason_of(script.status),
+            extra_headers=extra,
+          )
+          if bytes.length() > 0 {
+            conn.write(bytes)
+          }
+          conn.end_response()
+          // B-06 的「实际关闭」语义归 T010；骨架阶段靠对端 EOF/超时收尾
+          true
+        }
+        Chunked => {
+          let _ = req
+          let extra = extra_headers_of(script.headers)
+          conn.send_response(
+            script.status,
+            reason_of(script.status),
+            extra_headers=extra,
+          )
+          if bytes.length() > 0 {
+            conn.write(bytes)
+            conn.flush()
+          }
+          conn.end_response()
+          true
+        }
       }
-      conn.end_response()
-      // B-06 的「实际关闭」语义归 T010；骨架阶段靠对端 EOF/超时收尾
-      true
-    }
-    // B-02 滴流（T006）：定长帧——CL 预先声明总量，体按块 write + flush，
-    // 块间 sleep(interval_ms)；末块后不 sleep（间隔语义＝块与块之间）
-    (status, Fixed, Drip(block_bytes, blocks, interval_ms)) => {
+    // B-02 滴流（T006）：体按块 write + flush，块间 sleep(interval_ms)；
+    // 末块后不 sleep（间隔语义＝块与块之间）。Fixed 预先声明 CL 总量；
+    // Chunked 逐块自成帧（小写块经 flush 保块边界）
+    Drip(block_bytes, blocks, interval_ms) => {
       let _ = req
-      let total = block_bytes * blocks
       let extra = extra_headers_of(script.headers)
-      extra[@http.CaseInsensitiveString("Content-Length")] = "\{total}"
-      conn.send_response(status, reason_of(status), extra_headers=extra)
+      match script.framing {
+        Fixed =>
+          extra[@http.CaseInsensitiveString("Content-Length")] = "\{block_bytes * blocks}"
+        Chunked => ()
+      }
+      conn.send_response(
+        script.status,
+        reason_of(script.status),
+        extra_headers=extra,
+      )
       let block = drip_block(block_bytes)
       for i in 0..<blocks {
         conn.write(block)
         // R3：写有缓冲语义（server.mbt:128-129「MAY be buffered」），
-        // flush 保证块准时上线，客户端侧才能观测到滴流节奏
+        // flush 保证块准时上线，客户端侧才能观测到滴流节奏/块边界
         conn.flush()
         if i < blocks - 1 {
           @async.sleep(interval_ms)
@@ -356,8 +389,8 @@ async fn ScriptedServer::serve_script(
     }
     // B-04 echo 唯一 id（T008，FR-013）：体 = "<单调id>:<请求体原样>"。
     // 字节保真路径：id 段恒 ASCII，请求体字节原样拼接，多字节 UTF-8 不经
-    // 字符串重编码（客户端以请求体逐字节回显为判据）。
-    (status, Fixed, Echo) => {
+    // 字符串重编码（客户端以请求体逐字节回显为判据）
+    Echo => {
       let req_body = conn.read_all().binary()
       let id = self.next_id
       self.next_id = id + 1
@@ -366,15 +399,22 @@ async fn ScriptedServer::serve_script(
       buf.write_bytes(req_body)
       let body = buf.to_bytes()
       let extra = extra_headers_of(script.headers)
-      extra[@http.CaseInsensitiveString("Content-Length")] = "\{body.length()}"
-      conn.send_response(status, reason_of(status), extra_headers=extra)
+      match script.framing {
+        Fixed =>
+          extra[@http.CaseInsensitiveString("Content-Length")] = "\{body.length()}"
+        Chunked => ()
+      }
+      conn.send_response(
+        script.status,
+        reason_of(script.status),
+        extra_headers=extra,
+      )
       conn.write(body)
+      if script.framing is Chunked {
+        conn.flush()
+      }
       conn.end_response()
       true
-    }
-    _ => {
-      send_simple(conn, 501, "Not Implemented")
-      false
     }
   }
 }

@@ -378,3 +378,161 @@ async test "P03-B04① US-1 场景3：并发 N=8 echo 唯一 id 一一对应" {
     assert_true(distinct, msg="echo id 出现重复")
   }
 }
+
+///|
+// 子串计数（手工扫描；StringView 比对经 to_owned，避免依赖未取证 API）
+fn count_sub(s : String, sub : String) -> Int32 {
+  let sub_len = sub.length()
+  let total = s.length() - sub_len
+  let mut count = 0
+  let mut i = 0
+  while i <= total {
+    if s[i:i + sub_len].to_owned() == sub {
+      count = count + 1
+      i = i + sub_len
+    } else {
+      i = i + 1
+    }
+  }
+  count
+}
+
+///|
+// B-05① Fixed 定长帧线上形态：线上字节含 Content-Length: 10、无
+// Transfer-Encoding，体恰 10 字节且逐字节等于声明负载（一律以线上字节为
+// 准，不信任调用序；R3：不按写入粒度手算线上字节）。
+// 说明：Fixed+Static 的 CL 契约在 T005 骨架即落地——本测试预期落笔即绿，
+// 定位为帧形态回归护栏（未红判据，见任务产出）。
+async test "P03-B05① Fixed 定长帧线上形态：CL 精确、无 TE、体恰 n 字节" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/fixed", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"0123456789"),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=2000))
+    let conn = connect_peer(server.port())
+    conn.write(b"GET /fixed HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    let raw = bytes_text(conn.read_all().binary())
+    conn.close()
+    serving.wait()
+    server.close()
+    let head_end = match raw.find("\r\n\r\n") {
+      Some(pos) => pos
+      None => fail("响应缺少头体分隔：\{raw}")
+    }
+    let head = raw[:head_end].to_owned()
+    let body = raw[head_end + 4:].to_owned()
+    assert_true(
+      head.contains("HTTP/1.1 200 OK"),
+      msg="状态行缺失：\{head}",
+    )
+    assert_true(
+      head.contains("Content-Length: 10"),
+      msg="线上头缺 Content-Length: 10：\{head}",
+    )
+    assert_true(
+      !head.contains("Transfer-Encoding"),
+      msg="定长帧线上头不得出现 TE：\{head}",
+    )
+    assert_eq(body, "0123456789", msg="线上体与声明负载不符")
+    assert_eq(body.length(), 10, msg="线上体长度不等于 CL 声明")
+  }
+}
+
+///|
+// B-05② Chunked 帧线上形态：无 Content-Length、有 TE: chunked；小体单写
+// 在上游发送缓冲（send.mbt:85，1024B）内整块提交——线上为「hex 大小行 +
+// 数据 + CRLF」单块 + 终止块（send.mbt:149-169 形态取证），不按写入粒度
+// 之外的假设手算。
+async test "P03-B05② Chunked 帧线上形态：无 CL、TE chunked、块框架与终止块" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/chunked", {
+      status: 200,
+      headers: [],
+      framing: Chunked,
+      body: Static(b"abcdefghij"),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=2000))
+    let conn = connect_peer(server.port())
+    conn.write(b"GET /chunked HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    let raw = bytes_text(conn.read_all().binary())
+    conn.close()
+    serving.wait()
+    server.close()
+    let head_end = match raw.find("\r\n\r\n") {
+      Some(pos) => pos
+      None =>
+        fail(
+          "响应缺少头体分隔（红因应为 501 占位无体）：\{raw}",
+        )
+    }
+    let head = raw[:head_end].to_owned()
+    assert_true(
+      head.contains("HTTP/1.1 200 OK"),
+      msg="状态行缺失：\{head}",
+    )
+    assert_true(
+      !head.contains("Content-Length"),
+      msg="chunked 帧线上头不得出现 CL：\{head}",
+    )
+    assert_true(
+      head.contains("Transfer-Encoding: chunked"),
+      msg="chunked 帧线上头缺 TE: chunked：\{head}",
+    )
+    // 10 字节 → hex 大小行 "a"；单块框架 + 0 终止块原样上线
+    assert_true(
+      raw.contains("a\r\nabcdefghij\r\n0\r\n\r\n"),
+      msg="线上缺少预期块框架（a + 数据 + 0 终止块）：\{raw}",
+    )
+  }
+}
+
+///|
+// B-05③ Chunked 滴流：3 块 × 32B 逐块 write+flush——线上应出现 3 个
+// "20\r\n"（32 的 hex）块大小行 + 终止块；块边界经 flush 保真（R3 对策），
+// 且不得出现 CL。
+async test "P03-B05③ Chunked 滴流：逐块大小行可见、无 CL、终止块收尾" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/drip-chunked", {
+      status: 200,
+      headers: [],
+      framing: Chunked,
+      body: Drip(32, 3, 40),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=2000))
+    let conn = connect_peer(server.port())
+    conn.write(b"GET /drip-chunked HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    let raw = bytes_text(conn.read_all().binary())
+    conn.close()
+    serving.wait()
+    server.close()
+    assert_true(
+      !raw.contains("Content-Length"),
+      msg="chunked 滴流线上不得出现 CL：\{raw}",
+    )
+    assert_true(
+      raw.contains("Transfer-Encoding: chunked"),
+      msg="chunked 滴流线上缺 TE 头：\{raw}",
+    )
+    assert_eq(
+      count_sub(raw, "20\r\n"),
+      3,
+      msg="3 个 32B 块应在线上留下 3 个 hex 大小行 20：\{raw}",
+    )
+    assert_true(
+      raw.contains("0\r\n\r\n"),
+      msg="chunked 滴流缺终止块：\{raw}",
+    )
+  }
+}
