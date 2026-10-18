@@ -54,11 +54,16 @@ pub(all) enum BodyPlan {
 ///|
 /// 只监听回环的声明式 HTTP 服务端句柄（data-model 实体 2）。
 /// 状态机：start() 后 Listening；close() 后 Closed（幂等）。
+/// active/peak 为 serve_n 并发处理高水位观测位（B-04 交错自证的结构性
+/// 证据）：每连接处理进入时 +1、退出时 -1；增减为纯同步代码、无 await
+/// 中间态（协同式调度下跨任务可见且无竞态）。
 pub struct ScriptedServer {
   priv server : @http.Server
   priv routes : Map[(String, String), ResponseScript]
   priv mut closed : Bool
   priv mut next_id : Int32 // B-04 echo 单调 id（FR-013）
+  priv mut active_conns : Int32 // 当前在途连接处理数
+  priv mut peak_conns : Int32 // 在途高水位（≥2 即证并发处理）
 }
 
 ///|
@@ -129,7 +134,14 @@ pub async fn ScriptedServer::start() -> ScriptedServer {
   for _attempt in 0..<bind_retry {
     try {
       let server = @http.Server(@socket.Addr::parse("127.0.0.1:0"))
-      return { server, routes: Map([], capacity=8), closed: false, next_id: 1, }
+      return {
+        server,
+        routes: Map([], capacity=8),
+        closed: false,
+        next_id: 1,
+        active_conns: 0,
+        peak_conns: 0,
+      }
     } catch {
       err => last_error = Some(err)
     }
@@ -272,10 +284,27 @@ pub async fn ScriptedServer::serve_n(
           // 串行 accept：同一时刻至多一个在途 accept（上游约束，见上）
           let (conn, _peer_addr) = self.server.accept()
           group.spawn_bg(() => {
-            let _ = @async.with_timeout_opt(timeout_ms) <| () => {
-              self.serve_connection(conn)
+            // 高水位观测位：进入 +1 / 退出 -1，退出路径恒执行（含超时/错误）
+            self.active_conns = self.active_conns + 1
+            if self.active_conns > self.peak_conns {
+              self.peak_conns = self.active_conns
             }
+            let outcome : Result[Unit?, Error] = try {
+              let r = @async.with_timeout_opt(timeout_ms) <| () => {
+                self.serve_connection(conn)
+              }
+              Ok(r)
+            } catch {
+              e => Err(e)
+            } noraise {
+              r => r
+            }
+            self.active_conns = self.active_conns - 1
             conn.close()
+            match outcome {
+              Err(e) => raise e
+              Ok(_) => ()
+            }
           })
         }
       }
@@ -433,6 +462,15 @@ async fn ScriptedServer::serve_script(
 // 返回视图即可——底层 FixedArray 由 GC 与视图共同保活（raw_peer.mbt 同款手法）。
 fn drip_block(n : Int32) -> BytesView {
   FixedArray::make(n, b'x').unsafe_reinterpret_as_bytes()
+}
+
+///|
+/// serve_n 并发处理高水位（B-04 交错自证的结构性证据，owner 裁决 2026-10-18）：
+/// serve 本轮处理中「同时在途连接数」的峰值；≥2 即直接证明连接处理真实
+/// 并发交错（而非逐条串行）。须在 serve_n 返回后读取（此时全部连接已退出、
+/// 峰值定格）。单连接 serve_once 不计入（观测位语义限 serve_n）。
+pub fn ScriptedServer::peak_concurrent(self : ScriptedServer) -> Int32 {
+  self.peak_conns
 }
 
 ///|

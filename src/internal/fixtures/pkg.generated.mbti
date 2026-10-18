@@ -50,6 +50,7 @@ pub struct ScriptedServer {
 }
 pub fn ScriptedServer::close(Self) -> Unit
 pub fn ScriptedServer::mount(Self, String, String, ResponseScript) -> Unit
+pub fn ScriptedServer::peak_concurrent(Self) -> Int
 pub fn ScriptedServer::port(Self) -> Int
 pub async fn ScriptedServer::serve_n(Self, Int, timeout_ms? : Int) -> Unit
 pub async fn ScriptedServer::serve_once(Self, timeout_ms? : Int) -> Unit

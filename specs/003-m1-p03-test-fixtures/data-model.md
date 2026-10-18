@@ -66,6 +66,9 @@ pub struct ScriptedServer { priv server : @http.Server, priv routes, priv state 
   tcp.mbt:141-172）。accept 循环收口在夹具内（FR-012 审计口径保持：测试
   代码零 accept 循环）；上游缺口登记欠账 F18（向 moonbitlang/async 提
   issue/PR 须事先人工批准，宪法 I）
+* peak_concurrent()（2026-10-18 owner 加固指令）：serve_n 并发处理高水位
+  观测位——每连接处理进入 +1/退出 -1 的共享计数峰值；B-04 交错自证以
+  「高水位 ≥2」为结构性判据（墙钟仅 println 留痕，防慢机 flake）
 * close()：幂等；关监听，不再 accept；在途连接由其操作超时上限收尾
   （优雅关闭语义，spec FR-004）
 不变量：start 后 port() > 0（bind 127.0.0.1:0，冲突重试 ≤3，FR-011/FR-003）；

@@ -44,6 +44,19 @@ pub async fn ScriptedServer::serve_n(
 pub fn ScriptedServer::close(self : ScriptedServer) -> Unit
 ```
 
+观测位（internal 包、`.mbti` 非对外承诺，仍按 owner 要求在契约留痕）：
+
+```moonbit
+/// serve_n 并发处理高水位：本轮同时在途连接数的峰值（每连接进入 +1/退出
+/// -1 的共享计数，纯同步增减无 await 中间态）；≥2 即直接证明连接处理真实
+/// 并发交错。须在 serve_n 返回后读取（峰值定格）；serve_once 不计入。
+pub fn ScriptedServer::peak_concurrent(self : ScriptedServer) -> Int
+```
+
+（T008 owner 裁决 A 落地时新增 serve_n 与 peak_concurrent；「并发处理」的
+证明判据为结构性高水位 ≥2，墙钟耗时仅 println 留痕——2026-10-18 owner
+加固指令，替代原纯墙钟判据。）
+
 行为子句（每条对应行为清单编号与自证元测试义务 FR-002）：
 
 - B-01 `head_delay_ms`：`send_response` 前延迟；元测试用 `@async.now()` 断言

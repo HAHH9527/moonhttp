@@ -283,10 +283,9 @@ async test "P03-B03② 307/308 与畸形 Location 声明值原样下发" {
 // 服务侧 accept 收口在夹具 serve_n（串行 accept + spawn_bg 并发处理，
 // 上游 run_forever 同款形态；owner T008 裁决 A——并发 serve_once 触发
 // 上游缺口：native PanicError / wasm 悬挂，欠账 F18）。
-// 交错自证：echo 脚本带 120ms 头延迟，8 条连接并发处理的总耗时必须
-// 显著低于串行化形态（native ≥960ms；wasm/moonrun 单连接更慢，串行化
-// 实际 ≥1.2s）。判据 <800ms：并发实测 native ~129ms / wasm ~635ms，
-// 贴近上界仍远低于任一 target 的串行化形态，区分度保住。
+// 交错自证（owner 裁决 2026-10-18 升级）：并发处理的证明为**结构性证据**——
+// 夹具内并发处理高水位 peak_concurrent() >= 2（每连接进入 +1/退出 -1 的
+// 共享计数）；墙钟总耗时仅 println 留痕，不再作判据（慢机 flake 源）。
 // 体含多字节 UTF-8（负载）以顺带钉死字节保真回显。
 async test "P03-B04① US-1 场景3：并发 N=8 echo 唯一 id 一一对应" {
   @async.with_task_group() <| group => {
@@ -329,15 +328,15 @@ async test "P03-B04① US-1 场景3：并发 N=8 echo 唯一 id 一一对应" {
     }
     serving.wait()
     server.close()
-    // 交错自证（owner 裁决 3）：总耗时须显著低于串行下界，证明 8 条连接
-    // 的处理在事件循环上真实交错（并发处理），而非逐条串行
+    // 交错自证：结构性证据（高水位 ≥2 即真并发处理）＋墙钟 println 留痕
     let total_ms = @async.now() - t0
+    let peak = server.peak_concurrent()
     println(
-      "[B-04 交错自证] N=8 并发处理总耗时=\{total_ms}ms（串行化形态 native≥960ms / wasm≥1.2s，判据 <800ms）",
+      "[B-04 交错自证] N=8 并发处理高水位=\{peak}（≥2 即真并发）；总耗时留痕=\{total_ms}ms（串行化形态 native≥960ms / wasm≥1.2s）",
     )
     assert_true(
-      total_ms < 800L,
-      msg="8 连接处理总耗时 \{total_ms}ms 追平串行化形态——处理疑似被串行化",
+      peak >= 2,
+      msg="并发处理高水位 \{peak} < 2——连接处理被串行化（结构性判据）",
     )
     // 对账：N 个响应、id 段（首个 ':' 前）全为数字且两两不同、
     // 每个响应体精确为 "<id>:req-<k>:负载<k>"（无串号）
