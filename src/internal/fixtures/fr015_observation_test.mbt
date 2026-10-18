@@ -32,16 +32,19 @@ async fn fr015_read_outcome(conn : @socket.Tcp) -> String {
   let outcome = @async.with_timeout_opt(2000) <| () => {
     try {
       let buf = FixedArray::make(256, b'\x00')
+      let mut kind = "Timeout"
       for ;; {
         let n = conn.read(buf, max_len=256)
         if n == 0 {
-          return "ReaderClosed"
+          kind = "ReaderClosed"
+          break
         }
       }
+      kind
     } catch {
-      _ => return "OSError"
+      _ => "OSError"
     } noraise {
-      _ => "Timeout"
+      k => k
     }
   }
   match outcome {

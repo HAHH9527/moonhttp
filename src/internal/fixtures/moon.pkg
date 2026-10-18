@@ -12,8 +12,13 @@
 import {
   "moonbitlang/async",
   "moonbitlang/async/http",
-  "moonbitlang/async/io",
   "moonbitlang/async/socket",
 }
+
+// 黑盒测试（*_test.mbt）的错误分类面需要 @io（B-11 钉死集合的 ReaderClosed
+// 判别）；仅测试可见，不进入夹具运行时依赖。
+import {
+  "moonbitlang/async/io",
+} for "test"
 
 pkgtype(kind: "library")

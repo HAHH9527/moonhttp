@@ -58,18 +58,6 @@ pub(all) enum CutPoint {
 }
 
 ///|
-/// 程序名（run 对未实现程序报错时的可归因消息用）
-fn program_name(p : PeerProgram) -> String {
-  match p {
-    AcceptClose => "AcceptClose"
-    CloseObservation => "CloseObservation"
-    PartialResponse(_, _) => "PartialResponse"
-    SlowReceive(_, _) => "SlowReceive"
-    Capture => "Capture"
-  }
-}
-
-///|
 /// 捕获到的一条线上报文。字段即取证面，全部原样留存：
 /// - head：头部区字节（含最后一行的 CRLF，不含空行 CRLF）；未收到完整头部时为空
 /// - body：重组后的负载（定长截取或 chunk 拼接；畸形/未收完时为空）
@@ -266,7 +254,8 @@ pub async fn ScriptedPeer::run(
   let outcome = @async.with_timeout_opt(timeout_ms) <| () => {
     let (conn, _peer_addr) = self.server.accept()
     slot.conn = Some(conn)
-    let frame = match program {
+    // 各程序分支均自带连接收尾并 return（不再有统一收尾路径）
+    match program {
       // B-09（T012）：accept 后立即 close——客户端预期 EOF/ReaderClosed 类
       // 结局（为 P07 陈旧连接判据供证）。红阶段记录：T011 骨架的未实现
       // 收尾（accept→close）与本程序语义同形，客户端侧结局测试落笔即绿
@@ -289,7 +278,9 @@ pub async fn ScriptedPeer::run(
           Complete(_, _, _) => conn.write(canned_response)
           _ => ()
         }
-        frame
+        conn.close()
+        slot.conn = None
+        return frame
       }
       // B-11（T013，owner 裁决 A 收尾）：**先 drain 客户端请求（无条件内置，
       // 不加公开枚举字段）**，再按 CutPoint 上线 canned 前缀，再按
@@ -350,14 +341,16 @@ pub async fn ScriptedPeer::run(
                 "PartialResponse：drain 请求后按截断点上线 \{prefix}B 后关闭",
               )
             }
-            broken_early(
+            // then_close=false：前缀已上线，连接保持（不 close、不清 slot——
+            // 交由 run 的超时兜底收尾关闭连接）
+            return broken_early(
               raw.to_bytes(),
               "PartialResponse：前缀已上线，连接保持",
             )
           }
           _ =>
             // 请求帧未收完：不写入，如实收尾（close 由 run 收尾路径执行）
-            broken_early(
+            return broken_early(
               raw.to_bytes(),
               "PartialResponse：请求帧未收完，未注入",
             )
@@ -402,19 +395,7 @@ pub async fn ScriptedPeer::run(
           "CloseObservation：accept 后关闭",
         )
       }
-      // T015 完成后无未实现程序；此分支保留为防御性收尾
-      _ => {
-        conn.close()
-        slot.conn = None
-        return broken_early(
-          raw.to_bytes(),
-          "PeerProgram 未实现（待 T015 转绿）：\{program_name(program)}",
-        )
-      }
     }
-    conn.close()
-    slot.conn = None
-    frame
   }
   let bytes = raw.to_bytes()
   match outcome {
