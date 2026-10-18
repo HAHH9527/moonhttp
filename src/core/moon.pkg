@@ -16,9 +16,11 @@ import {
 // （T013 生命周期三路径与 T015 进度回调的异步测试所需；任务 T001 落点），
 // 以及 T009 线上字节断言的 P03 裸 TCP 对端夹具（wire_form_test.mbt；仅测试
 // 可见，不进入 core 运行时依赖——public 面零变化，pkg.generated.mbti 零 diff）。
+// 夹具宿主 src/internal/fixtures（P03 C1 裁决，specs/003-m1-p03-test-fixtures
+// /plan.md 收尾事项 3：src/fixtures 为历史路径锚点，映射以此为准）。
 import {
   "moonbitlang/async",
-  "hahh9527/moonhttp/fixtures",
+  "hahh9527/moonhttp/internal/fixtures",
 } for "test"
 
 pkgtype(kind: "library")
