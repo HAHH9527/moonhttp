@@ -84,12 +84,35 @@ check native/wasm --deny-warn 通过；test native/wasm --deny-warn
 - **处置**：按 owner 要求如实登记「不可复现」；账目留痕（本文件）。
   建议后续对 fmt 前后的文件长度做廉价自检（如 CI diff 空文件告警）。
 
-## 工具链怪癖旁注（非异常，记录在案）
+## 「unused_package 怪癖」证伪（owner 可逆探针复核，2026-10-18）
 
-- `unused_package` 检查不统计**模式/is 表达式位置**的包路径引用
-  （`@io.ReaderClosed` 仅出现在模式/is 时仍报 unused）——以表达式位置
-  `ignore(@io.ReaderClosed)` 显式引用规避（scripted_peer_test.mbt
-  classify_client_error 处）。
-- `try EXPR catch {...} noraise {...}` 的 noraise 分支拿**成功值**——在
-  try 块内手动再包 `Ok(...)` 会产生双层 Result（T008/T013 各踩一次，
-  with_timeout_opt 推导可证）。
+- **原登记（已证伪作废）**：此前记录「unused_package 检查不统计 error
+  构造器（@io.ReaderClosed）在模式/is/表达式位置的引用」——**误判**，推测
+  来自更早的某个中间态（当时 `_io_pkg_marker`/`ignore` 规避代码与真实
+  引用并存，未做单变量对照）。
+- **owner 证伪实验（可逆探针，双变体）**：
+  - 变体1（只删 `_io_pkg_marker = @io.pipe()` 行）：
+    `moon test --target native --deny-warn -p
+    hahh9527/moonhttp/internal/fixtures` → 无 unused_package、27/27 绿；
+  - 变体2（再加删 `ignore(@io.ReaderClosed)`）：同样无告警、27/27 绿。
+- **结论**：`e is @io.ReaderClosed` 的引用**已正常计入**包使用，无需任何
+  规避标记。两处标记已删除（`@io.pipe()` 在 native 上创建永不关闭的 OS
+  管道句柄，属已知高危 API，无理由调用本身即风险面）。
+- **真实存在的类型语义要点（保留，非怪癖）**：`try EXPR catch {...}
+  noraise {...}` 的 noraise 分支拿**成功值**——try 块内手动再包 `Ok(...)`
+  会产生双层 Result（T008/T013 各踩一次，with_timeout_opt 推导可证）。
+
+## B-11 修复后形态的首个 BadRequest 实证（P07 判据证据，2026-10-18）
+
+- **实测行**（drain 裁决 A 落地后，四截断点 × 双 target + 各连续 5 次
+  零翻转中的稳定形态）：`MidHeaderLine(8) → BadRequest`——本套件**首次
+  实测出 BadRequest**。
+- **含义**：印证 spec E4/D3 的推演路径——服务端写入 25 字节（状态行 17 +
+  头行前 8 字节「Content-」）后 close，客户端 `read_until` 在 EOF 时拿到
+  Some(残余串)（reader.mbt:217-224），残串作头行无冒号 → parser.mbt:404
+  抛 BadRequest。这是 **P07「不可重试」分支判据的直接证据**。
+- **口径提示**：可观测集合 {BadRequest, ReaderClosed} ≠ 可重试集合（F17）；
+  ReaderClosed（EOF 路径）可重试、BadRequest（协议错误族）不可重试但毒化
+  ——分流判据归 P07，本夹具只钉可观测面。
+- 同族实证：Nothing/MidStatusLine(15)/AfterStatusLine 三例 → ReaderClosed
+  （EOF 路径），双 target 形态一致（B-11 竞态自证 10/10 零翻转）。

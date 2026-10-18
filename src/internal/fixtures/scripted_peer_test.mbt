@@ -116,16 +116,9 @@ async test "P03-B11① 三截断点穷举：线上截断字节计数与声明一
 }
 
 ///|
-// unused_package 规避（工具链怪癖，t004-record.md 留痕）：unused 检查不
-// 统计 error 构造器（@io.ReaderClosed）在模式/is/表达式位置的引用，但移除
-// 导入又报 not found——以 @io 普通项 pipe() 的表达式调用让包引用计数生效。
-let _io_pkg_marker : (@io.PipeRead, @io.PipeWrite) = @io.pipe()
-
-///|
 // B-11 错误分类（D3 钉死可观测集合）：仅 BadRequest / ReaderClosed 两类；
 // 其余形态返回 None＝集合外（spec 变更信号）。is 表达式判别。
 fn classify_client_error(e : Error) -> String? {
-  ignore(@io.ReaderClosed)
   if e is @http.BadRequest {
     return Some("BadRequest")
   }

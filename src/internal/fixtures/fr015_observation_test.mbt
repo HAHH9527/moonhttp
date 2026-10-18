@@ -27,7 +27,7 @@ fn fr015_target() -> String {
 
 ///|
 // 读结局分类：循环 read 至终态——0/EOF ⇒ ReaderClosed；OSError ⇒ OSError；
-// 限时 2s 未终态 ⇒ Timeout（集合外形态）。读到的字节如实累计打点。
+// 限时 2s 未终态 ⇒ Timeout（集合外形态）。
 async fn fr015_read_outcome(conn : @socket.Tcp) -> String {
   let outcome = @async.with_timeout_opt(2000) <| () => {
     try {

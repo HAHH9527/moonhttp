@@ -105,12 +105,18 @@ pub fn ScriptedPeer::close(self : ScriptedPeer) -> Unit
 
 - B-09 `AcceptClose`：accept 后立即 close（客户端预期 EOF/ReaderClosed 类
   错误，US-2 场景 1）。
-- B-10 `CloseObservation`：close 前按前置条件写 0/N 字节；客户端读结局仅
-  断言 ∈ {@io.ReaderClosed, @os_error.OSError}（E5）；观测记录按
-  contracts/wire-observations.md 产出（FR-015）。**不承诺 RST**（D2/E3）。
-- B-11 `PartialResponse`：按 CutPoint 发送 canned 响应字节前缀后（可选）断；
-  验收判据＝客户端错误落在钉死集合 {BadRequest, ReaderClosed} 内
-  （spec D3/E4；不以「状态行已解析」为判据）。
+- B-10 `CloseObservation`：accept 后**不读不写即 close**（观测记录由客户端
+  侧元测试产出，见 contracts/wire-observations.md 与
+  fr015_observation_test.mbt）。**「夹具→客户端有未读」前置条件由
+  `PartialResponse(MidStatusLine(15), true)` 复用承担**（fr015 矩阵的
+  方向②行）——2026-10-18 owner 口径如实化（原「close 前按前置条件写
+  0/N 字节」与实现不符；签名零新增，非改需求，与 wire-observations.md
+  的 pending_unread 双方向修正同口径）。**不承诺 RST**（D2/E3）。
+- B-11 `PartialResponse`：**先 drain 客户端请求（无条件内置，drain 即注入
+  形态声明的一部分——spec.md:33「夹具 MUST 如实声明注入形态」）**，再按
+  CutPoint 发送 canned 响应字节前缀后（可选）断；验收判据＝客户端错误落在
+  钉死集合 {BadRequest, ReaderClosed} 内（spec D3/E4；不以「状态行已解析」
+  为判据）。drain 理由锚点见 raw_peer.mbt PartialResponse 分支注释。
 - B-12 `SlowReceive`：按声明节奏读，不读满（P08 写侧超时场景）。
 - B-13 `Capture`：既有捕获语义（五字段 + note 不变），判定内核按
   research.md R4.1 重写。
