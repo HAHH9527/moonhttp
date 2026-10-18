@@ -391,7 +391,18 @@ pub async fn ScriptedPeer::run(
           "SlowReceive：慢读 \{got}B（声明 \{read_bytes}B）后关闭",
         )
       }
-      // T015 逐程序转绿；未实现程序在红阶段给出可归因失败
+      // B-10（T015）：accept 后 close + 观测记录由客户端侧元测试产出
+      // （fr015_observation_test.mbt）。未红判据：骨架未实现分支的 close
+      // 收尾与本程序语义同形（同 T012），结局断言落笔即绿——显式记录。
+      CloseObservation => {
+        conn.close()
+        slot.conn = None
+        return broken_early(
+          raw.to_bytes(),
+          "CloseObservation：accept 后关闭",
+        )
+      }
+      // T015 完成后无未实现程序；此分支保留为防御性收尾
       _ => {
         conn.close()
         slot.conn = None
