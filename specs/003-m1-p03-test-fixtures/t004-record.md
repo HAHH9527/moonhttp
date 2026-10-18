@@ -144,3 +144,18 @@ check native/wasm --deny-warn 通过；test native/wasm --deny-warn
   ——分流判据归 P07，本夹具只钉可观测面。
 - 同族实证：Nothing/MidStatusLine(15)/AfterStatusLine 三例 → ReaderClosed
   （EOF 路径），双 target 形态一致（B-11 竞态自证 10/10 零翻转）。
+
+## 勾选态偏差（2026-10-18）
+
+- **事实**：commit 01ff4d1 的 message 声称「勾选 Phase 6（T017–T022）」，
+  实际仅勾选了 T018–T022 五项，**T017 漏勾**（tasks.md:103 保持 `- [ ]`）。
+- **连带**：后续 Phase 7/8 的 T023/T024/T028 勾选与 002 T009 回勾
+  （45ea3dd）都建立在 T017 已勾的错误认知上，且 T025/T026/T027 亦漏勾——
+  形成「依赖项未勾而依赖项已勾」的顺序倒挂（host 独立复核发现）。
+- **本次补齐口径（工单 L-1，commit 5ddc684）**：T017/T025/T026/T027 四项
+  补勾，并在各条尾部就地补回补锚点（引用 host 实测行号/数字：frames.mbt
+  :65/68/71 三常量、.mbti 归因两类与 core 零 diff（a05dd81）、六门
+  160/160 双 target 与对账行号、frames.mbt:5–23 与 fr015-observations.md
+  44 行）。`- [ ]` 计数自证为 0。
+- **历史不改写**：01ff4d1 的 message 保持原样（如实反映当时的操作疏漏）；
+  本节即为偏差记录与补齐凭据。
