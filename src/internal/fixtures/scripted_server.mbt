@@ -77,6 +77,27 @@ fn method_name(m : @http.RequestMethod) -> String {
 }
 
 ///|
+// 状态码 → reason 短语（编排常用集合；夹具面只需可辨认，无需穷尽 RFC）
+fn reason_of(status : Int32) -> String {
+  match status {
+    200 => "OK"
+    301 => "Moved Permanently"
+    302 => "Found"
+    303 => "See Other"
+    307 => "Temporary Redirect"
+    308 => "Permanent Redirect"
+    400 => "Bad Request"
+    401 => "Unauthorized"
+    403 => "Forbidden"
+    404 => "Not Found"
+    407 => "Proxy Authentication Required"
+    500 => "Internal Server Error"
+    501 => "Not Implemented"
+    _ => "Status \{status}"
+  }
+}
+
+///|
 // 组装 extra_headers：脚本声明头原样进入，framing 追加项由分派处负责
 fn extra_headers_of(script_headers : Array[(String, String)]) -> @http.Headers {
   let extra : @http.Headers = Map([], capacity=4)
@@ -223,11 +244,13 @@ async fn ScriptedServer::serve_script(
   // 未实现的编排一律 501「Not Implemented」+ 关连接收尾——后续任务的红阶段
   // 据此获得可归因失败（夹具还没有该行为）。
   match (script.status, script.framing, script.body) {
-    (200, Fixed, Static(bytes)) => {
+    // B-03/B-08 编排面（T007 起）：status + headers（Location /
+    // WWW-Authenticate 等）按声明原样下发，跟随/凭证语义归消费方测试
+    (status, Fixed, Static(bytes)) => {
       let _ = req
       let extra = extra_headers_of(script.headers)
       extra[@http.CaseInsensitiveString("Content-Length")] = "\{bytes.length()}"
-      conn.send_response(200, "OK", extra_headers=extra)
+      conn.send_response(status, reason_of(status), extra_headers=extra)
       if bytes.length() > 0 {
         conn.write(bytes)
       }

@@ -131,3 +131,147 @@ async test "P03-B01① US-1 场景1：GET /slow 头延迟与滴流间隔符合�
     )
   }
 }
+
+///|
+// US-1 场景 2（B-03 重定向链）：301→/a、302→相对 ../b、303→绝对 URL 逐跳
+// 状态码与 Location 逐项符合。客户端不自动跟随（上游 Client 无 follow 语义），
+// 逐跳用独立连接请求，夹具按声明原样下发 status + Location。
+async test "P03-B03① US-1 场景2：301/302/303 重定向链逐跳符合" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/start", {
+      status: 301,
+      headers: [("Location", "/a")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    server.mount("GET", "/a", {
+      status: 302,
+      headers: [("Location", "../b")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    server.mount("GET", "/b", {
+      status: 303,
+      headers: [("Location", "http://127.0.0.1:\{server.port()}/c")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    server.mount("GET", "/c", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"done"),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    // 逐跳驱动：每跳一次性 spawn serve_once + 独立客户端（编排声明在 mount，
+    // 测试代码无服务端循环——FR-012 审计口径）
+    let hops = [
+      ("GET", "/start", 301, "/a"),
+      ("GET", "/a", 302, "../b"),
+      ("GET", "/b", 303, "http://127.0.0.1:\{server.port()}/c"),
+    ]
+    let mut landing_code = 0
+    let mut landing_body = ""
+    for hop in hops {
+      let serving = group.spawn(() => server.serve_once(timeout_ms=2000))
+      let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+      client.request(Get, hop.1)
+      let resp = client.end_request()
+      let location = resp.headers.get(@http.CaseInsensitiveString("Location"))
+      client.close()
+      serving.wait()
+      assert_eq(
+        resp.code,
+        hop.2,
+        msg="跳 \{hop.1} 状态码不符（红因应为 501 占位）",
+      )
+      assert_eq(location, Some(hop.3), msg="跳 \{hop.1} Location 不符")
+      if hop.1 == "/b" {
+        // 末跳落地目标 /c 一并验证（链终点 200）
+        let serving_c = group.spawn(() => server.serve_once(timeout_ms=2000))
+        let client_c = @http.Client::Client(
+          "http://127.0.0.1:\{server.port()}/",
+        )
+        client_c.request(Get, "/c")
+        let resp_c = client_c.end_request()
+        landing_body = client_c.read_all().text()
+        client_c.close()
+        serving_c.wait()
+        landing_code = resp_c.code
+      }
+    }
+    server.close()
+    assert_eq(
+      landing_code,
+      200,
+      msg="重定向链终点 /c 未按脚本应答 200",
+    )
+    assert_eq(landing_body, "done")
+  }
+}
+
+///|
+// B-03 补充：307/308 与畸形 Location 各一例——声明值原样下发（夹具不校验、
+// 不改写 Location，跟随语义归 P07 的重试/跟随策略）
+async test "P03-B03② 307/308 与畸形 Location 声明值原样下发" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/r307", {
+      status: 307,
+      headers: [("Location", "/next")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    server.mount("GET", "/r308", {
+      status: 308,
+      headers: [("Location", "/next")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    server.mount("GET", "/badloc", {
+      status: 301,
+      headers: [("Location", "http://[malformed-not-a-url")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let cases = [
+      ("GET", "/r307", 307, "/next"),
+      ("GET", "/r308", 308, "/next"),
+      ("GET", "/badloc", 301, "http://[malformed-not-a-url"),
+    ]
+    for case in cases {
+      let serving = group.spawn(() => server.serve_once(timeout_ms=2000))
+      let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+      client.request(Get, case.1)
+      let resp = client.end_request()
+      let location = resp.headers.get(@http.CaseInsensitiveString("Location"))
+      client.close()
+      serving.wait()
+      assert_eq(
+        resp.code,
+        case.2,
+        msg="\{case.1} 状态码不符（红因应为 501 占位）",
+      )
+      assert_eq(
+        location,
+        Some(case.3),
+        msg="\{case.1} Location 未原样下发",
+      )
+    }
+    server.close()
+  }
+}
