@@ -117,7 +117,7 @@
 
 **Independent Test**: `moon test -p hahh9527/moonhttp/internal/fixtures --target native|wasm`（按包运行；需收窄用测试名 glob `-f "P03-B01*"` 等，旗标语义见 Notes）
 
-- [ ] T023 [US4] US-4 场景元测试（先红后绿）：`scripted_server_test.mbt` 写场景元测试（每 200ms 滴 1KB、总时长 3s 即 15 块的 body；`read_ms=1000` 按操作超时下**不触发超时**——每块间隔 < 超时阈值；用原生 `@http.Client` 预验证，spec US-4 口径）→ 实现侧仅需组合 T006 的 `BodyPlan::Drip(1024, 15, 200)`（若组合暴露 Drip 参数缺口，在本任务内补齐，不另立设计）
+- [x] T023 [US4] US-4 场景元测试（先红后绿）：`scripted_server_test.mbt` 写场景元测试（每 200ms 滴 1KB、总时长 3s 即 15 块的 body；`read_ms=1000` 按操作超时下**不触发超时**——每块间隔 < 超时阈值；用原生 `@http.Client` 预验证，spec US-4 口径）→ 实现侧仅需组合 T006 的 `BodyPlan::Drip(1024, 15, 200)`（若组合暴露 Drip 参数缺口，在本任务内补齐，不另立设计）
 
 **Checkpoint**: 全部用户故事（US-1～US-5）独立可用
 
