@@ -159,3 +159,5 @@ check native/wasm --deny-warn 通过；test native/wasm --deny-warn
   44 行）。`- [ ]` 计数自证为 0。
 - **历史不改写**：01ff4d1 的 message 保持原样（如实反映当时的操作疏漏）；
   本节即为偏差记录与补齐凭据。
+## L-4 返工凭据（owner 2026-10-18 裁决）
+交付状态不回写 roadmap，落点仅 tasks.md——M1 README 的 P03 交付状态块已删除（裁决落地），「不跟踪交付状态」约定已入 M1 README 补充口径说明；D12 与 F16/F17 的 P03 注记不属交付状态，保留。

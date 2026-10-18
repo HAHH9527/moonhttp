@@ -33,14 +33,6 @@
 | [P09](P09-dispatcher.md) | Dispatcher 与 enqueue | 双闸并发上限 + FIFO 公平出队 + 可取消 enqueue | P05 | ~1.5d | 10 §3.3、01 §3.5(enqueue) |
 | [P10](P10-benchmark-gate.md) | 基准套件与 M1 门禁 | 场景矩阵、三臂对比、≥20× 门禁与基线归档 | P04–P07 | ~1d | 14 §5、03 §8 |
 
-> **P03 交付状态（2026-10-18）**：已交付。交付口径＝收口六门全绿（`moon clean`
-> 后全量：check native/wasm `--deny-warn` 通过、test native 160/160 /
-> wasm 160/160、`fmt --check` 通过、`moon info` 后 `.mbti` 零 diff）；
-> B-01～B-06/B-08～B-15 全部行为已交付并有自证元测试，**B-07 gzip 为
-> M1 缺口·推迟（裁决 D4），不建模不实现**。过程账目见
-> `specs/003-m1-p03-test-fixtures/t004-record.md`，观测清单见同目录
-> `fr015-observations.md`。
-
 依赖关系（`X → Y` 表示 Y 依赖 X）：
 
 - P01（core 值对象）→ P02、P04（并传递至全部下游）
@@ -104,6 +96,9 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
   场景不得断言响应头线上顺序。保真需侵入解析层（I6/I8），不在 M1。
 - 取消语义按宪法 III：以显式 `CallCancelled` 错误变体区分（01 §3.5 原文一致），
   与 OkHttp `IOException("canceled")` 消息判别的映射在 P05 spec 显式记录。
+- **本 roadmap 不跟踪任何包的交付状态**（owner 2026-10-18 裁决）：交付与否、
+  收口证据一律看 `specs/<feature>/tasks.md` 的勾选态与任务内证据行，本文件
+  只承载范围拆分、差异口径与欠账登记。
 
 ## 4. 每包如何走 speckit
 
