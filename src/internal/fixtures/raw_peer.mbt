@@ -275,7 +275,10 @@ pub async fn ScriptedPeer::run(
       AcceptClose => {
         conn.close()
         slot.conn = None
-        return broken_early(raw.to_bytes(), "AcceptClose：accept 后立即关闭")
+        return broken_early(
+          raw.to_bytes(),
+          "AcceptClose：accept 后立即关闭",
+        )
       }
       // B-13（T011 搬运）：原样捕获首个完整 HTTP 报文 → canned 200 → close
       Capture => {
@@ -288,13 +291,49 @@ pub async fn ScriptedPeer::run(
         }
         frame
       }
-      // T013～T015 逐程序转绿；未实现程序在红阶段给出可归因失败
-      other => {
+      // B-11（T013）：canned 响应字节按 CutPoint 截断前缀上线（字节形态
+      // 取证见 frames.mbt 文件头：状态行 17 字节 + "Content-Length: 0" 头行
+      // + 空行），then_close=true 则写完即断
+      PartialResponse(cut, then_close) => {
+        let total = canned_response.length()
+        let prefix = match cut {
+          Nothing => 0
+          MidStatusLine(n) => if n < 17 { n } else { 17 }
+          AfterStatusLine => 17
+          MidHeaderLine(n) => {
+            let p = 17 + n
+            if p < total {
+              p
+            } else {
+              total
+            }
+          }
+        }
+        if prefix > 0 {
+          // 裸 Tcp 写无公开 flush 面；小体（≤38B）写后立即 close，TCP 收发
+          // 保证已写数据先行上线（close 不丢弃已排队字节）
+          conn.write(canned_response[:prefix])
+        }
+        if then_close {
+          conn.close()
+          slot.conn = None
+          return broken_early(
+            raw.to_bytes(),
+            "PartialResponse：按截断点上线 \{prefix}B 后关闭",
+          )
+        }
+        broken_early(
+          raw.to_bytes(),
+          "PartialResponse：前缀已上线，连接保持",
+        )
+      }
+      // T014/T015 逐程序转绿；未实现程序在红阶段给出可归因失败
+      _ => {
         conn.close()
         slot.conn = None
         return broken_early(
           raw.to_bytes(),
-          "PeerProgram 未实现（待 T013～T015 转绿）：\{program_name(other)}",
+          "PeerProgram 未实现（待 T014/T015 转绿）：\{program_name(program)}",
         )
       }
     }
