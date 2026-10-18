@@ -363,13 +363,41 @@ pub async fn ScriptedPeer::run(
             )
         }
       }
-      // T014/T015 逐程序转绿；未实现程序在红阶段给出可归因失败
+      // B-12（T014）：按声明节奏慢读 read_bytes 字节、不读满（P08 写侧
+      // 停滞场景）。块 8B + 块间 sleep(interval_ms)；读满声明量或对端
+      // EOF/写错误即收尾 close。收尾时接收队列可能仍有未读（「不读满」即
+      // 程序语义）——测试编排保证客户端先写完即主动全关，收尾的 RST/FIN
+      // 无客户端观测面（T013 同源约束：不踩钉死错误集合）
+      SlowReceive(read_bytes, interval_ms) => {
+        let mut got = 0
+        let buf = FixedArray::make(8, b'\x00')
+        for ;; {
+          if got >= read_bytes {
+            break
+          }
+          let n = conn.read(buf, max_len=8)
+          if n == 0 {
+            break
+          }
+          got = got + n
+          if got < read_bytes {
+            @async.sleep(interval_ms)
+          }
+        }
+        conn.close()
+        slot.conn = None
+        return broken_early(
+          raw.to_bytes(),
+          "SlowReceive：慢读 \{got}B（声明 \{read_bytes}B）后关闭",
+        )
+      }
+      // T015 逐程序转绿；未实现程序在红阶段给出可归因失败
       _ => {
         conn.close()
         slot.conn = None
         return broken_early(
           raw.to_bytes(),
-          "PeerProgram 未实现（待 T014/T015 转绿）：\{program_name(program)}",
+          "PeerProgram 未实现（待 T015 转绿）：\{program_name(program)}",
         )
       }
     }

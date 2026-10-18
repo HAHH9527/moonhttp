@@ -116,10 +116,14 @@ async test "P03-B11① 三截断点穷举：线上截断字节计数与声明一
 }
 
 ///|
+// unused_package 规避（工具链怪癖，t004-record.md 留痕）：unused 检查不
+// 统计 error 构造器（@io.ReaderClosed）在模式/is/表达式位置的引用，但移除
+// 导入又报 not found——以一个 @io 普通项的表达式调用让包引用计数生效。
+let _io_pkg_marker : @io.ReaderBuffer = @io.ReaderBuffer::new()
+
+///|
 // B-11 错误分类（D3 钉死可观测集合）：仅 BadRequest / ReaderClosed 两类；
-// 其余形态返回 None＝集合外（spec 变更信号）。is 表达式判别；首行以表达式
-// 位置引用 @io 一次——工具链的 unused_package 检查不统计模式/is 位置的包
-// 路径（怪癖留痕 t004-record.md）。
+// 其余形态返回 None＝集合外（spec 变更信号）。is 表达式判别。
 fn classify_client_error(e : Error) -> String? {
   ignore(@io.ReaderClosed)
   if e is @http.BadRequest {
@@ -173,5 +177,62 @@ async test "P03-B11② 三截断点穷举：客户端错误落钉死集合 {BadR
           }
       }
     }
+  }
+}
+
+///|
+// B-12 慢速接收（P08 写侧停滞场景预验证）：对端按声明节奏读、不读满。
+// 判据口径与 T013 同源——不踩钉死错误集合：
+// - 对端节奏：run 总耗时 ≥ 慢读间隔下界（2 次读间 1 个 interval）
+// - 写侧停滞：客户端分片写大体（1MB，远超 loopback 发送缓冲），写循环
+//   被对端慢读压制，总耗时 ≥ 停滞下界，且以「写完 / 对端 close 触发
+//   OSError」收尾——客户端写完即主动 close（全关），对端收尾的 RST/FIN
+//   无观测面，不把任何一侧推入集合外形态（T013 同源约束）
+// 红阶段：SlowReceive 未实现 → run 报「未实现」可归因失败。
+async test "P03-B12① 慢速接收：写侧停滞与对端节奏可观测" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(SlowReceive(16, 100))
+    let t0 = @async.now()
+    let running = group.spawn(() => peer.run(timeout_ms=3000))
+    let conn = connect_peer(peer.port())
+    // 客户端分片写 1MB（32 片 × 32KB）；对端 close 后 write 以 OSError 收尾
+    let mut write_error = false
+    let t_write0 = @async.now()
+    for _i in 0..<32 {
+      let w = try {
+        conn.write(FixedArray::make(32768, b'x').unsafe_reinterpret_as_bytes())
+        true
+      } catch {
+        _ => false
+      } noraise {
+        v => v
+      }
+      match w {
+        true => continue
+        false => {
+          write_error = true
+          break
+        }
+      }
+    }
+    let write_ms = @async.now() - t_write0
+    conn.close()
+    let _ = running.wait()
+    peer.close()
+    let total_ms = @async.now() - t0
+    // 对端节奏：慢读 16B（块 8B + 1 个 100ms 间隔）须留下节奏下界
+    assert_true(
+      total_ms >= 80L,
+      msg="run 总耗时 \{total_ms}ms 低于慢读节奏下界 ~100ms——对端未按声明节奏读",
+    )
+    // 写侧停滞：写循环被压制（远大于无停滞时 ~10ms 级的写完耗时）
+    assert_true(
+      write_ms >= 60L,
+      msg="客户端写 1MB 耗时 \{write_ms}ms 未观测到停滞（\{write_error}）——对端未慢读",
+    )
+    println(
+      "[B-12 观测] 写循环耗时=\{write_ms}ms（停滞下界 60ms）、run 总耗时=\{total_ms}ms、写收尾形态=\{if write_error { "OSError(对端close)" } else { "写完" }}",
+    )
   }
 }
