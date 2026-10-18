@@ -1,31 +1,73 @@
 ///|
-// raw_peer：P03 裸 TCP 对端夹具——起一个只听回环地址的一次性服务端，原样捕获
-// 客户端写上线的第一条 HTTP 报文，再回一个 canned 200 让客户端正常收尾。
-// 服务于 T009 四条线上字节断言（specs/002-m1-p02-request-response/tasks.md:207-237、
-// spec.md:383-387 SC-002）。
+// raw_peer：P03 裸 TCP 对端夹具——ScriptedPeer 程序化对端（T011 演进）。
+// 一次 start 服务一条连接：mount 一个 PeerProgram，run() 按程序执行。
+// 演进自 P02 的 RawPeer 捕获底座（CapturedRequest 五字段 + note 语义不变，
+// 判停内核 read_frame 原样搬运），B-09～B-13 程序逐任务转绿（T012～T015）。
 //
 // 上游公开 API 取证（moonbitlang/async@0.22.4，本机 .mooncakes 解包，禁改、
 // 不 vendor；宪法 I）：
 //   - src/socket/tcp.mbt:85-115 — `TcpServer(addr, dual_stack?/reuse_addr?/
 //     reuse_port_lb?)`；端口传 0 由 OS 分配，实际端口经 getsockname 回填
-//     （文档 tcp.mbt:57-59、实现 tcp.mbt:111-113）
-//   - src/socket/tcp.mbt:32-36 — `pub struct TcpServer { addr : Addr, priv io }`，
-//     实际监听地址取公开字段 `.addr`（同文件 :73-:78 的 `TcpServer::addr()` 方法
-//     已标 #deprecated，用了会触发弃用警告、撞 --deny-warn 门，故走字段）
-//   - src/socket/pkg.generated.mbti:27 — `Addr::parse(String) -> Addr raise`；
-//     :26 — `Addr::port(Self) -> Int`
-//   - src/socket/tcp.mbt:73 — `TcpServer::accept(self) -> (Tcp, Addr)`（一次请求
-//     一次断言，不用 run_forever：tcp.mbt:78-99）
-//   - src/socket/tcp.mbt:305-310 / :325-330 — Tcp 公开实现 @io.Reader / @io.Writer
+//   - src/socket/tcp.mbt:35-38 — `pub struct TcpServer { addr : Addr, priv io }`，
+//     实际监听地址取公开字段 `.addr`（`TcpServer::addr()` 方法已标弃用，
+//     用了会撞 --deny-warn 门，故走字段）
+//   - src/socket/pkg.generated.mbti — `Addr::parse` / `Addr::port`
+//   - src/socket/tcp.mbt:223/:231/:239 — `TcpServer::accept` 三 target 分支；
+//     **并发调用不安全**（同句柄 2 个并发 accept：native PanicError /
+//     wasm 悬挂，2026-10-18 实测，欠账 F18）——本包所有 accept 串行
+//   - src/socket/tcp.mbt:141-172 — run_forever 的「循环内串行 accept +
+//     spawn_bg 并发处理」为上游唯一自证可行形态（ScriptedServer::serve_n
+//     同款；本对端一次 run 只 accept 一条，天然串行）
+//   - src/socket/tcp.mbt:305-310 / :325-330 — Tcp 实现 @io.Reader/@io.Writer
 //   - src/socket/tcp.mbt:23-26 — `Tcp::close`
-//   - src/pkg.generated.mbti:50 — `pub async fn[X] with_timeout_opt(Int, async () -> X) -> X?`
-//     （超时保护用；毫秒为单位，见 src/with_timeout_test.mbt:24-30）
+//   - async 根包 mbti:50 — `with_timeout_opt(Int, async () -> X) -> X?`
 //
-// 手法参考（不搬运代码，roadmap 差异 D8）：上游 src/socket/getsockname_test.mbt:17-43
-// 的「bind :0 → 取回填端口 → 另一端 connect → accept」双任务范式。
+// 手法参考（不搬运代码，roadmap 差异 D8）：上游 getsockname_test.mbt 的
+// 「bind :0 → 取回填端口 → connect → accept」双任务范式。
 //
 // 宪法 IV：只监听/连接 127.0.0.1，绝不触外部网络。
 // 宪法 VII：注释与文档中文。
+
+///|
+// FR-011：bind 冲突自动重试次数（data-model.md 常量表；ScriptedPeer 与
+// ScriptedServer 共用）。bind :0 由 OS 分配空闲端口，冲突几乎不可达——
+// 该重试分支为防御性设计，「防御性分支未测」显式记录见 T004 任务产出。
+let bind_retry : Int32 = 3
+
+///|
+/// 裸 TCP 对端程序（data-model 实体 3；contracts/fixtures-api.md §2）。
+/// 一次 mount 一个程序、服务一条连接、一次 run 断言。
+/// 返回值语义（analyze F3 收窄）：仅 Capture 程序的返回值承载捕获断言；
+/// 其余程序的返回值不承载断言语义——客户端侧结局由元测试分类并打点。
+pub(all) enum PeerProgram {
+  AcceptClose // B-09：accept 后立即 close
+  CloseObservation // B-10：accept 后 close + 产出观测记录（T015）
+  PartialResponse(CutPoint, Bool) // B-11：半截响应头（cut, then_close）
+  SlowReceive(Int32, Int32) // B-12：慢速接收（read_bytes, interval_ms）
+  Capture // B-13：既有捕获（判定内核 = P02 底座搬运）
+}
+
+///|
+/// B-11 截断点参数化（spec FR-012/D3）：canned 响应字节的前缀长度语义。
+/// Nothing 与 AcceptClose 同形（0 字节即断），保留命名以对齐截断点清单。
+pub(all) enum CutPoint {
+  Nothing
+  MidStatusLine(Int32) // 状态行片段 n 字节（US-2 场景 2：n=15）
+  AfterStatusLine // 状态行 + CRLF 后断
+  MidHeaderLine(Int32) // 头行中间 n 字节后断
+}
+
+///|
+/// 程序名（run 对未实现程序报错时的可归因消息用）
+fn program_name(p : PeerProgram) -> String {
+  match p {
+    AcceptClose => "AcceptClose"
+    CloseObservation => "CloseObservation"
+    PartialResponse(_, _) => "PartialResponse"
+    SlowReceive(_, _) => "SlowReceive"
+    Capture => "Capture"
+  }
+}
 
 ///|
 /// 捕获到的一条线上报文。字段即取证面，全部原样留存：
@@ -74,22 +116,17 @@ pub fn CapturedRequest::raw_text(self : CapturedRequest) -> String {
 }
 
 ///|
-/// 只监听回环地址的裸 TCP 对端。一次 start 服务一条请求一次断言（工单方案 3）。
-/// closed 为生命周期位（B-15 优雅关闭语义的单一事实源）。
-pub struct RawPeer {
+/// 只监听回环地址的裸 TCP 程序化对端。一次 mount 一个程序、服务一条连接。
+pub struct ScriptedPeer {
   priv server : @socket.TcpServer
   priv mut closed : Bool
+  priv mut program : PeerProgram? // 待执行的程序（mount 落位）
 }
 
 ///|
-// FR-011：bind 冲突自动重试次数（data-model.md 常量表）。bind :0 由 OS 分配
-// 空闲端口，冲突几乎不可达——该重试分支为防御性设计，「防御性分支未测」
-// 显式记录见 T004 任务产出（specs/003-m1-p03-test-fixtures/tasks.md）。
-let bind_retry : Int32 = 3
-
-///|
 // canned 收尾响应：HTTP/1.1 200 OK + Content-Length: 0 + 空行。让客户端
-// end_request() 正常返回，不依赖 EOF（工单方案 6）。
+// end_request() 正常返回，不依赖 EOF（工单方案 6）。同时也是 B-11 半截
+// 响应头的字节源（前缀形态取证见 frames.mbt 文件头）。
 let canned_response : Bytes = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
 
 ///|
@@ -99,32 +136,40 @@ priv struct ConnSlot {
 }
 
 ///|
-/// 绑定 127.0.0.1:0（OS 分配随机端口）并开始监听；bind 冲突自动重试 ≤3 次
-/// （FR-011，防御性分支——:0 冲突几乎不可达，见上方 bind_retry 注记）。
-/// 实际端口经 getsockname 回填后由 `port()` 读取（tcp.mbt:111-113）。
-pub async fn RawPeer::start() -> RawPeer {
+/// 绑定 127.0.0.1:0（OS 分配随机端口）并开始监听；bind 冲突自动重试 ≤
+/// bind_retry 次（FR-011，防御性分支未测口径同 T004 记录）。
+pub async fn ScriptedPeer::start() -> ScriptedPeer {
   let mut last_error : Error? = None
   for _attempt in 0..<bind_retry {
     try {
       let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
-      return { server, closed: false, }
+      return { server, closed: false, program: None, }
     } catch {
       err => last_error = Some(err)
     }
   }
-  // 重试耗尽：把最后一次 bind 失败原样上抛（调用方决定处置）
   raise last_error.unwrap()
 }
 
 ///|
-/// OS 回填的实际监听端口（bind 时传 0，故必然非 0）。
-pub fn RawPeer::port(self : RawPeer) -> Int32 {
+/// OS 回填的实际监听端口（bind 时传 0，故必然非 0；B-14）。
+pub fn ScriptedPeer::port(self : ScriptedPeer) -> Int32 {
   self.server.addr.port()
 }
 
 ///|
-// 循环读入并原样累加，按帧边界判停（工单方案 4/5）。返回最后的判定结果；
-// EOF 出现在帧收完之前时如实回报，已匹配字节留在 raw 累加缓冲里。
+/// 挂载本次连接要执行的程序（一次一个；重复 mount 覆盖）。
+pub fn ScriptedPeer::mount(self : ScriptedPeer, program : PeerProgram) -> Unit {
+  if self.closed {
+    return
+  }
+  self.program = Some(program)
+}
+
+///|
+// 循环读入并原样累加，按帧边界判停（工单方案 4/5，Capture 程序判定内核）。
+// 返回最后的判定结果；EOF 出现在帧收完之前时如实回报，已匹配字节留在
+// raw 累加缓冲里。
 async fn read_frame(conn : @socket.Tcp, raw : Buffer) -> Frame {
   let chunk = FixedArray::make(8192, b'\x00')
   for ;; {
@@ -182,18 +227,18 @@ fn make_captured(raw : Bytes, frame : Frame) -> CapturedRequest {
 }
 
 ///|
-/// 收一条请求：accept 一次 → 原样捕获首个完整 HTTP 报文 → 写 canned 200 → close。
+/// 执行挂载的程序：accept 一次 → 按程序服务这条连接。
 ///
 /// timeout_ms（缺省 5000）为整体兜底：经公开面 `@async.with_timeout_opt`
-/// （async src/pkg.generated.mbti:50）施加，超时不无限等待——此时只关闭连接
-/// （让客户端以错误尽快返回，而不是悬挂），并把已捕获字节如实交回。
-/// 超时/畸形/EOF 均不 panic，也不丢弃已匹配字节。
-pub async fn RawPeer::capture_one(
-  self : RawPeer,
+/// 施加（FR-004），超时不无限等待——此时关闭连接（让客户端以错误尽快
+/// 返回，而不是悬挂）。超时/畸形/EOF 均不 panic，也不丢弃已匹配字节。
+/// 返回值语义：仅 Capture 程序的返回值承载捕获断言；其余程序返回不承载
+/// 断言语义的占位捕获（complete=false）。
+pub async fn ScriptedPeer::run(
+  self : ScriptedPeer,
   timeout_ms~ : Int32 = 5000,
 ) -> CapturedRequest {
-  // B-15 优雅关闭语义：stop 后不再 accept——新操作立即如实返回（不悬挂、
-  // 不 panic、绝不再触已关闭的监听句柄）；在途连接仍由其操作超时上限收尾。
+  // B-15 优雅关闭：stop 后不再 accept——新操作立即如实返回
   if self.closed {
     return {
       head: b"",
@@ -204,17 +249,44 @@ pub async fn RawPeer::capture_one(
       note: Some("夹具已关闭（stop 后不再接受新连接）"),
     }
   }
+  let program = match self.program {
+    Some(program) => program
+    None =>
+      return {
+        head: b"",
+        body: b"",
+        raw: b"",
+        chunked: false,
+        complete: false,
+        note: Some("未 mount 任何 PeerProgram"),
+      }
+  }
   let raw = Buffer()
   let slot : ConnSlot = { conn: None, }
   let outcome = @async.with_timeout_opt(timeout_ms) <| () => {
     let (conn, _peer_addr) = self.server.accept()
     slot.conn = Some(conn)
-    let frame = read_frame(conn, raw)
-    // 收尾（工单方案 6）：帧完整才写 canned 200——帧未收完意味着对端已提前
-    // 关闭或输入畸形，向其写入可能触发写错误并掩盖真实判定，故此路径只关闭连接。
-    match frame {
-      Complete(_, _, _) => conn.write(canned_response)
-      _ => ()
+    let frame = match program {
+      // B-13（T011 搬运）：原样捕获首个完整 HTTP 报文 → canned 200 → close
+      Capture => {
+        let frame = read_frame(conn, raw)
+        // 帧完整才写 canned 200——帧未收完意味着对端已提前关闭或输入畸形，
+        // 向其写入可能触发写错误并掩盖真实判定，故此路径只关闭连接
+        match frame {
+          Complete(_, _, _) => conn.write(canned_response)
+          _ => ()
+        }
+        frame
+      }
+      // T012～T015 逐程序转绿；未实现程序在红阶段给出可归因失败
+      other => {
+        conn.close()
+        slot.conn = None
+        return broken_early(
+          raw.to_bytes(),
+          "PeerProgram 未实现（待 T012～T015 转绿）：\{program_name(other)}",
+        )
+      }
     }
     conn.close()
     slot.conn = None
@@ -237,9 +309,8 @@ pub async fn RawPeer::capture_one(
 }
 
 ///|
-/// 关闭监听 socket。幂等（B-15）：首次调用真正停听，后续调用为无害空操作。
-/// 优雅关闭语义＝关监听不再 accept；在途连接由其操作超时上限收尾。
-pub fn RawPeer::close(self : RawPeer) -> Unit {
+/// 关闭监听 socket（幂等，B-15）。
+pub fn ScriptedPeer::close(self : ScriptedPeer) -> Unit {
   if self.closed {
     return
   }

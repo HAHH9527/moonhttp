@@ -23,18 +23,25 @@ pub(all) struct CapturedRequest {
 pub fn CapturedRequest::head_text(Self) -> String
 pub fn CapturedRequest::raw_text(Self) -> String
 
+pub(all) enum CutPoint {
+  Nothing
+  MidStatusLine(Int)
+  AfterStatusLine
+  MidHeaderLine(Int)
+}
+
 pub(all) enum Framing {
   Fixed
   Chunked
 }
 
-pub struct RawPeer {
-  // private fields
+pub(all) enum PeerProgram {
+  AcceptClose
+  CloseObservation
+  PartialResponse(CutPoint, Bool)
+  SlowReceive(Int, Int)
+  Capture
 }
-pub async fn RawPeer::capture_one(Self, timeout_ms? : Int) -> CapturedRequest
-pub fn RawPeer::close(Self) -> Unit
-pub fn RawPeer::port(Self) -> Int
-pub async fn RawPeer::start() -> Self
 
 pub(all) struct ResponseScript {
   status : Int
@@ -44,6 +51,15 @@ pub(all) struct ResponseScript {
   head_delay_ms : Int
   close_after_response : Bool
 }
+
+pub struct ScriptedPeer {
+  // private fields
+}
+pub fn ScriptedPeer::close(Self) -> Unit
+pub fn ScriptedPeer::mount(Self, PeerProgram) -> Unit
+pub fn ScriptedPeer::port(Self) -> Int
+pub async fn ScriptedPeer::run(Self, timeout_ms? : Int) -> CapturedRequest
+pub async fn ScriptedPeer::start() -> Self
 
 pub struct ScriptedServer {
   // private fields

@@ -77,13 +77,14 @@ async fn wire_capture(
   chunks~ : Array[Bytes] = [],
   writer_holder~ : Array[&@io.Writer] = [],
 ) -> @fixtures.CapturedRequest {
-  let peer = @fixtures.RawPeer::start()
+  let peer = @fixtures.ScriptedPeer::start()
   let port = peer.port()
   let out = req.to_http_request()
   // bg 任务在 group 退出前完成，故数组在 with_task_group 返回后已就位
   let slot : Array[@fixtures.CapturedRequest] = []
   let _ = @async.with_task_group() <| group => {
-    group.spawn_bg(() => slot.push(peer.capture_one()))
+    peer.mount(@fixtures.Capture)
+    group.spawn_bg(() => slot.push(peer.run()))
     let client = @http.Client::Client("http://127.0.0.1:\{port}/")
     client.request(
       out.meth,

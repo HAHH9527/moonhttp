@@ -1,5 +1,5 @@
 ///|
-// raw_peer_test：P03 裸 TCP 对端夹具的自证元测试。
+// raw_peer_test：P03 裸 TCP 对端夹具（ScriptedPeer）的自证元测试。
 //
 // 存在理由（宪法 V/验收先行）：T009 的四条线上字节断言全部建立在本夹具
 // 「原样捕获、按帧判停、不 panic、不悬挂」之上，故先用**裸 @socket.Tcp 手写
@@ -34,10 +34,11 @@ async fn connect_peer(port : Int32) -> @socket.Tcp {
 //    无体请求 → canned 200 被客户端回读。
 async test "P03① 连通性自证：bind 127.0.0.1:0 取非 0 端口、Tcp::connect 可连通、canned 200 可回读" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     let port = peer.port()
     assert_true(port > 0)
-    let capture = group.spawn(() => peer.capture_one())
+    let capture = group.spawn(() => peer.run())
     let conn = connect_peer(port)
     conn.write(b"GET /probe HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: */*\r\n\r\n")
     let echoed = conn.read_all().text()
@@ -64,9 +65,10 @@ async test "P03① 连通性自证：bind 127.0.0.1:0 取非 0 端口、Tcp::con
 //    保序拼接、原样留存（工单方案 4/5）
 async test "P03② 定长帧：Content-Length: 10 跨分片精确收完、body 原样" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     let port = peer.port()
-    let capture = group.spawn(() => peer.capture_one())
+    let capture = group.spawn(() => peer.run())
     let conn = connect_peer(port)
     conn.write(
       b"POST /fixed HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 10\r\n\r\n0123456",
@@ -90,9 +92,10 @@ async test "P03② 定长帧：Content-Length: 10 跨分片精确收完、body �
 //    （线上形态锚点 send.mbt:153-169/:271-280）
 async test "P03③ chunked 帧：多块 + 0 长度终止块收完、负载重组正确" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     let port = peer.port()
-    let capture = group.spawn(() => peer.capture_one())
+    let capture = group.spawn(() => peer.run())
     let conn = connect_peer(port)
     conn.write(
       b"POST /chunked HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n4\r\n",
@@ -121,9 +124,10 @@ async test "P03③ chunked 帧：多块 + 0 长度终止块收完、负载重组
 //    已匹配的头部区间仍交回（工单方案 5）
 async test "P03④ 畸形：Content-Length 非十进制 → 不 panic、complete=false、头部区间保留" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     let port = peer.port()
-    let capture = group.spawn(() => peer.capture_one())
+    let capture = group.spawn(() => peer.run())
     let conn = connect_peer(port)
     let sent = b"POST /bad HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: abc\r\n\r\n"
     conn.write(sent)
@@ -143,9 +147,10 @@ async test "P03④ 畸形：Content-Length 非十进制 → 不 panic、complete
 // ⑤ 对端在帧收完前 EOF：如实回报、不丢弃已匹配字节（不 panic）
 async test "P03⑤ EOF：帧未收完即断开 → complete=false、已捕获字节全数留存" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     let port = peer.port()
-    let capture = group.spawn(() => peer.capture_one())
+    let capture = group.spawn(() => peer.run())
     let conn = connect_peer(port)
     let sent = b"POST /eof HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\nshort"
     conn.write(sent)
@@ -166,9 +171,10 @@ async test "P03⑤ EOF：帧未收完即断开 → complete=false、已捕获字
 //    并关闭连接让客户端不至于悬挂。
 async test "P03⑥ 超时兜底：400ms 内帧未收完即返回、客户端不悬挂" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     let port = peer.port()
-    let capture = group.spawn(() => peer.capture_one(timeout_ms=400))
+    let capture = group.spawn(() => peer.run(timeout_ms=400))
     let conn = connect_peer(port)
     conn.write(
       b"POST /slow HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\n",
@@ -194,9 +200,10 @@ async test "P03⑥ 超时兜底：400ms 内帧未收完即返回、客户端不�
 // ⑦ 非 HTTP 垃圾输入：不出现 CRLFCRLF 也必须安全返回（不 panic、不无限累加）
 async test "P03⑦ 垃圾输入：无 CRLFCRLF 亦安全回报未收完" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     let port = peer.port()
-    let capture = group.spawn(() => peer.capture_one(timeout_ms=800))
+    let capture = group.spawn(() => peer.run(timeout_ms=800))
     let conn = connect_peer(port)
     let sent = b"\x00\x01\x02not-http\xff"
     conn.write(sent)
@@ -219,7 +226,8 @@ async test "P03⑦ 垃圾输入：无 CRLFCRLF 亦安全回报未收完" {
 // ⑧ 生命周期（B-14/B-15）：port() 恒 > 0（bind :0 回填）、close() 幂等
 //    （连续两次 close 不 panic 不 raise）
 async test "P03⑧ 生命周期：port() 恒 > 0、close() 幂等（二次 close 无害）" {
-  let peer = @fixtures.RawPeer::start()
+  let peer = @fixtures.ScriptedPeer::start()
+  peer.mount(Capture)
   assert_true(peer.port() > 0)
   peer.close()
   peer.close()
@@ -228,12 +236,13 @@ async test "P03⑧ 生命周期：port() 恒 > 0、close() 幂等（二次 close
 ///|
 // ⑨ 生命周期（B-15）：close 后新操作在超时上限内立即返回——不悬挂、不 panic，
 //    以 complete=false + 如实 note 收尾（优雅关闭语义）
-async test "P03⑨ 生命周期：close 后 capture_one 在超时上限内如实返回" {
+async test "P03⑨ 生命周期：close 后 run(Capture) 在超时上限内如实返回" {
   @async.with_task_group() <| group => {
-    let peer = @fixtures.RawPeer::start()
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
     peer.close()
     let t0 = @async.now()
-    let cap = group.spawn(() => peer.capture_one(timeout_ms=500)).wait()
+    let cap = group.spawn(() => peer.run(timeout_ms=500)).wait()
     let elapsed_ms = @async.now() - t0
     assert_eq(cap.complete, false)
     match cap.note {
@@ -242,7 +251,7 @@ async test "P03⑨ 生命周期：close 后 capture_one 在超时上限内如实
           n.contains("关闭") || n.contains("超时"),
           msg="close 后 note 须如实：\{n}",
         )
-      None => fail("close 后 capture_one 必须给出如实 note")
+      None => fail("close 后 run 必须给出如实 note")
     }
     assert_true(
       elapsed_ms < 500L,
@@ -259,7 +268,8 @@ async test "P03⑨ 生命周期：close 后 capture_one 在超时上限内如实
 //    同 D2「上游无 shutdown/RST 不可构造」的能力缺口族），故拒绝/悬挂两形态
 //    仅 println 观测留痕，不作跨宿主断言（FR-015 同款口径）。
 async test "P03⑩ 生命周期：stop 后的连接绝不得到夹具服务（观测留痕）" {
-  let peer = @fixtures.RawPeer::start()
+  let peer = @fixtures.ScriptedPeer::start()
+  peer.mount(Capture)
   let port = peer.port()
   assert_true(port > 0)
   peer.close()
