@@ -105,7 +105,7 @@
 - [x] T019 [US5] FR-007 数值封顶累加（先红后绿）：`frames_scan_wbtest.mbt` 元测试（红：`Content-Length: 99999999999` 与 chunk 大小行 `FFFFFFFF` 在现行实现出现回绕三型症状之一）→ 实现「累加中 >`max_body_bytes` 即时 `Broken("超出夹具上限")`」（data-model.md 实体 4 不变量），断言即时返回（耗时 ≪ 外层超时）且不出现空负载假收完
 - [x] T020 [US5] FR-008 重复 Content-Length 判畸形（先红后绿）：`frames_scan_wbtest.mbt` + `raw_peer_test.mbt` 元测试（红：现行只取首个同名头）→ 实现头解析收集全部 `content-length`，≥2 即 `Broken("重复 Content-Length")`（与 TE 在场无关，TE 分派前判定；单 CL + TE:chunked 的既有优先序不变），断言同值/异值双头均畸形、note 可辨认、raw/head 全留存
 - [x] T021 [US5] FR-009 断言辅助参数化（先红后绿）：`src/internal/fixtures/` 新增 `RequestLineExpect{method, target}` 与 `CapturedRequest::assert_matches`（contracts/fixtures-api.md §3；手法参考上游 `#callsite(autofill(loc))` 范式，代码自建，D8）——`scripted/sc003` 测试以 GET /、PUT /x、POST /p?a=b 三形态经同一辅助断言（红：现行 core 辅助硬编码 `POST / HTTP/1.1` 前提）→ `src/core/wire_form_test.mbt:129-142` 的 `assert_captured_frame` 切换为参数化辅助并显式传入期望形态
-- [ ] T022 [US5] SC-003 性能元测试（先红后绿）：新增 `src/internal/fixtures/sc003_sc004_test.mbt`——`@async.now()` 实测 2MB 与 8MB chunked 捕获（构造 >`max_body_bytes` 余量内的 8MiB 负载），断言 `t8 ≤ 5×t2` 且 `t8 ≤ 2s`（红：旧引擎 8MB 实测约 10.2s 超阈 → T018 后转绿）；常驻默认套（修复后自缚上界不拖门，取舍理由见 plan「SC-003/SC-004 执行设计」）；SC-004 黑盒端到端同文件补真实 socket 不同写片重放一轮
+- [x] T022 [US5] SC-003 性能元测试（先红后绿）：新增 `src/internal/fixtures/sc003_sc004_test.mbt`——`@async.now()` 实测 2MB 与 8MB chunked 捕获（构造 >`max_body_bytes` 余量内的 8MiB 负载），断言 `t8 ≤ 5×t2` 且 `t8 ≤ 2s`（红：旧引擎 8MB 实测约 10.2s 超阈 → T018 后转绿）；常驻默认套（修复后自缚上界不拖门，取舍理由见 plan「SC-003/SC-004 执行设计」）；SC-004 黑盒端到端同文件补真实 socket 不同写片重放一轮
 
 **Checkpoint**: 五缺陷全消除；FR-006～FR-010 元测试双 target 全绿；US-3/US-2 护栏无回归
 
@@ -151,7 +151,7 @@
 | B-10 关闭形态观测清单 | T015 | fr015_observation_test.mbt（双 target 各一份） | 计划 |
 | B-11 半截响应头（截断点参数化） | T013 | scripted_peer_test.mbt（三截断点穷举，US-2 场景 2） | 计划 |
 | B-12 慢速接收滴流 | T014 | scripted_peer_test.mbt | 计划 |
-| B-13 原始字节捕获 | T016、T018 | raw_peer_test.mbt ①–⑦ + frames_scan_wbtest.mbt | 计划（底座既有，本包回归） |
+| B-13 原始字节捕获 | T016、T018 | raw_peer_test.mbt ①–⑦⑪⑫⑬ + frames_scan_wbtest.mbt（P03-WB① 相位矩阵） | 已交付（US-5 重写后全护栏绿；本包回归完成） |
 | B-14 端口分配/冲突重试 | T004 | raw_peer_test.mbt（生命周期组） | 计划 |
 | B-15 生命周期/超时保护 | T004、T005 | raw_peer_test.mbt + scripted_server_test.mbt | 计划 |
 
@@ -164,11 +164,11 @@
 | FR-003 仅 loopback | T004/T005 实现 + T026 | `127.0.0.1:0` 单点收口；审计无外部地址 |
 | FR-004 超时保护/优雅关闭 | T004、T005、T011 | 每操作 `with_timeout_opt`；close 幂等；在途连接语义有元测试 |
 | FR-005 捕获保序保完整 | T016、T018 | raw 逐字节断言贯穿既有 ①–⑦ 与新相位矩阵 |
-| FR-006 相位无关判定 | T018 | 白盒相位矩阵（≥5 相位）+ 黑盒端到端 |
-| FR-007 超上限归一 | T019 | 超大十进制/十六进制即时 Broken 三断言 |
-| FR-008 重复 CL 判畸形 | T020 | 同值/异值双头 |
-| FR-009 断言辅助参数化 | T021 | GET/PUT/查询路径三形态 |
-| FR-010 耗时不平方增长 | T018、T022 | SC-003 判据 |
+| FR-006 相位无关判定 | T018 | 白盒相位矩阵（≥5 相位）+ 黑盒端到端——已实测：P03-WB① 六相位全同 + P03-SC004① 双写片重放一致 |
+| FR-007 超上限归一 | T019 | 超大十进制/十六进制即时 Broken——已实测：P03-WB②③ 滞留型红→封顶即时判停 |
+| FR-008 重复 CL 判畸形 | T020 | 同值/异值双头——已实测：P03-WB④⑤ + 端到端⑬（note 可辨认、raw/head 全留存） |
+| FR-009 断言辅助参数化 | T021 | GET/PUT/查询路径三形态——已实测：P03-FR009①②③ 经同一辅助 |
+| FR-010 耗时不平方增长 | T018、T022 | SC-003 判据——已实测：native t2=49ms/t8=146ms、wasm t2=64ms/t8=204ms（T024 的 R1 输入数据） |
 | FR-011 端口回填/冲突重试 | T004 | port()>0 主路径；重试分支按「防御性分支未测」显式记录（若不可驱动） |
 | FR-012 声明式编排 | T005（mount 设计）+ T026 | 审计测试代码无手写服务端循环 |
 | FR-013 echo 唯一 id | T008 | 并发 N 一一对应 |
