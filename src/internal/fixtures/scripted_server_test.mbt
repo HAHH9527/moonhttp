@@ -634,3 +634,70 @@ async test "P03-B08① 401/407 挑战脚本声明下发" {
     server.close()
   }
 }
+
+///|
+// US-4 场景（T023，P08 超时语义预验证）：每 200ms 滴 1KB、共 15 块的 body
+// （总 15360B，墙钟 ≥3s），read_ms=1000 的**按操作超时**下不触发超时——
+// 每块间隔（200ms）远小于单次读操作的超时阈值，读调用应逐块正常返回直至
+// EOF。判据取稳健形态：① 响应 200；② 15KB 全量收齐（任何一次读触发超时
+// 都会中断收齐）；③ 头后 body 到达批次数 ≥ 2（滴流形态粗验，节奏精判归
+// B-01①）。实现侧仅组合 T006 的 BodyPlan::Drip(1024, 15, 200)——纯参数
+// 组合任务，落笔即绿符合预期（未红判据：Drip 通用签名 T006 已按
+// (block_bytes, blocks, interval_ms) 落地，无新实现面）。
+async test "P03-US4① 滴流场景：按操作超时 1s 下 15KB 滴流不触发超时" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/slow-us4", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Drip(1024, 15, 200),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=8000))
+    let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    client.request(Get, "/slow-us4")
+    let head = client.end_request()
+    // 按操作读：read_ms=1000 语义下逐块到达（间隔 200ms < 1000ms）。
+    // 外层 None＝单次读 1s 超时（=触发超时，判据破坏）；内层 None＝EOF
+    //（体收完，正常终点）
+    let mut total = 0
+    let mut batches = 0
+    let mut timed_out = false
+    for ;; {
+      let r = @async.with_timeout_opt(1000) <| () => { client.read_some() }
+      match r {
+        None => {
+          timed_out = true
+          break
+        }
+        Some(inner) =>
+          match inner {
+            None => break
+            Some(bytes) => {
+              total = total + bytes.length()
+              batches = batches + 1
+            }
+          }
+      }
+    }
+    client.close()
+    serving.wait()
+    server.close()
+    // ① 响应码与头
+    assert_eq(head.code, 200, msg="US-4 场景未按脚本应答 200")
+    // ② 15KB 全量收齐（不触发超时的直接后果）
+    assert_eq(
+      total,
+      15360,
+      msg="滴流 body 未全量收齐——疑似触发超时中断",
+    )
+    assert_false(timed_out, msg="读操作触发超时")
+    // ③ 滴流形态粗验：body 分多批到达（单批到达即非滴流）
+    assert_true(
+      batches >= 2,
+      msg="body 单批到达——滴流编排未生效",
+    )
+  }
+}
