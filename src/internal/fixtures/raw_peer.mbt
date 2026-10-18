@@ -155,21 +155,30 @@ pub fn ScriptedPeer::mount(self : ScriptedPeer, program : PeerProgram) -> Unit {
 }
 
 ///|
-// 循环读入并原样累加，按帧边界判停（工单方案 4/5，Capture 程序判定内核）。
-// 返回最后的判定结果；EOF 出现在帧收完之前时如实回报，已匹配字节留在
-// raw 累加缓冲里。
+// 循环读入并原样累加，喂进式帧判停（T018 重写）：每片字节交给
+// FrameScanner 增量推进——每字节恰好处理一次（FR-010，废弃旧实现的全量
+// to_bytes() 重扫）；raw 仅在终态一次成型复制（FR-005）。EOF 时帧未收完：
+// 头部若已被扫描器判完整则交回其区间，否则如实回报区间未知；已匹配字节
+// 全部留在 raw 累加缓冲里（工单方案 5）。
 async fn read_frame(conn : @socket.Tcp, raw : Buffer) -> Frame {
+  let scanner = FrameScanner::new()
   let chunk = FixedArray::make(8192, b'\x00')
   for ;; {
     let n = conn.read(chunk, max_len=chunk.length())
     if n == 0 {
-      // EOF：帧未收完。已匹配字节全部留在 raw 累加缓冲里，如实回报（工单方案 5）
-      break broken_early(raw.to_bytes(), "对端在帧收完前遇到 EOF")
+      break match scanner.head_end_hint() {
+        Some(head_end) =>
+          Broken(Some(head_end), "对端在帧收完前遇到 EOF")
+        None => Broken(None, "对端在帧收完前遇到 EOF")
+      }
     }
-    raw.write_bytes(chunk.unsafe_reinterpret_as_bytes()[:n])
-    match scan_frame(raw.to_bytes()) {
-      NeedMore => continue
-      frame => break frame
+    let bytes = chunk.unsafe_reinterpret_as_bytes()[:n]
+    raw.write_bytes(bytes)
+    match scanner.feed(bytes) {
+      None => continue
+      Some(Done(head_end, payload, chunked)) =>
+        return Complete(head_end, payload, chunked)
+      Some(Failed(note)) => return Broken(scanner.head_end_hint(), note)
     }
   }
 }
@@ -182,15 +191,6 @@ fn make_captured(raw : Bytes, frame : Frame) -> CapturedRequest {
       let head = slice_bytes(raw, 0, head_end)
       { head, body, raw, chunked, complete: true, note: None, }
     }
-    NeedMore =>
-      {
-        head: b"",
-        body: b"",
-        raw,
-        chunked: false,
-        complete: false,
-        note: Some("帧未收完"),
-      }
     Broken(Some(head_end), note) => {
       let head = slice_bytes(raw, 0, head_end)
       {
