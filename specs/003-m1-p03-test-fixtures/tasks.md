@@ -35,9 +35,9 @@
 
 **⚠️ CRITICAL**: 本阶段未完成前不得开始任何 US 行为任务
 
-- [ ] T002 包迁移（一次性结构动作）：`git mv src/fixtures src/internal/fixtures`；`src/core/moon.pkg:21` 导入改路 `"hahh9527/moonhttp/fixtures"` → `"hahh9527/moonhttp/internal/fixtures"`（`for "test"` 保持）；同步 `src/core/wire_form_test.mbt` 与包内各文件头注释中的**自身路径**引用（`src/fixtures` → `src/internal/fixtures`）；**specs/002 已交付文档中的历史锚点一律不回改**（映射关系以 plan.md「收尾事项」第 3 条为准）；moon.pkg 依赖（moonbitlang/async + async/socket）不变。**bench/ 归档探针处置（analyze F2）**：`bench/diag_ovf/moon.pkg:9`、`bench/diag_probe/moon.pkg:17`、`bench/p02-t009-perf-probe/moon.pkg:19` 三处 `import "hahh9527/moonhttp/fixtures"` 会随迁移失效——三包属 owner 2026-10-16 处置的一次性归档件（source="src" 外、不入构建图、不参与门禁），本轮不改；P10 于 src 下重建正式基准时改用新路径
-- [ ] T003 迁移回归门：T002 后重跑六门（命令同 T001），`raw_peer_test.mbt` ①–⑦ 双 target 全绿；`.mbti` diff 审视——本步出现的路径性变化必须**唯一归因于 C1 裁决**（research.md R1.3），core 公开 `.mbti` 期望零 diff；与 T001 快照逐项对照并记录
-- [ ] T004 B-14 + B-15 驱动辅助（先红后绿）：新增生命周期/端口元测试于 `src/internal/fixtures/raw_peer_test.mbt`（红：`close()` 幂等、close 后新操作在超时上限内立即返回、`port()` 恒 > 0、stop 后不再接受新连接）→ 实现 `src/internal/fixtures/raw_peer.mbt` 共享辅助（bind `127.0.0.1:0` 回填 + 冲突自动重试 ≤3 次（FR-011）；每操作 `@async.with_timeout_opt` 保护（FR-004）；优雅关闭语义 = 关监听不再 accept、在途连接由其操作超时上限收尾）；重试分支若实现期证明不可驱动（bind :0 冲突几乎不可达），在任务产出中**显式记录「防御性分支未测」**，不得静默
+- [x] T002 包迁移（一次性结构动作）：`git mv src/fixtures src/internal/fixtures`；`src/core/moon.pkg:21` 导入改路 `"hahh9527/moonhttp/fixtures"` → `"hahh9527/moonhttp/internal/fixtures"`（`for "test"` 保持）；同步 `src/core/wire_form_test.mbt` 与包内各文件头注释中的**自身路径**引用（`src/fixtures` → `src/internal/fixtures`）；**specs/002 已交付文档中的历史锚点一律不回改**（映射关系以 plan.md「收尾事项」第 3 条为准）；moon.pkg 依赖（moonbitlang/async + async/socket）不变。**bench/ 归档探针处置（analyze F2）**：`bench/diag_ovf/moon.pkg:9`、`bench/diag_probe/moon.pkg:17`、`bench/p02-t009-perf-probe/moon.pkg:19` 三处 `import "hahh9527/moonhttp/fixtures"` 会随迁移失效——三包属 owner 2026-10-16 处置的一次性归档件（source="src" 外、不入构建图、不参与门禁），本轮不改；P10 于 src 下重建正式基准时改用新路径
+- [x] T003 迁移回归门：T002 后重跑六门（命令同 T001），`raw_peer_test.mbt` ①–⑦ 双 target 全绿；`.mbti` diff 审视——本步出现的路径性变化必须**唯一归因于 C1 裁决**（research.md R1.3），core 公开 `.mbti` 期望零 diff；与 T001 快照逐项对照并记录
+- [x] T004 B-14 + B-15 驱动辅助（先红后绿）：新增生命周期/端口元测试于 `src/internal/fixtures/raw_peer_test.mbt`（红：`close()` 幂等、close 后新操作在超时上限内立即返回、`port()` 恒 > 0、stop 后不再接受新连接）→ 实现 `src/internal/fixtures/raw_peer.mbt` 共享辅助（bind `127.0.0.1:0` 回填 + 冲突自动重试 ≤3 次（FR-011）；每操作 `@async.with_timeout_opt` 保护（FR-004）；优雅关闭语义 = 关监听不再 accept、在途连接由其操作超时上限收尾）；重试分支若实现期证明不可驱动（bind :0 冲突几乎不可达），在任务产出中**显式记录「防御性分支未测」**，不得静默
 
 **Checkpoint**: 迁移完成、基线恢复、驱动辅助就绪——US 行为任务可以开始
 

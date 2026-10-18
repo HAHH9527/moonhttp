@@ -75,9 +75,17 @@ pub fn CapturedRequest::raw_text(self : CapturedRequest) -> String {
 
 ///|
 /// 只监听回环地址的裸 TCP 对端。一次 start 服务一条请求一次断言（工单方案 3）。
+/// closed 为生命周期位（B-15 优雅关闭语义的单一事实源）。
 pub struct RawPeer {
   priv server : @socket.TcpServer
+  priv mut closed : Bool
 }
+
+///|
+// FR-011：bind 冲突自动重试次数（data-model.md 常量表）。bind :0 由 OS 分配
+// 空闲端口，冲突几乎不可达——该重试分支为防御性设计，「防御性分支未测」
+// 显式记录见 T004 任务产出（specs/003-m1-p03-test-fixtures/tasks.md）。
+let bind_retry : Int32 = 3
 
 ///|
 // canned 收尾响应：HTTP/1.1 200 OK + Content-Length: 0 + 空行。让客户端
@@ -91,11 +99,21 @@ priv struct ConnSlot {
 }
 
 ///|
-/// 绑定 127.0.0.1:0（OS 分配随机端口）并开始监听。
+/// 绑定 127.0.0.1:0（OS 分配随机端口）并开始监听；bind 冲突自动重试 ≤3 次
+/// （FR-011，防御性分支——:0 冲突几乎不可达，见上方 bind_retry 注记）。
 /// 实际端口经 getsockname 回填后由 `port()` 读取（tcp.mbt:111-113）。
 pub async fn RawPeer::start() -> RawPeer {
-  let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
-  { server, }
+  let mut last_error : Error? = None
+  for _attempt in 0..<bind_retry {
+    try {
+      let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+      return { server, closed: false, }
+    } catch {
+      err => last_error = Some(err)
+    }
+  }
+  // 重试耗尽：把最后一次 bind 失败原样上抛（调用方决定处置）
+  raise last_error.unwrap()
 }
 
 ///|
@@ -174,6 +192,18 @@ pub async fn RawPeer::capture_one(
   self : RawPeer,
   timeout_ms~ : Int32 = 5000,
 ) -> CapturedRequest {
+  // B-15 优雅关闭语义：stop 后不再 accept——新操作立即如实返回（不悬挂、
+  // 不 panic、绝不再触已关闭的监听句柄）；在途连接仍由其操作超时上限收尾。
+  if self.closed {
+    return {
+      head: b"",
+      body: b"",
+      raw: b"",
+      chunked: false,
+      complete: false,
+      note: Some("夹具已关闭（stop 后不再接受新连接）"),
+    }
+  }
   let raw = Buffer()
   let slot : ConnSlot = { conn: None, }
   let outcome = @async.with_timeout_opt(timeout_ms) <| () => {
@@ -207,7 +237,12 @@ pub async fn RawPeer::capture_one(
 }
 
 ///|
-/// 关闭监听 socket。
+/// 关闭监听 socket。幂等（B-15）：首次调用真正停听，后续调用为无害空操作。
+/// 优雅关闭语义＝关监听不再 accept；在途连接由其操作超时上限收尾。
 pub fn RawPeer::close(self : RawPeer) -> Unit {
+  if self.closed {
+    return
+  }
+  self.closed = true
   self.server.close()
 }

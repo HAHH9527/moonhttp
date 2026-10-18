@@ -208,3 +208,102 @@ async test "P03⑦ 垃圾输入：无 CRLFCRLF 亦安全回报未收完" {
     assert_eq(cap.raw, sent)
   }
 }
+
+///|
+// ─── 生命周期/端口组（P03 T004：B-14 端口分配 + B-15 生命周期/超时保护）───
+// 判据来源：specs/003-m1-p03-test-fixtures/tasks.md T004——close() 幂等、
+// close 后新操作在超时上限内立即返回、port() 恒 > 0、stop 后不再接受新连接。
+// 红绿纪律（宪法 IV）：本组先于 raw_peer.mbt 的共享辅助实现落地。
+
+///|
+// ⑧ 生命周期（B-14/B-15）：port() 恒 > 0（bind :0 回填）、close() 幂等
+//    （连续两次 close 不 panic 不 raise）
+async test "P03⑧ 生命周期：port() 恒 > 0、close() 幂等（二次 close 无害）" {
+  let peer = @fixtures.RawPeer::start()
+  assert_true(peer.port() > 0)
+  peer.close()
+  peer.close()
+}
+
+///|
+// ⑨ 生命周期（B-15）：close 后新操作在超时上限内立即返回——不悬挂、不 panic，
+//    以 complete=false + 如实 note 收尾（优雅关闭语义）
+async test "P03⑨ 生命周期：close 后 capture_one 在超时上限内如实返回" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    peer.close()
+    let t0 = @async.now()
+    let cap = group.spawn(() => peer.capture_one(timeout_ms=500)).wait()
+    let elapsed_ms = @async.now() - t0
+    assert_eq(cap.complete, false)
+    match cap.note {
+      Some(n) =>
+        assert_true(
+          n.contains("关闭") || n.contains("超时"),
+          msg="close 后 note 须如实：\{n}",
+        )
+      None => fail("close 后 capture_one 必须给出如实 note")
+    }
+    assert_true(
+      elapsed_ms < 500L,
+      msg="close 后新操作须在超时上限内立即返回：实测 \{elapsed_ms}ms",
+    )
+  }
+}
+
+///|
+// ⑩ 生命周期（B-14）：stop 后不再接受新连接——钉死夹具可控不变量：
+//    **stop 后发起的连接绝不得到夹具的任何服务**（无 canned 200、无任何字节）。
+//    客户端侧 connect 的结局形态依宿主而变（2026-10-18 Windows 实测：close 后
+//    connect 悬挂 ≥1s 无快速拒绝——独立探针在裸 @socket 层复现，与夹具无关，
+//    同 D2「上游无 shutdown/RST 不可构造」的能力缺口族），故拒绝/悬挂两形态
+//    仅 println 观测留痕，不作跨宿主断言（FR-015 同款口径）。
+async test "P03⑩ 生命周期：stop 后的连接绝不得到夹具服务（观测留痕）" {
+  let peer = @fixtures.RawPeer::start()
+  let port = peer.port()
+  assert_true(port > 0)
+  peer.close()
+  let t0 = @async.now()
+  // 外层 1500ms 兜底整个探测（connect 悬挂宿主上由它收尾）；
+  // 连上时写一条请求并限时 500ms 读——读到任何字节即「被服务」＝集合外形态。
+  let outcome = @async.with_timeout_opt(1500) <| () => {
+    try {
+      let conn = @socket.Tcp::connect(@socket.Addr::parse("127.0.0.1:\{port}"))
+      conn.write(b"GET /after-stop HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+      let buf = FixedArray::make(128, b'\x00')
+      let read_outcome = @async.with_timeout_opt(500) <| () => {
+        conn.read(buf, max_len=128)
+      }
+      let served = match read_outcome {
+        Some(n) if n > 0 => true
+        _ => false
+      }
+      conn.close()
+      served
+    } catch {
+      e => Err(e)
+    } noraise {
+      v => Ok(v)
+    }
+  }
+  let elapsed_ms = @async.now() - t0
+  peer.close()
+  match outcome {
+    Some(Err(_)) =>
+      println(
+        "[P03⑩ 观测] close 后探测快速失败（connect/read 报错，\{elapsed_ms}ms 内）",
+      )
+    Some(Ok(false)) =>
+      println(
+        "[P03⑩ 观测] close 后连接建立但未得服务（\{elapsed_ms}ms 内无应答字节）",
+      )
+    None =>
+      println(
+        "[P03⑩ 观测] close 后 connect 悬挂（\{elapsed_ms}ms 内无结局；宿主形态，不判失败）",
+      )
+    Some(Ok(true)) =>
+      fail(
+        "stop 后的连接得到了夹具服务——违背「关监听不再 accept」语义",
+      )
+  }
+}
