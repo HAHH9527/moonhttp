@@ -317,3 +317,81 @@ async test "P03⑩ 生命周期：stop 后的连接绝不得到夹具服务（�
       )
   }
 }
+
+///|
+// ─── US-3 判据补全（P03 T016：捕获判据回归锚点，spec US-3 场景 1/2）───
+// 性质：Capture 底座已交付（spec 既定事实登记），**预期落笔即绿**；
+// 若出现红＝底座回归，就地修复并停手回报红因。
+
+///|
+// ⑪ US-3 场景 1：定长 POST ⇒ 捕获可解析出 Content-Length，且**显式断言
+//    不含 Transfer-Encoding**（定长帧与 TE 互斥的线上事实；P02 US-2 判据源）
+async test "P03-B13⑪ US-3：定长 POST 捕获含 Content-Length 且不含 Transfer-Encoding" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let capture = group.spawn(() => peer.run(timeout_ms=2000))
+    let conn = connect_peer(peer.port())
+    conn.write(
+      b"POST /fixed-us3 HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 10\r\n\r\n0123456789",
+    )
+    let _ = conn.read_all().text()
+    let cap = capture.wait()
+    conn.close()
+    peer.close()
+    assert_true(cap.complete, msg="帧未收完——底座判停回归")
+    // 可解析出 Content-Length
+    assert_true(
+      cap.head_text().contains("Content-Length: 10"),
+      msg="捕获头缺 Content-Length: 10：\{visible(cap.head_text())}",
+    )
+    // 显式断言不含 Transfer-Encoding（定长帧互斥面）
+    assert_true(
+      !cap.head_text().contains("Transfer-Encoding"),
+      msg="定长 POST 捕获头不得含 Transfer-Encoding：\{visible(cap.head_text())}",
+    )
+    assert_eq(cap.body, b"0123456789", msg="负载不符")
+    assert_eq(cap.chunked, false)
+  }
+}
+
+///|
+// ⑫ US-3 场景 2：同一请求重放两次 ⇒ 两次捕获逐字节相同（raw/head/body/
+// 判定面全同；捕获保真回归锚点）
+async test "P03-B13⑫ US-3：同一请求重放两次捕获逐字节相同" {
+  let sent = b"POST /replay HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 7\r\n\r\nreplay1"
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    // 第一轮
+    let capture1 = group.spawn(() => peer.run(timeout_ms=2000))
+    let conn1 = connect_peer(peer.port())
+    conn1.write(sent)
+    let _ = conn1.read_all().text()
+    conn1.close()
+    let cap1 = capture1.wait()
+    // 第二轮（同字节重放）
+    let capture2 = group.spawn(() => peer.run(timeout_ms=2000))
+    let conn2 = connect_peer(peer.port())
+    conn2.write(sent)
+    let _ = conn2.read_all().text()
+    conn2.close()
+    let cap2 = capture2.wait()
+    peer.close()
+    // 逐字节相同（raw/head/body 三面 + 判定面）
+    assert_eq(
+      cap1.raw,
+      cap2.raw,
+      msg="两轮 raw 字节不同——捕获保真回归",
+    )
+    assert_eq(cap1.head, cap2.head, msg="两轮 head 字节不同")
+    assert_eq(cap1.body, cap2.body, msg="两轮 body 字节不同")
+    assert_eq(cap1.complete, cap2.complete)
+    assert_eq(cap1.complete, true, msg="帧未收完——底座判停回归")
+    assert_eq(
+      cap1.raw,
+      sent,
+      msg="捕获与线上字节不符——保序保完整回归",
+    )
+  }
+}
