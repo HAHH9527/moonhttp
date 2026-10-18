@@ -102,3 +102,43 @@ async test "P03-WB① 相位矩阵：>64KiB chunked 流六相位判定全同" {
     }
   }
 }
+
+///|
+// FR-007（T019 红阶段）：超大数值在未封顶累加下回绕——
+//   - CL 4294967297（2^32+1）→ Int32 累加回绕为 1 → 放行 BodyFixed(1) →
+//     等 1 字节不至 → **滞留到后续字节/超时**（三型之滞留型；99999999999 则回绕为大正数碰巧即时上限——回绕症状依输入而变，均不可依赖）
+//   - chunk 大小行 FFFFFFFF → 同型
+// 绿阶段判据：feed 头部后**同一次调用即时** Failed("…超出夹具上限")，
+// 不出现空负载假收完、不滞留。
+async test "P03-WB② FR-007：CL 4294967297（回绕为 1）即时超出夹具上限" {
+  let s = b"POST /ovf HTTP/1.1\r\nHost: h\r\nContent-Length: 4294967297\r\n\r\n"
+  match FrameScanner::new().feed(s) {
+    Some(Failed(note)) =>
+      assert_true(note.contains("上限"), msg="note 不如实：\{note}")
+    Some(Done(_, payload, _)) =>
+      fail(
+        "空负载假收完——回绕症状（payload.len=\{payload.length()}）",
+      )
+    None =>
+      fail(
+        "超长 CL 未即时判停——滞留到后续字节（回绕滞留型症状）",
+      )
+  }
+}
+
+///|
+async test "P03-WB③ FR-007：chunk 大小行 FFFFFFFF 即时超出夹具上限" {
+  let s = b"POST /ovf HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\nFFFFFFFF\r\n"
+  match FrameScanner::new().feed(s) {
+    Some(Failed(note)) =>
+      assert_true(note.contains("上限"), msg="note 不如实：\{note}")
+    Some(Done(_, payload, _)) =>
+      fail(
+        "空负载假收完——回绕症状（payload.len=\{payload.length()}）",
+      )
+    None =>
+      fail(
+        "超长大小行未即时判停——滞留到后续字节（回绕滞留型症状）",
+      )
+  }
+}

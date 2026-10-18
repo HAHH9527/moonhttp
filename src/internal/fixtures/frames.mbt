@@ -281,8 +281,10 @@ fn FrameScanner::step_size_line(self : FrameScanner, b : Byte) -> Signal? {
     None => content_end
   }
   match parse_hex(line, 0, size_end) {
-    None => Some(Failed("chunk 大小行非十六进制"))
-    Some(0) => {
+    Bad => Some(Failed("chunk 大小行非十六进制"))
+    // FR-007 封顶累加：单块即超上限在累加途中即时出现（回绕不可能）
+    Overflow => Some(Failed("chunk 超出夹具上限"))
+    Num(0) => {
       // 0 长度块：trailer 区以 CRLFCRLF 收尾。0 行自身的 CRLF 即 CRLFCRLF
       // 的前半（现行语义「自 idx 含本行 CRLF 起找空行」同构），故进度预设
       // 为 2，后续字节从已匹配 \r\n 起步
@@ -291,8 +293,8 @@ fn FrameScanner::step_size_line(self : FrameScanner, b : Byte) -> Signal? {
       self.trailer_count = 0
       None
     }
-    Some(size) =>
-      // FR-007 前置口径（T019 将收紧为封顶累加）：累计负载 + 本块不超上限
+    Num(size) =>
+      // 累计负载约束：封顶累加已保证单块 ≤ 上限，此处只查「累计」不超
       if size > max_body_bytes - self.payload.length() {
         Some(Failed("chunk 累计负载超出夹具上限"))
       } else {
@@ -326,18 +328,17 @@ fn FrameScanner::resolve_head(
     match cl {
       Some((vs, ve)) =>
         match parse_decimal(head, vs, ve) {
-          None => Some(Failed("Content-Length 值非十进制"))
-          Some(n) =>
-            if n > max_body_bytes {
-              Some(Failed("Content-Length 超出夹具上限"))
-            } else if n == 0 {
-              // CL:0：头部即整条消息（send.mbt:106 空体形态），不进入体消费态
-              self.finish(false)
-            } else {
-              self.remaining = n
-              self.st = BodyFixed
-              None
-            }
+          Bad => Some(Failed("Content-Length 值非十进制"))
+          // FR-007 封顶累加：溢出在累加途中即时出现（回绕不可能）
+          Overflow => Some(Failed("Content-Length 超出夹具上限"))
+          Num(0) =>
+            // CL:0：头部即整条消息（send.mbt:106 空体形态），不进入体消费态
+            self.finish(false)
+          Num(n) => {
+            self.remaining = n
+            self.st = BodyFixed
+            None
+          }
         }
       None => self.finish(false)
     }
@@ -495,27 +496,42 @@ fn header_value(buf : Bytes, head_end : Int32, name : Bytes) -> (Int32, Int32)? 
 }
 
 ///|
-// 十进制非负整数解析；含非数字即失败（畸形，不 panic）
-fn parse_decimal(buf : Bytes, start : Int32, end : Int32) -> Int32? {
+// 数值解析结果（FR-007 封顶累加）：Num(n)＝未超上限的合法值；
+// Overflow＝累加途中超过 max_body_bytes（即时判停依据）；Bad＝畸形
+// （非数字/空）。回绕在构造上不可能：一旦超过上限立即返回，不再累加。
+priv enum NumParse {
+  Num(Int32)
+  Overflow
+  Bad
+}
+
+///|
+// 十进制非负整数解析（封顶累加）：逐位累加，累加值一旦超过
+// max_body_bytes 即时返回 Overflow——Int32 回绕在构造上不可能。
+fn parse_decimal(buf : Bytes, start : Int32, end : Int32) -> NumParse {
   if start >= end {
-    None
+    Bad
   } else {
-    let mut acc = 0
+    let mut acc : Int32 = 0
     let mut i = start
-    let mut ok = true
-    while i < end && ok {
+    let mut state : NumParse = Num(0)
+    while i < end {
       let d = buf[i].to_int() - 0x30
       if d < 0 || d > 9 {
-        ok = false
+        state = Bad
+        break
       } else {
         acc = acc * 10 + d
-        i = i + 1
+        if acc > max_body_bytes {
+          state = Overflow
+          break
+        }
       }
+      i = i + 1
     }
-    if ok {
-      Some(acc)
-    } else {
-      None
+    match state {
+      Num(0) => Num(acc)
+      other => other
     }
   }
 }
@@ -536,27 +552,33 @@ fn hex_value(b : Byte) -> Int32? {
 }
 
 ///|
-// 十六进制非负整数解析（chunk 大小行）；含非十六进制字符即失败
-fn parse_hex(buf : Bytes, start : Int32, end : Int32) -> Int32? {
+// 十六进制非负整数解析（chunk 大小行，封顶累加同 parse_decimal）
+fn parse_hex(buf : Bytes, start : Int32, end : Int32) -> NumParse {
   if start >= end {
-    None
+    Bad
   } else {
-    let mut acc = 0
+    let mut acc : Int32 = 0
     let mut i = start
-    let mut ok = true
-    while i < end && ok {
+    let mut state : NumParse = Num(0)
+    while i < end {
       match hex_value(buf[i]) {
-        None => ok = false
+        None => {
+          state = Bad
+          break
+        }
         Some(d) => {
           acc = acc * 16 + d
-          i = i + 1
+          if acc > max_body_bytes {
+            state = Overflow
+            break
+          }
         }
       }
+      i = i + 1
     }
-    if ok {
-      Some(acc)
-    } else {
-      None
+    match state {
+      Num(0) => Num(acc)
+      other => other
     }
   }
 }
