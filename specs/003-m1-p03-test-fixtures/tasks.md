@@ -70,7 +70,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T011 [US2] RawPeer → ScriptedPeer 演进：`src/internal/fixtures/raw_peer.mbt` 引入 `PeerProgram`/`CutPoint`（data-model.md 实体 3）与 `ScriptedPeer::start/port/mount/run/close`（contracts/fixtures-api.md §2；**返回值语义：仅 `Capture` 程序的 `CapturedRequest` 承载捕获断言，其余程序返回值不承载断言语义**）；`src/core/wire_form_test.mbt` 同步（`RawPeer` → `ScriptedPeer` + `Capture` 程序）；既有 ①–⑦ 元测试保持双 target 全绿（红绿对：演进后全绿即通过，行为实现为既有底座搬运）
+- [x] T011 [US2] RawPeer → ScriptedPeer 演进：`src/internal/fixtures/raw_peer.mbt` 引入 `PeerProgram`/`CutPoint`（data-model.md 实体 3）与 `ScriptedPeer::start/port/mount/run/close`（contracts/fixtures-api.md §2；**返回值语义：仅 `Capture` 程序的 `CapturedRequest` 承载捕获断言，其余程序返回值不承载断言语义**）；`src/core/wire_form_test.mbt` 同步（`RawPeer` → `ScriptedPeer` + `Capture` 程序）；既有 ①–⑦ 元测试保持双 target 全绿（红绿对：演进后全绿即通过，行为实现为既有底座搬运）
 - [ ] T012 [US2] B-09 accept 后立即 close（先红后绿）：`scripted_peer_test.mbt` 写 US-2 验收场景 1 元测试（复用连接上发请求 → 客户端收到 EOF/ReaderClosed 类错误，为 P07 提供判据）→ 实现 `AcceptClose` 程序。实现注记：本任务元测试以「已建立连接上写入后对端 close」等价驱动；真正的连接池复用判据归 P07
 - [ ] T013 [US2] B-11 半截响应头三截断点参数化（先红后绿；**风险 R2 落点**）：`scripted_peer_test.mbt` 按 `CutPoint = Nothing | MidStatusLine(n) | AfterStatusLine | MidHeaderLine(n)` **穷举三截断点**（US-2 场景 2 用 `MidStatusLine(15)`），逐点断言客户端错误落在钉死集合 **{BadRequest, ReaderClosed}**（spec D3/E4；**出现集合外形态即为 spec 变更信号，停手回报，不得扩集或放宽**）；P07 的「不可重试」分支不得以「客户端能观测到状态行已解析」为判据 → 实现 `PartialResponse`（canned 响应字节前缀来自 frames.mbt 头注的写出形态取证）
 - [ ] T014 [US2] B-12 慢速接收滴流（先红后绿）：`scripted_peer_test.mbt` 元测试（accept 后按声明节奏读、不读满，写侧可观测停滞）→ 实现 `SlowReceive(read_bytes, interval_ms)`
