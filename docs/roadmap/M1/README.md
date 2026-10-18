@@ -25,6 +25,15 @@
 | [P01](P01-core-value-types.md) | core 值对象 | HttpUrl 解析/规范化/resolve + HeadersV 有序多头 | 无 | ~2.75d | 01 §3.2/§3.4 |
 | [P02](P02-request-response-bodies.md) | 请求/响应/体模型 | Request/Response/RequestBody/ResponseBody + 定长帧（L2） | P01, P03 | ~1.5d | 01 §3.3/§3.6、14 §2 L2 |
 | [P03](P03-test-server-fixtures.md) | 可控服务端测试基建 | 可编程本地服务端/裸 TCP 对端夹具库 | 无 | ~1d | 各篇 §8 汇总 |
+
+> **P03 交付状态（2026-10-18）**：已交付。交付口径＝收口六门全绿（`moon clean`
+> 后全量：check native/wasm `--deny-warn` 通过、test native 160/160 /
+> wasm 160/160、`fmt --check` 通过、`moon info` 后 `.mbti` 零 diff）；
+> B-01～B-06/B-08～B-15 全部行为已交付并有自证元测试，**B-07 gzip 为
+> M1 缺口·推迟（裁决 D4），不建模不实现**。过程账目见
+> `specs/003-m1-p03-test-fixtures/t004-record.md`，观测清单见同目录
+> `fr015-observations.md`。
+
 | [P04](P04-connection-pool.md) | 连接池 | Address/Lease/LIFO 归还/驱逐/毒化（L1） | P01, P03 | ~3d | 03 §3.1–§3.4 |
 | [P05](P05-call-engine-cancel.md) | Call 执行骨架与取消 | execute 直连管线、cancel 三通道、重放零折叠（L3） | P01, P02, P04 | ~1.5d | 01 §3.5/§6 |
 | [P06](P06-redirects.md) | 自动重定向 | follow-up 循环、3xx 决策表、priorResponse 链 | P05 | ~1.5d | 02 §3.1/§3.2 |
@@ -85,6 +94,7 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
 | D9 | **target 执行口径**（2026-10-14 按宪法 v1.2.0 更新）：M1 不建 wasm-gc stub 与 js 适配层（16 属 M5）；验证面为 native+wasm（check 零错误零警告 + 测试双绿），js/wasm-gc 依宪法 v1.2.0 原则 V（:67-77）标注「暂不验证」并挂欠账（F9），M5 收口时恢复 js 门禁（:130-133） | 16-target-support 属 M5 | 里程碑边界；宪法 v1.2.0 target 条款为口径依据，矩阵标注仍在每包落实 |
 | D10 | **故障注入能力口径**（2026-10-18）：原可行性报告 02 §8「服务端 accept 后立即 RST（或 close 不回包）」的手法在本项目不可照做——上游 moonbitlang/async 公开 API 无 shutdown/SO_LINGER（src/socket 全目录无 shutdown，Tcp 只有幂等全双工 close），只能交付 accept 后 close/FIN 与依实测钉死的 FIN/RST 观测清单；RST 属上游能力缺口（欠账 F16，**需人工批准的上游 PR 候选**） | 02 §8（P07 来源） | P03 已按 `specs/003-m1-p03-test-fixtures/spec.md` 澄清 D2 交付（B-10＝close 注入 + 观测清单，FR-015）；P07 相关判据已按 F17 同步改写（见 P07 文档：钉死集合 {BadRequest, ReaderClosed}） |
 | D11 | **服务端并发 accept 能力口径**（2026-10-18）：上游 `TcpServer::accept` 并发调用不安全——同一监听句柄挂 2 个并发 accept，native 直接 PanicError 崩溃（0xc0000409）、wasm/moonrun 悬挂不醒（P03 T008 双 target 探针实测，零夹具代码复现；机制锚点 network_windows.mbt:194-213）。原报告 02 §8/03 §8 各处「并发连接」服务端场景按「串行 accept + spawn_bg 并发处理」形态落地（即上游 run_forever tcp.mbt:141-172 的唯一自证可行形态） | 02 §8、03 §8（多连接服务端场景） | P03 夹具按 owner T008 裁决 A 以 `serve_n` 收口 accept 循环（测试代码保持零 accept 循环，FR-012）；B-04 行为判据不弱化（客户端侧真实并发 N=8 + 交错自证断言并发处理）；上游缺口登记欠账 F18（**需人工批准候选**，宪法 I） |
+| D12 | **夹具故障注入的 drain 语义**（2026-10-18，owner T013 裁决 A）：原报告 02 §8「回半截响应头后断」的注入形态若在**未读客户端请求**的情况下 close，Windows 等栈会触发 RST——客户端在 raw socket 层直接吃 OSError，@http 错误面（D3/E4 推演的 BadRequest/ReaderClosed）根本未被触达，且同一 socket 行为在不同时序下结局不同（骨架版与转绿版 Nothing 截断点分别落 ReaderClosed/OSError——判据踩在竞态上）。B-11 的诚实语义是「服务端已收到请求、开始回响应后中断」，故夹具的 PartialResponse **无条件内置 drain**（先读尽客户端请求再按 CutPoint 上线前缀再 close，不加公开枚举字段） | 02 §8（P07 来源）、specs/003-m1-p03-test-fixtures/spec.md 澄清 D3/证据 E4 | spec 判据 {BadRequest, ReaderClosed} 未扩集未放宽；drain 后实测四截断点 × 双 target 形态稳定（Nothing/15B/17B → ReaderClosed、MidHeaderLine(8) → BadRequest——F17 残余串下移形态的首次实证）+ 各连续 5 次零翻转；裁决理由与锚点逐条见 raw_peer.mbt PartialResponse 分支注释与 t004-record.md |
 
 补充口径说明（非差异，仅为落地澄清）：
 
