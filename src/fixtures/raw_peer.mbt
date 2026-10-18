@@ -1,0 +1,213 @@
+///|
+// raw_peer：P03 裸 TCP 对端夹具——起一个只听回环地址的一次性服务端，原样捕获
+// 客户端写上线的第一条 HTTP 报文，再回一个 canned 200 让客户端正常收尾。
+// 服务于 T009 四条线上字节断言（specs/002-m1-p02-request-response/tasks.md:207-237、
+// spec.md:383-387 SC-002）。
+//
+// 上游公开 API 取证（moonbitlang/async@0.22.4，本机 .mooncakes 解包，禁改、
+// 不 vendor；宪法 I）：
+//   - src/socket/tcp.mbt:85-115 — `TcpServer(addr, dual_stack?/reuse_addr?/
+//     reuse_port_lb?)`；端口传 0 由 OS 分配，实际端口经 getsockname 回填
+//     （文档 tcp.mbt:57-59、实现 tcp.mbt:111-113）
+//   - src/socket/tcp.mbt:32-36 — `pub struct TcpServer { addr : Addr, priv io }`，
+//     实际监听地址取公开字段 `.addr`（同文件 :73-:78 的 `TcpServer::addr()` 方法
+//     已标 #deprecated，用了会触发弃用警告、撞 --deny-warn 门，故走字段）
+//   - src/socket/pkg.generated.mbti:27 — `Addr::parse(String) -> Addr raise`；
+//     :26 — `Addr::port(Self) -> Int`
+//   - src/socket/tcp.mbt:73 — `TcpServer::accept(self) -> (Tcp, Addr)`（一次请求
+//     一次断言，不用 run_forever：tcp.mbt:78-99）
+//   - src/socket/tcp.mbt:305-310 / :325-330 — Tcp 公开实现 @io.Reader / @io.Writer
+//   - src/socket/tcp.mbt:23-26 — `Tcp::close`
+//   - src/pkg.generated.mbti:50 — `pub async fn[X] with_timeout_opt(Int, async () -> X) -> X?`
+//     （超时保护用；毫秒为单位，见 src/with_timeout_test.mbt:24-30）
+//
+// 手法参考（不搬运代码，roadmap 差异 D8）：上游 src/socket/getsockname_test.mbt:17-43
+// 的「bind :0 → 取回填端口 → 另一端 connect → accept」双任务范式。
+//
+// 宪法 IV：只监听/连接 127.0.0.1，绝不触外部网络。
+// 宪法 VII：注释与文档中文。
+
+///|
+/// 捕获到的一条线上报文。字段即取证面，全部原样留存：
+/// - head：头部区字节（含最后一行的 CRLF，不含空行 CRLF）；未收到完整头部时为空
+/// - body：重组后的负载（定长截取或 chunk 拼接；畸形/未收完时为空）
+/// - raw：**已捕获的全部字节，保序、不改动、不丢弃**（含帧后多余字节，如有）
+/// - chunked：负载是否按 Transfer-Encoding: chunked 帧收完
+/// - complete：帧是否收完（判停口径见 frames.mbt 文件头）
+/// - note：未收完时的如实说明（畸形/EOF/超时），收完则为 None
+pub(all) struct CapturedRequest {
+  head : Bytes
+  body : Bytes
+  raw : Bytes
+  chunked : Bool
+  complete : Bool
+  note : String?
+}
+
+///|
+// 字节 → String 的取证渲染：Byte 逐字节按 Latin-1 映射为码点，永不 raise、
+// 不丢字节（HTTP 帧头为 ASCII；非 ASCII 也只作展示用途，不参与判等）
+fn latin1_text(buf : Bytes) -> String {
+  let sb = StringBuilder()
+  let len = buf.length()
+  let mut i = 0
+  while i < len {
+    match buf[i].to_int().to_char() {
+      Some(c) => sb.write_char(c)
+      None => sb.write_char('\u{fffd}')
+    }
+    i = i + 1
+  }
+  sb.to_string()
+}
+
+///|
+/// 头部区文本（取证/断言面，含各行结尾的 CRLF）
+pub fn CapturedRequest::head_text(self : CapturedRequest) -> String {
+  latin1_text(self.head)
+}
+
+///|
+/// 全部捕获字节的文本（取证面）
+pub fn CapturedRequest::raw_text(self : CapturedRequest) -> String {
+  latin1_text(self.raw)
+}
+
+///|
+/// 只监听回环地址的裸 TCP 对端。一次 start 服务一条请求一次断言（工单方案 3）。
+pub struct RawPeer {
+  priv server : @socket.TcpServer
+}
+
+///|
+// canned 收尾响应：HTTP/1.1 200 OK + Content-Length: 0 + 空行。让客户端
+// end_request() 正常返回，不依赖 EOF（工单方案 6）。
+let canned_response : Bytes = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+
+///|
+// accept 到的连接句柄位：超时兜底路径需要它把 socket 关掉，避免客户端悬挂。
+priv struct ConnSlot {
+  mut conn : @socket.Tcp?
+}
+
+///|
+/// 绑定 127.0.0.1:0（OS 分配随机端口）并开始监听。
+/// 实际端口经 getsockname 回填后由 `port()` 读取（tcp.mbt:111-113）。
+pub async fn RawPeer::start() -> RawPeer {
+  let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+  { server, }
+}
+
+///|
+/// OS 回填的实际监听端口（bind 时传 0，故必然非 0）。
+pub fn RawPeer::port(self : RawPeer) -> Int32 {
+  self.server.addr.port()
+}
+
+///|
+// 循环读入并原样累加，按帧边界判停（工单方案 4/5）。返回最后的判定结果；
+// EOF 出现在帧收完之前时如实回报，已匹配字节留在 raw 累加缓冲里。
+async fn read_frame(conn : @socket.Tcp, raw : Buffer) -> Frame {
+  let chunk = FixedArray::make(8192, b'\x00')
+  for ;; {
+    let n = conn.read(chunk, max_len=chunk.length())
+    if n == 0 {
+      // EOF：帧未收完。已匹配字节全部留在 raw 累加缓冲里，如实回报（工单方案 5）
+      break broken_early(raw.to_bytes(), "对端在帧收完前遇到 EOF")
+    }
+    raw.write_bytes(chunk.unsafe_reinterpret_as_bytes()[:n])
+    match scan_frame(raw.to_bytes()) {
+      NeedMore => continue
+      frame => break frame
+    }
+  }
+}
+
+///|
+// 判定结果 + 累加缓冲 → 对外捕获值（不改动任何已捕获字节）
+fn make_captured(raw : Bytes, frame : Frame) -> CapturedRequest {
+  match frame {
+    Complete(head_end, body, chunked) => {
+      let head = slice_bytes(raw, 0, head_end)
+      { head, body, raw, chunked, complete: true, note: None, }
+    }
+    NeedMore =>
+      {
+        head: b"",
+        body: b"",
+        raw,
+        chunked: false,
+        complete: false,
+        note: Some("帧未收完"),
+      }
+    Broken(Some(head_end), note) => {
+      let head = slice_bytes(raw, 0, head_end)
+      {
+        head,
+        body: b"",
+        raw,
+        chunked: false,
+        complete: false,
+        note: Some(note),
+      }
+    }
+    Broken(None, note) =>
+      {
+        head: b"",
+        body: b"",
+        raw,
+        chunked: false,
+        complete: false,
+        note: Some(note),
+      }
+  }
+}
+
+///|
+/// 收一条请求：accept 一次 → 原样捕获首个完整 HTTP 报文 → 写 canned 200 → close。
+///
+/// timeout_ms（缺省 5000）为整体兜底：经公开面 `@async.with_timeout_opt`
+/// （async src/pkg.generated.mbti:50）施加，超时不无限等待——此时只关闭连接
+/// （让客户端以错误尽快返回，而不是悬挂），并把已捕获字节如实交回。
+/// 超时/畸形/EOF 均不 panic，也不丢弃已匹配字节。
+pub async fn RawPeer::capture_one(
+  self : RawPeer,
+  timeout_ms~ : Int32 = 5000,
+) -> CapturedRequest {
+  let raw = Buffer()
+  let slot : ConnSlot = { conn: None, }
+  let outcome = @async.with_timeout_opt(timeout_ms) <| () => {
+    let (conn, _peer_addr) = self.server.accept()
+    slot.conn = Some(conn)
+    let frame = read_frame(conn, raw)
+    // 收尾（工单方案 6）：帧完整才写 canned 200——帧未收完意味着对端已提前
+    // 关闭或输入畸形，向其写入可能触发写错误并掩盖真实判定，故此路径只关闭连接。
+    match frame {
+      Complete(_, _, _) => conn.write(canned_response)
+      _ => ()
+    }
+    conn.close()
+    slot.conn = None
+    frame
+  }
+  let bytes = raw.to_bytes()
+  match outcome {
+    Some(frame) => make_captured(bytes, frame)
+    None => {
+      match slot.conn {
+        Some(conn) => conn.close()
+        None => ()
+      }
+      make_captured(
+        bytes,
+        broken_early(bytes, "捕获超时（\{timeout_ms}ms 内帧未收完）"),
+      )
+    }
+  }
+}
+
+///|
+/// 关闭监听 socket。
+pub fn RawPeer::close(self : RawPeer) -> Unit {
+  self.server.close()
+}

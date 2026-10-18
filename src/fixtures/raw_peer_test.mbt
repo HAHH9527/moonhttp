@@ -1,0 +1,210 @@
+///|
+// raw_peer_test：P03 裸 TCP 对端夹具的自证元测试。
+//
+// 存在理由（宪法 V/验收先行）：T009 的四条线上字节断言全部建立在本夹具
+// 「原样捕获、按帧判停、不 panic、不悬挂」之上，故先用**裸 @socket.Tcp 手写
+// 字节**驱动夹具自证，再谈驱动 @http.Client 的线上断言。
+//
+// 取证引用：
+//   - ①「连通性自证」对应工单技术方案 2 的前置门：bind 127.0.0.1:0 成功、
+//     取到非 0 端口、@socket.Tcp::connect 真能连上
+//     （async src/socket/tcp.mbt:85-115 构造 + :111-113 getsockname 回填、
+//     src/socket/pkg.generated.mbti:29 Addr::port、tcp.mbt:51 Tcp::connect）。
+//   - 帧判停口径与上游写出形态的行号锚点见 frames.mbt 文件头。
+//   - 服务于 specs/002-m1-p02-request-response/tasks.md:207-237（T009）、
+//     spec.md:383-387（SC-002）。
+//
+// 宪法 IV：只连 127.0.0.1。roadmap 差异 D8：上游 test_programs/examples/mio
+// 测试资产未搬运，本夹具代码自建（手法参考 async src/socket/getsockname_test.mbt:17-43）。
+
+///|
+// 取证渲染：CRLF 转为可见转义，断言失败时能读到线上原样帧头
+fn visible(s : String) -> String {
+  s.replace_all(old="\r\n", new="\\r\\n")
+}
+
+///|
+// 连到夹具的实际监听端口（127.0.0.1，宪法 IV）
+async fn connect_peer(port : Int32) -> @socket.Tcp {
+  @socket.Tcp::connect(@socket.Addr::parse("127.0.0.1:\{port}"))
+}
+
+///|
+// ① 连通性自证（前置门）：bind :0 → 端口非 0 → Tcp::connect 连通 → 夹具收完
+//    无体请求 → canned 200 被客户端回读。
+async test "P03① 连通性自证：bind 127.0.0.1:0 取非 0 端口、Tcp::connect 可连通、canned 200 可回读" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    let port = peer.port()
+    assert_true(port > 0)
+    let capture = group.spawn(() => peer.capture_one())
+    let conn = connect_peer(port)
+    conn.write(b"GET /probe HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: */*\r\n\r\n")
+    let echoed = conn.read_all().text()
+    let cap = capture.wait()
+    conn.close()
+    peer.close()
+    assert_true(cap.complete)
+    // head 含各行结尾 CRLF、不含空行的 CRLF（判停口径见 frames.mbt scan_frame）
+    assert_eq(
+      visible(cap.head_text()),
+      "GET /probe HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nAccept: */*\\r\\n",
+    )
+    assert_eq(cap.chunked, false)
+    assert_eq(cap.body, b"")
+    assert_eq(
+      visible(echoed),
+      "HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n",
+    )
+  }
+}
+
+///|
+// ② 定长帧：Content-Length 声明的字节数被精确收完；跨多次 write 的分片
+//    保序拼接、原样留存（工单方案 4/5）
+async test "P03② 定长帧：Content-Length: 10 跨分片精确收完、body 原样" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    let port = peer.port()
+    let capture = group.spawn(() => peer.capture_one())
+    let conn = connect_peer(port)
+    conn.write(
+      b"POST /fixed HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 10\r\n\r\n0123456",
+    )
+    conn.write(b"789")
+    let _ = conn.read_all().text()
+    let cap = capture.wait()
+    conn.close()
+    peer.close()
+    assert_true(cap.complete)
+    assert_eq(cap.body, b"0123456789")
+    assert_eq(cap.chunked, false)
+    assert_true(cap.head_text().contains("Content-Length: 10"))
+    // 原样留存：raw = 头部 + 空行 CRLF + 体，不多不少
+    assert_eq(cap.raw.length(), cap.head.length() + 2 + cap.body.length())
+  }
+}
+
+///|
+// ③ 块编码帧：按块大小逐块推进直到 0 长度块 + CRLF，重组负载
+//    （线上形态锚点 send.mbt:153-169/:271-280）
+async test "P03③ chunked 帧：多块 + 0 长度终止块收完、负载重组正确" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    let port = peer.port()
+    let capture = group.spawn(() => peer.capture_one())
+    let conn = connect_peer(port)
+    conn.write(
+      b"POST /chunked HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n4\r\n",
+    )
+    conn.write(b"defg\r\n0\r\n\r\n")
+    let _ = conn.read_all().text()
+    let cap = capture.wait()
+    conn.close()
+    peer.close()
+    assert_true(cap.complete)
+    assert_eq(cap.chunked, true)
+    assert_eq(cap.body, b"abcdefg")
+    assert_true(cap.head_text().contains("Transfer-Encoding: chunked"))
+    // 判停不解析：块框架在线上原样留存，未被剥壳或改写
+    assert_true(
+      visible(cap.raw_text()).contains(
+        "3\\r\\nabc\\r\\n4\\r\\ndefg\\r\\n0\\r\\n\\r\\n",
+      ),
+      msg="块框架未按原样留存：\{visible(cap.raw_text())}",
+    )
+  }
+}
+
+///|
+// ④ 畸形头部（Content-Length 非十进制）：不 panic，如实回报未收完，
+//    已匹配的头部区间仍交回（工单方案 5）
+async test "P03④ 畸形：Content-Length 非十进制 → 不 panic、complete=false、头部区间保留" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    let port = peer.port()
+    let capture = group.spawn(() => peer.capture_one())
+    let conn = connect_peer(port)
+    let sent = b"POST /bad HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: abc\r\n\r\n"
+    conn.write(sent)
+    let _ = conn.read_all().text()
+    let cap = capture.wait()
+    conn.close()
+    peer.close()
+    assert_eq(cap.complete, false)
+    assert_eq(cap.note, Some("Content-Length 值非十进制"))
+    assert_true(cap.head_text().contains("POST /bad HTTP/1.1"))
+    // 已匹配字节一个不丢
+    assert_eq(cap.raw, sent)
+  }
+}
+
+///|
+// ⑤ 对端在帧收完前 EOF：如实回报、不丢弃已匹配字节（不 panic）
+async test "P03⑤ EOF：帧未收完即断开 → complete=false、已捕获字节全数留存" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    let port = peer.port()
+    let capture = group.spawn(() => peer.capture_one())
+    let conn = connect_peer(port)
+    let sent = b"POST /eof HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\nshort"
+    conn.write(sent)
+    conn.close()
+    let cap = capture.wait()
+    peer.close()
+    assert_eq(cap.complete, false)
+    assert_eq(cap.note, Some("对端在帧收完前遇到 EOF"))
+    assert_eq(cap.raw, sent)
+    // 头部本身是完整的，兜底判定保留其区间
+    assert_true(cap.head_text().contains("POST /eof HTTP/1.1"))
+  }
+}
+
+///|
+// ⑥ 超时兜底（工单方案 7）：帧始终收不完时不得无限等——经公开面
+//    @async.with_timeout_opt（async src/pkg.generated.mbti:50）按时返回，
+//    并关闭连接让客户端不至于悬挂。
+async test "P03⑥ 超时兜底：400ms 内帧未收完即返回、客户端不悬挂" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    let port = peer.port()
+    let capture = group.spawn(() => peer.capture_one(timeout_ms=400))
+    let conn = connect_peer(port)
+    conn.write(
+      b"POST /slow HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\n",
+    )
+    conn.write(b"partial")
+    let cap = capture.wait()
+    // 超时后夹具关闭连接：客户端读到 EOF，而不是永久悬挂
+    let echoed = conn.read_all().text()
+    conn.close()
+    peer.close()
+    assert_eq(cap.complete, false)
+    match cap.note {
+      Some(n) =>
+        assert_true(n.contains("超时"), msg="超时 note 不如实：\{n}")
+      None => fail("超时路径必须给出 note")
+    }
+    assert_eq(echoed, "")
+    assert_true(cap.raw.length() > 0)
+  }
+}
+
+///|
+// ⑦ 非 HTTP 垃圾输入：不出现 CRLFCRLF 也必须安全返回（不 panic、不无限累加）
+async test "P03⑦ 垃圾输入：无 CRLFCRLF 亦安全回报未收完" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.RawPeer::start()
+    let port = peer.port()
+    let capture = group.spawn(() => peer.capture_one(timeout_ms=800))
+    let conn = connect_peer(port)
+    let sent = b"\x00\x01\x02not-http\xff"
+    conn.write(sent)
+    conn.close()
+    let cap = capture.wait()
+    peer.close()
+    assert_eq(cap.complete, false)
+    assert_eq(cap.head, b"")
+    assert_eq(cap.raw, sent)
+  }
+}

@@ -1,0 +1,16 @@
+// P03 裸 TCP 对端夹具（T009 线上字节断言前置，specs/002-m1-p02-request-response
+// /tasks.md:207-237、spec.md:383-387 SC-002）。
+//
+// 宪法 I：只经 moonbitlang/async 公开 API（@socket / @async），不 fork、不复制、
+// 不 vendor 上游源码；上游 test_programs/examples/mio 测试资产一律不搬运
+// （roadmap 差异 D8，proj-init-docs/okhttp-on-async-http/README.md），手法可参考、
+// 代码自建。上游代码禁改。
+// 宪法 IV：只监听 127.0.0.1（回环），绝不触外部网络。
+// 宪法 VII：注释与文档中文。
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/socket",
+}
+
+pkgtype(kind: "library")
