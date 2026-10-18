@@ -382,9 +382,12 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
   `moon check`、wasm-gc 暂不验证，宪法 v1.2.0 质量门）。
 - **SC-002**: US-2 的线上字节断言在 P03 裸 TCP 对端夹具上稳定通过：
   Bytes 体请求含 `Content-Length: n` 且无 `Transfer-Encoding` 头；
-  Stream 体请求为 chunked（线上字节原始捕获仅 native；wasm 以转换层
-  输出断言代验——机制等价；js 不适用——fetch 语义由浏览器管理，仅
-  API 层验收，见 A8。wasm 口径补记 2026-10-15，analyze 处置 I8）。
+  Stream 体请求为 chunked（线上字节原始捕获在 native 与 wasm 均可用：
+  native 为验收基线；wasm 由 moonrun/WASI 宿主提供平台专用 socket
+  导入、亦可真实捕获，作增量信号，不放宽也不收紧任何验收门——本括注
+  更正 2026-10-15 analyze 处置 I8 的「仅 native」预测，该预测写于夹具
+  存在之前、已被 2026-10-16 实测证伪，owner 裁决方案 c，见 A8；js 不
+  适用——fetch 语义由浏览器管理，仅 API 层验收，见 A8）。
 - **SC-003**: 转换层纯函数性与重放性回归零缺口（属性测试）：同一
   Request 多次转换输出逐字节相同；Bytes 体重放 N 次内容逐字节一致。
 - **SC-004**: `moon info && moon fmt` 干净，`.mbti` 冻结 Request /
@@ -452,14 +455,19 @@ Response/ResponseBody 就位，但契约必须在本包先行定义（它是 P04
   Host/UA/Accept-Encoding，M2/04；FR-005 的 Content-Length/
   Content-Type 注入为 I2 裁决例外——2026-10-15 analyze 处置 I2 回写、2026-10-16 裁决 A 更新为覆盖语义）、
   File/json/char_stream（M2），均不在本包范围。
-- **A8（target 矩阵，宪法 V）**: native/wasm 同路径全量验收；wasm 的
-  线上字节原始捕获不可用（P03 裸 TCP 夹具为 native-only），US-2 场景
-  1/2 在 wasm 以转换层输出断言代验（机制等价；补记 2026-10-15，
-  analyze 处置 I8）；js 走 fetch——定长/chunked 由浏览器管理，线上
-  字节断言不可用（US-2 在 js 仅 API 层验收），`Response.cookies`
-  恒空，记「未验证」；wasm-gc 被
-  上游 runtime 缺口阻塞（README D9），暂不验证。网络行为测试基于可控
-  本地服务端与桩连接器，不依赖外部网络（宪法 IV）。
+- **A8（target 矩阵，宪法 V）**: native/wasm 同路径全量验收；线上原始
+  字节捕获的可用性由「谁提供 socket」决定：native 直接提供；wasm 由
+  moonrun/WASI 宿主提供平台专用 socket 导入，同样可做线上原始字节
+  捕获（2026-10-16 实测：src/fixtures 裸 TCP 夹具在 `moon test --target
+  wasm` 真实完成捕获，wasm 侧 126/126 全绿、四条 [T009 取证] 行、捕获
+  端口逐次不同；本条更正 2026-10-15 analyze 处置 I8 的「P03 裸 TCP
+  夹具为 native-only」预测——该预测写于夹具存在之前。owner 裁决方案
+  c：验收基线仍为 native，wasm 真实捕获作增量信号，既不放宽也不收紧
+  任何验收门）；js 走 fetch——浏览器无裸 socket，定长/chunked 由
+  浏览器管理，线上字节断言不适用（US-2 在 js 仅 API 层验收），
+  `Response.cookies` 恒空，记「未验证」；wasm-gc 被上游 runtime 缺口
+  阻塞（README D9），暂不验证。网络行为测试基于可控本地服务端与桩
+  连接器，不依赖外部网络（宪法 IV）。
 - **A9（前置与测试纪律）**: 前置依赖 P01（HttpUrl/HeadersV/Method 及其
   折叠/重建对称性）与 P03（裸 TCP 对端夹具）；测试与快照中的敏感头
   样例值必须为明显合成的占位串（沿 P01 A8 纪律），禁止真实凭证入库。
