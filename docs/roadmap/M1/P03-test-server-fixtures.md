@@ -154,15 +154,26 @@
 
 自证元测试即本包测试（US-1–US-4 场景）；native + wasm 双绿。
 
-## 澄清问题种子
+## 澄清问题种子（已全部裁决，2026-10-18——逐条保留原种子并就地标注裁决落点）
 
 - **C1** 夹具库宿主位置：`src` 内测试支撑包 vs 独立样例目录（moon 对测试专用包
   的发布语义）。
+  → **裁决**：迁 `src/internal/fixtures`（internal 包，toolchain 强制隔离；
+  003 plan C1 裁决，research.md R1；包迁移落地见 commit 327ff7e）。
 - **C2** `@http.Server` 与 `@socket` 在 js target 的可用性与形态（决定 js 退化方案）。
+  → **裁决**：js 完全不能监听——上游 `src/socket/moon.pkg:22-43` 与
+  `src/http/moon.pkg:51` 的 target 锁定 `[native, wasm]`，js 侧仅
+  `unimplemented.mbt:17` 占位；夹具按 [native, wasm] 交付（宪法 V 口径）。
 - **C3** wasm（moonrun 宿主）上 close/RST 的实际语义与 native 差异清单
   （影响 P07 在 wasm 的故障注入断言强度，允许降级但须记录）。
+  → **裁决**：已按实测归档 `specs/003-m1-p03-test-fixtures/fr015-observations.md`
+  （双 target 各三行：pending=no → ReaderClosed；方向①客户端请求未读 →
+  OSError；方向②夹具写入未读 → ReaderClosed——方向不对称即宿主差异记录；
+  B-10 交付口径，D2）。
 - **C4** gzip 行为脚本 M1 是否需要（P10 基准矩阵含 gzip on/off 场景——若 @http
   透明解压已覆盖断言需求，可推迟）。
+  → **裁决**：不建模不实现，B-07 记为 **M1 缺口·推迟（裁决 D4）**；
+  P10 基准矩阵若需 gzip on/off 场景随其排期评估。
 
 ## 验收判据（包级 DoD）
 
