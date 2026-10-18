@@ -17,7 +17,7 @@
 
 | 里程碑 | 明细文件 | 条目数（未完成/总数） |
 | --- | --- | --- |
-| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 15 / 15 |
+| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 17 / 17 |
 | M2 完整门面 | （待 M2 拆分时创建） | — |
 | M3–M5 | （待对应里程碑拆分时创建） | — |
 
@@ -40,6 +40,8 @@
 | F13 | 敏感信息脱敏专版（默认脱敏 + 按需展示形态，覆盖 HeadersV/调试输出及后续值类型） | M3（随 Logger/EventListener 与 F12 一并设计） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F14 | `text()` 受支持 charset 集扩展（M1 仅 UTF-8，集外按 UTF-8 降级 + stderr 告警——2026-10-16 裁决 B） | 未排期（需求驱动） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F15 | `tag` 占位升级评估（M1 保持 `Unit?`，需求驱动） | 未排期（需求驱动） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F16 | abortive close（RST）/半关闭注入能力缺口（上游无 shutdown/SO_LINGER——**需人工批准的上游 PR 候选**，宪法 I） | 未排期（须事先人工批准） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F17 | @http 客户端错误面无法区分响应截断点（read_until 残余串下移错误、无解析进度信号；P07 判据已按错误类型分流，钉死集合仅可观测面） | 未排期（需求驱动；上游候选须人工批准） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 
 ## 按里程碑速查（仅未完成）
 
@@ -49,4 +51,4 @@
   `trust` 字段生效。
 - **M4 拆分须核对**：F7（行为变化需 changelog）。
 - **M5 拆分须核对**：F9 + 汇总 M1–M4 全部 js 降级清单。
-- **未排期**：F8（需求驱动）、F10、F11（基准驱动）、F14（需求驱动）、F15（需求驱动）。
+- **未排期**：F8（需求驱动）、F10、F11（基准驱动）、F14（需求驱动）、F15（需求驱动）；F16、F17（上游改动候选，**须事先人工批准**，宪法 I）。

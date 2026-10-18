@@ -10,7 +10,11 @@
 `RetryAndFollowUpInterceptor.recover` 等价物，`retryOnConnectionFailure`
 默认开）：对「可重试的失败」（陈旧连接首读即断、连接建立失败、TLS 握手失败）
 换一条**新连接**重放请求（旧连接毒化）。发送路径拆成两个可观测阶段
-（写 body / 读响应头），以「是否已写出字节」「是否已解析出状态行」界定可重试性。
+（写 body / 读响应头），以「是否已写出字节」与「读头阶段错误类型
+（`ReaderClosed`＝EOF 族、`BadRequest`＝协议错误族，分流见范围节）」界定
+可重试性——@http 不暴露「状态行已解析」信号，该内部状态不得作为
+判定依据（specs/003-m1-p03-test-fixtures 澄清 D3/证据 E4；欠账 F17，
+2026-10-18）。
 这是 M1 交付判据之二「stale-retry 闭环」的载体，也是连接池正确性的必要配套
 （池化不配 stale-retry 会让长闲连接场景错误率上升，03 §6）。
 
@@ -19,10 +23,26 @@
 包含：
 
 - 可重试判定（对齐 02 §3.3）：
-  `retryOnConnectionFailure 开启 ∧ 失败类型 ∈ {连接建立失败, 陈旧连接（取出后首读即 EOF/Reset）, TLS 握手失败} ∧ 请求体可重放 ∧ 未收到任何响应字节（状态行未解析出） ∧ 未被取消 ∧ 尝试次数 < max_attempts（默认 2）`。
-- 阶段化发送的可观测性：写阶段失败且 `bytes_written == 0` → 可重试；
-  `end_request` 读头阶段 `ReaderClosed`/连接重置且**状态行未解析出** → 判定陈旧
-  连接、可重试；状态行已解析出后失败 → 不可重试（语义可能已生效）。
+  `retryOnConnectionFailure 开启 ∧ 失败类型 ∈ {连接建立失败, 陈旧连接（取出后首读即 EOF/Reset）, TLS 握手失败} ∧ 请求体可重放 ∧ 未收到任何响应字节（可观测口径＝读头阶段以 @io.ReaderClosed 失败，分流见下条） ∧ 未被取消 ∧ 尝试次数 < max_attempts（默认 2）`。
+- 阶段化发送的可观测性（**按错误类型分流；钉死集合是可观测集合，不等同
+  可重试集合**）：写阶段失败且 `bytes_written == 0` → 可重试；读头阶段分流：
+  - `@io.ReaderClosed`（parser.mbt:401-403——read_until 返回 None，零字节真
+    EOF）→ 对齐 OkHttp EOF 路径（Http1ExchangeCodec.kt:247-252 把
+    EOFException 重包为普通 IOException「unexpected end of stream」，落入
+    RetryAndFollowUpInterceptor.kt:197 兜底 `return true`）→ **可重试**、
+    判定陈旧连接；
+  - `BadRequest`（parser.mbt:404/:410-413——畸形片段已作为状态行解析；:407
+    HttpVersionNotSupported 同族）→ 对齐 OkHttp 协议错误路径
+    （RetryAndFollowUpInterceptor.kt:171-173 isRecoverable 首行
+    `if (e is ProtocolException) return false`）→ **不可重试**但**毒化**
+    （毒化与重试解耦：任何失败都 trackFailure→noNewExchanges，
+    RealConnection.kt:398-400）。
+  全链没有任何以「状态行是否已解析」为条件的判定（OkHttp 替代信号＝
+  requestSendStarted:139、isOneShot:145/:157-163、超时类型:177-178）；@http
+  同样不暴露解析进度，「状态行是否已解析」不可作为判定依据（specs/003
+  澄清 D3/证据 E4；欠账 F17）。连接被 reset 的客户端表现
+  （@os_error.OSError）是否并入可重试面，由 P07 spec 依 P03 的 FR-015
+  观测清单裁决（F16：RST 不可确定性注入）。
 - 重放执行：新连接（新 Lease）重发；第一次立即重试（对齐 OkHttp——不退避，
   靠路由切换）；`max_attempts` 默认 2（若未来暴露更大值则接 `@async.retry` 退避）。
 - 毒化与观测：陈旧连接 close 不回池；`pool.stale_evictions` 计数递增。
@@ -67,8 +87,15 @@
 
 **验收场景**：
 
-1. Given P03「回半截响应头后断」脚本（状态行已解析出），When execute，
-   Then 抛原始读错误、不重试、连接毒化。
+1. Given P03「回半截响应头后断」脚本（截断点由夹具声明，specs/003 B-11），
+   When execute，Then 客户端错误落在钉死可观测集合 {BadRequest, ReaderClosed}
+   （specs/003 澄清 D3/证据 E4；欠账 F17），并按错误类型分流：
+   `BadRequest`（畸形片段已作为状态行解析＝已收到字节）→ 不可重试、连接毒化
+   （对齐 OkHttp RetryAndFollowUpInterceptor.kt:171-173 协议错误不可重试）；
+   `ReaderClosed`（EOF 路径）→ 可重试、判定陈旧连接（对齐 RetryAndFollowUp
+   Interceptor.kt:197 兜底与 Http1ExchangeCodec.kt:247-252 的 EOF 重包）。
+   注意钉死集合是可观测集合、不等同可重试集合；两类形态的最终措辞在
+   P07 spec 记录与 OkHttp 的映射。
 2. Given `Stream` body 已写出部分字节后写失败，Then 不重试（副作用可能已发生）。
 3. Given 调用方已 cancel，Then 以 `CallCancelled` 终止、不走重试分支。
 4. Given 重试预算耗尽（第 max_attempts 次仍失败），Then 透传最后一次原始错误。
@@ -87,14 +114,22 @@
 - 可重放 body 为 `Bytes` 且重放两次（第一次 stale、第二次成功）——线上字节
   逐字节一致（L3/重放性联合断言）；
 - 写阶段失败但 `bytes_written > 0`（部分写出）→ 不可重试；
-- `end_request` 失败但错误非 ReaderClosed 类（如协议错误）→ 走毒化不重试；
+- `end_request` 读头阶段错误按类型分流（与「阶段化发送的可观测性」一致）：
+  `BadRequest`（协议错误族，对齐 RetryAndFollowUpInterceptor.kt:171-173
+  `ProtocolException → 不可重试`）→ 走毒化不重试（毒化与重试解耦，
+  RealConnection.kt:398-400）；`ReaderClosed`（EOF 族，
+  Http1ExchangeCodec.kt:247-252 → RetryAndFollowUpInterceptor.kt:197 兜底）→
+  可重试；
 - 重试轮间 cancel（guard 生效）；重试与重定向叠加（先 stale 恢复再跟随 301，
   总 follow-up 计数语义在 spec 定义——重试是否占用 20 跳预算，澄清 C3）。
 
 ## 需求种子
 
 - **FR-001** 系统 MUST 按 02 §3.3 判定式界定可重试性（六条件合取）。
-- **FR-002** 状态行解析出后的失败 MUST NOT 重试。
+- **FR-002** 读头阶段以 `BadRequest`（畸形状态行片段，parser.mbt:404/:410-413
+  协议错误族）失败 MUST NOT 重试（毒化照常，对齐 OkHttp
+  RetryAndFollowUpInterceptor.kt:171-173）；`ReaderClosed`（EOF 族，
+  parser.mbt:401-403）可重试。
 - **FR-003** `Stream` body 已写出任意字节后 MUST NOT 重试。
 - **FR-004** 陈旧连接 MUST 毒化（close 不回池）并递增 `stale_evictions`。
 - **FR-005** 重试 MUST 换新 Lease（不复用失败连接），预算默认 2 次、不退避。
@@ -104,8 +139,10 @@
 
 - 阶段化由 L1 自身控制（L1 负责调 `request`/`write`/`end_request`，故在 L1 侧
   捕获错误时已知阶段——02 §4「写路径阶段化由 L1 自身控制」，无需侵入 @http）。
-- 「响应头是否已解析出状态行」由 L1 在 `end_request` 错误捕获点自判（02 §4
-  侵入项「低必要性」，不做侵入）。
+- 可重试分流以捕获到的**错误类型**判定（`ReaderClosed`＝EOF 族、
+  `BadRequest`＝协议错误族，parser.mbt:401-413），L1 在 `end_request` 错误
+  捕获点即可取得，无需侵入 @http（02 §4 侵入项「低必要性」，不做侵入；
+  「状态行是否已解析」不可观测、不作判据——F17）。
 - recover 分支插在 P06 循环内：`chain.proceed` 抛错 → recover 判定 → 可重试则
   新 Lease 重入循环；不可重试则 re-raise。
 
@@ -120,8 +157,8 @@
 
 | target | 支持 | 说明 |
 | --- | --- | :-: |
-| native | ✅ | 故障注入（RST/半关）语义完整 |
-| wasm | ✅ | 宿主 socket 的 RST 行为差异可能弱化部分断言（P03 C3 已记录），允许断言降级但行为不降级 |
+| native | ✅ | 故障注入＝close/FIN + 依实测钉死的 FIN/RST 观测清单（specs/003 FR-015）；RST/半关（shutdown/SO_LINGER）为上游能力缺口（F16），不作为可得判据 |
+| wasm | ✅ | 宿主上 close 的线上形态（FIN/RST）依 OS 与在途数据而变，观测清单见 specs/003 FR-015（P03 澄清 D2，原 C3）；允许断言降级但行为不降级 |
 | js | ⭕ | fetch 连接由浏览器管理，无陈旧连接概念；本包在 js 不激活 |
 | wasm-gc | ❌ | 上游 runtime 缺口 |
 
@@ -134,7 +171,7 @@ stale-retry 把「陈旧连接导致的用户可见失败」变成 ~1 次额外 
 
 - US-1/2/3 全部基于 P03 故障注入脚本；每条判定条件一个正例+一个反例。
 - 重放字节一致性用捕获对端断言。
-- native + wasm 双绿（wasm 断言强度按 P03 C3 结论调整并记录）。
+- native + wasm 双绿（wasm 断言强度按 P03 澄清 D2/FR-015 观测清单调整并记录）。
 
 ## 澄清问题种子
 

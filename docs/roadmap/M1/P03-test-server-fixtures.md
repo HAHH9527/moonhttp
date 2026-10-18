@@ -34,6 +34,14 @@
 > 为既有底座，不必从零起；第 1 类脚本化 HTTP 服务端与第 2 类其余行为
 > （close/RST、半截响应注入、慢速滴流等）仍待 P03 交付。夹具宿主位置是否
 > 调整（README:117）由 P03 的 plan 自行处置，本登记不代 P03 决定。
+>
+> **speckit 收口状态（2026-10-18）**：spec（含 Clarifications D1–D5）/plan/
+> tasks 已就绪，analyze 跨产物一致性检查 0 阻塞；C1 裁决＝夹具迁
+> `src/internal/fixtures`（toolchain internal 可见性强制隔离）；B-07 gzip
+> 裁定 M1 缺口·推迟（D4）；RST 注入能力缺口与 @http 截断点不可区分两条
+> 已入台账（`docs/roadmap/deferred-items/` F16/F17），B-10 交付口径改为
+> close 注入 + FIN/RST 观测清单、B-11 验收判据改为「夹具声明截断点 +
+> 钉死错误集合 {BadRequest, ReaderClosed}」。原登记不推翻，本行仅为状态追加。
 
 ## 范围
 

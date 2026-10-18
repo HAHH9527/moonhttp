@@ -2,7 +2,7 @@
 
 > 用途：M1 工作包拆分（`docs/roadmap/M1/`）中**显式降级或裁剪、需后续里程碑回补**
 > 的条目明细。总入口与跨里程碑汇总见 [`../deferred-items.md`](../deferred-items.md)；
-> 差异源头与理由详表见 `docs/roadmap/M1/README.md` 第 3 节（D1–D9）。
+> 差异源头与理由详表见 `docs/roadmap/M1/README.md` 第 3 节（D1–D10）。
 > 后续里程碑（M2–M5）做 roadmap 拆分时必读：逐条核对，将到期条目纳入对应工作包。
 
 ## 使用约定
@@ -32,6 +32,8 @@
 | F13 | 敏感信息脱敏专版（P01 决策 R3-H1-A/R3-M3-A） | P01 不承诺脱敏：全部公开类型 derive(Debug) 默认明文，无手写 impl、无逃生口（`specs/001-m1-p01-core-value-types/spec.md` FR-013/A8、plan「例外跟踪」节） | **M3**（可观测与安全） | 「默认脱敏 + 按需展示」完整形态随 Logger/EventListener 管线统一设计（与 F12 一批），覆盖 HeadersV/HeadersVBuilder 及后续 Request/Response 等值类型；错误消息只携带定位片段与 `to_string` 不含 userinfo 两条不因专版撤销 | 待回补 |
 | F14 | `text()` 受支持 charset 集扩展（P02 裁决 C4，2026-10-15；2026-10-16 owner 裁决 B 覆写集外语义） | M1 解码集仅 {UTF-8}：缺省/声明 UTF-8（任意大小写、带引号）按 UTF-8 解码；**集外 charset（latin1/gbk 等）按 UTF-8 降级解码（`decode_lossy`、畸形序列 U+FFFD）并输出一条 stderr 告警（唯一出口包内私有 `warn_charset_fallback`），不 raise、不并入 P02 FR-012 错误类型**（`specs/002-m1-p02-request-response/spec.md` FR-007/A4） | 未排期（需求驱动） | 引入对应解码依赖（latin1 零码表成本低、gbk 需码表/第三方解码），扩展 FR-007 受支持集与验收场景；扩展后按声明集解码、未知集仍降级 UTF-8；保持 OkHttp `string()` 语义（charset 解码、缺省 UTF-8） | 待回补 |
 | F15 | `tag` 占位升级评估（P02 裁决 C2，2026-10-15） | M1 tag 保持占位 `Unit?`：字段就位、语义零承诺、无按 tag 定位/批量取消（`specs/002-m1-p02-request-response/spec.md` FR-002/A2） | 未排期（需求驱动，随 P05 Call.cancel / P09 Dispatcher 出现按 tag 批量定位需求时评估） | 评估泛型/任意值 tag 升级；破坏性变更走 spec 变更流程（0.x 实验期允许），`.mbti` 冻结面逐项审视 | 待回补 |
+| F16 | abortive close（RST）/半关闭（shutdown）注入能力缺口（2026-10-18，specs/003 澄清 D2） | 上游 moonbitlang/async 的 src/socket 全目录无 shutdown、socket.c 的 setsockopt 无 SO_LINGER，Tcp 公开面只有幂等全双工 close（无方向参数）——只经公开 API 无法确定性构造 RST/半关；P03 夹具交付为 close 注入 + 依实测钉死的 FIN/RST 观测清单（`specs/003-m1-p03-test-fixtures/spec.md` 澄清 D2/证据 E3/E5；P03 plan 已显式否决「本项目自写 extern "C" 绑定补上游缺口」） | 未排期（**需人工批准的上游 PR 候选**：为 @socket 增补 shutdown 方向参数或 SO_LINGER 选项，属宪法 I 上游改动，须事先人工批准；侵入点编号＝新增候选·待分配） | 上游能力落地后，P03 夹具（B-10）与 P07 故障注入把 RST 从「观测清单」升级为「可确定性注入」；观测清单口径保留为跨平台事实记录 | 待回补 |
+| F17 | @http 客户端错误面无法区分响应截断点（2026-10-18，specs/003 澄清 D3） | `src/io/reader.mbt:217-224` 使 read_until 在 EOF 且缓冲非空时返回 Some(残余串)，`src/http/parser.mbt:401-403` 因此对半截状态行也拿到 Some，错误下移为 BadRequest 或在 :146/:167/:259 抛 ReaderClosed；@http 不暴露部分解析信号（`specs/003-m1-p03-test-fixtures/spec.md` 澄清 D3/证据 E4） | 未排期（需求驱动；若要真区分需上游暴露解析进度信号——**需人工批准候选**，侵入点编号＝新增候选·待分配） | 影响：P07 判据按**错误类型分流**——`ReaderClosed`（EOF 路径，parser.mbt:401-403）可重试、`BadRequest`（协议错误族，parser.mbt:404/:410-413）不可重试但毒化；钉死集合 {BadRequest, ReaderClosed} 仅是**可观测集合、不等同可重试集合**，不得以「客户端能观测到状态行已解析」为判据（P07 种子已按此改写，对齐 OkHttp RetryAndFollowUpInterceptor.kt:171-173/:197）；上游暴露解析进度信号后再评估精细判定 | 待回补 |
 
 ## 与里程碑的对应速查
 
@@ -43,4 +45,6 @@
   并同批补宪法「不安全配置 opt-in」条款。
 - **M4**：F7（304 语义变化）。
 - **M5**：F9（target 收口），并汇总核对 M1–M4 全部 js 降级清单。
-- **未排期（基准驱动/需求驱动）**：F8、F10、F11、F14、F15。
+- **未排期（基准驱动/需求驱动/需人工批准候选）**：F8、F10、F11、F14、F15；
+  F16（上游 PR 候选：shutdown/SO_LINGER，**须事先人工批准**，宪法 I）、
+  F17（上游解析进度信号候选，**须人工批准**）。
