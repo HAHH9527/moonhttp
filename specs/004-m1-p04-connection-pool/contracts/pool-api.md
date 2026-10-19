@@ -31,7 +31,7 @@ pub fn Address::hash(Self) -> Int
 // ConnectionPool（C4 裁决：new 仅两参；注入时钟走私有构造，R2，不进本面）
 // acquire：FR-001/004/008/015；evict 两入口：FR-005（R6 决策 -> Unit）
 // 观测访问器：FR-007/FR-013（stale_evictions 仅超期剔除口径）
-pub fn ConnectionPool::new(max_idle? : Int, keep_alive? : Int) -> ConnectionPool
+pub fn ConnectionPool::new(max_idle? : Int, keep_alive_ms? : Int) -> ConnectionPool
 pub async fn ConnectionPool::acquire(Self, Address) -> Lease raise
 pub fn ConnectionPool::evict_expired(Self) -> Unit
 pub fn ConnectionPool::evict_all(Self) -> Unit
@@ -60,7 +60,7 @@ pub fn Lease::poison(Self) -> Unit
 
 ## 2. 方法契约（行为语义，正文为 spec FR 的 plan 级细化）
 
-### `ConnectionPool::new(max_idle?, keep_alive?)`
+### `ConnectionPool::new(max_idle?, keep_alive_ms?)`
 
 - 缺省 5 / 300_000ms；`max_idle` MUST > 0、`keep_alive_ms` MUST ≥ 0
   （违反为调用方契约错误，panic——构造期快速失败）。

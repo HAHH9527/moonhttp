@@ -130,7 +130,8 @@ R7 双证据执行设计；R8 测试组织与 `-p` 假验证警示。
 
 **(D-3) `.mbti` 冻结面 → contracts/pool-api.md §1**：`src/client` 从
 「仅 placeholder」扩为 Address（new/三访问器/equal/hash）+ ConnectionPool
-（new/acquire/evict_all/evict_expired/stale_evictions/per_host_total）+
+（new(max_idle?, keep_alive_ms?)/acquire/evict_all/evict_expired/
+stale_evictions/per_host_total）+
 Lease（release/poison）；`src/core` 期望零 diff；命名全 snake_case；
 `placeholder` 保留（P6）。
 

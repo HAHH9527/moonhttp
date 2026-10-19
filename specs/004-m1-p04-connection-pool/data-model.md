@@ -11,6 +11,11 @@
 | `DEFAULT_MAX_IDLE` | 5 | 每地址空闲栈容量缺省（种子口径；C4 裁决为构造参数） |
 | `DEFAULT_KEEP_ALIVE_MS` | 300_000 | 空闲超期缺省 5min（毫秒，与 `@async.now()` 同单位） |
 
+> 公开构造 `ConnectionPool::new(max_idle? : Int, keep_alive_ms? : Int)`——
+> 参数名带单位（`_ms` 后缀），与内部字段、常量及本仓已冻结公开面的
+> `_ms` 先例一致（internal/fixtures mbti:57/:67/:77/:78）；C4 裁决
+> 「仅两个构造参数」不变。
+
 ## 实体 1：Address（池键，FR-014）
 
 ```text

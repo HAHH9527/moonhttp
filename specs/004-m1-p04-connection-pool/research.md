@@ -21,7 +21,7 @@
 | C-5 | `Client::end_request()` | http mbti:67 | 归池前提「body 已消费完」的调用侧收口原语（P05 集成层使用；P04 只依赖契约不调用） |
 | C-6 | 在途状态字段 | client.mbt 内部 priv（http mbti 无任何内省访问器） | **缺口**：池侧无法检测残 body ⇒ FR-011 能力边界的依据 |
 | C-7 | fd/shutdown 探测 | http mbti 全文无 `fd`/`shutdown`（2026-10-19 grep 零命中） | **缺口（定性）**：fd 计数不可断言 ⇒ 无泄漏走双证据（裁决 Q04） |
-| C-8 | `Client::drop(Self, Int) -> Int` | http mbti:66 | **不使用**：registry 解包内 grep 全 src 零命中，语义不可源证；优雅排水如未来需要，先登记 upstream 问题（须事先人工批准，宪法 I） |
+| C-8 | `Client::drop(Self, Int) -> Int` | http mbti:66；client.mbt:169-177（`pub extend Client with @io.Reader::{read, drop, …}`） | **不使用**：名字极易被误读为资源释放/析构，实为 `@io.Reader` extend 过来的「丢弃读缓冲字节」操作，与连接生命周期无关——连接的关闭只用 `Client::close`（C-3） |
 | C-9 | `RequestMethod::Connect` | http mbti:118-124 | 是请求方法变体，**不是**建连 API（D13 同款证据） |
 | C-10 | Host 头构造期固化 | client.mbt:58 `headers["Host"] = host.to_owned()` | Host/端口在构造期写进持久头 ⇒ **严禁跨 host:port 复用同一 Client** ⇒ Address 键必含端口（R4.3） |
 | C-11 | 时钟 `@async.now() -> Int64`（ms） | async 根包 `src/pkg.generated.mbti:26`；`sleep` :40 | 超期判定的真实时钟源；测试注入替代（R2） |
@@ -33,14 +33,14 @@
   只在入栈瞬间记录一次 `now_ms()` 值，超期判定一律是
   `now_ms() - idle_since > keep_alive_ms` 的纯比较，判定路径无副作用、
   不推进时间。测试注入走**同包白盒**：`_wbtest.mbt` 与池同包，可调用私有
-  构造入口 `priv ConnectionPool::with_clock(max_idle~, keep_alive~, now_fn~)`
+  构造入口 `priv ConnectionPool::with_clock(max_idle~, keep_alive_ms~, now_fn~)`
   （或等价私有 mutator），把时钟换成受控序列/可控偏移；推进虚拟时间＝改
   偏移量或取序列下一个值，**零 sleep**。
 - **为什么够用**：
   1. spec 的验收断言只要求「超期判定可被确定性地驱动到任一时刻」
      （spec Assumptions），白盒注入完全满足；US-3 场景 1 的两条超期连接
      在虚拟时间推进后由 `evict_expired()` 确定性剔除。
-  2. 私有构造不进公开 `.mbti`：`ConnectionPool::new(max_idle?, keep_alive?)`
+  2. 私有构造不进公开 `.mbti`：`ConnectionPool::new(max_idle?, keep_alive_ms?)`
      保持 C4 裁决的两参数形态，测试需求不污染公开面（宪法 VI）。
   3. 惰性剔除（acquire/release 顺手剔除）与显式驱逐共用同一
      `now_ms()`，全部时间语义单点收口，无第二条时间路径。
@@ -49,7 +49,7 @@
     竞速上（P03 已有 ±50ms 容差先例仍属不得已，见
     `scripted_server_test.mbt:67/:107`），且拖慢门禁；W07 工单明令禁止。
   - `now_fn` 作为 `new` 公开参数——否决：测试钩子进 `.mbti` 即公开承诺，
-    违背「公开面最小」（宪法 VI）；且 C4 裁决 `new` 只有 max_idle/keep_alive
+    违背「公开面最小」（宪法 VI）；且 C4 裁决 `new` 只有 max_idle/keep_alive_ms
     两参。
   - 全局可变时钟单例——否决：跨测试用例污染、并行化后不可组合。
 
