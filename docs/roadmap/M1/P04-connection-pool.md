@@ -171,7 +171,7 @@ release 时绝不回池、直接 close。
 | target | 支持 | 说明 |
 | --- | :-: | --- |
 | native / wasm | ✅ | 同源逻辑；wasm 宿主 socket 的 RST 等语义差异由 P03/P07 测试覆盖 |
-| js | ⭕ | 池层退化为空实现（Lease=Client 直通），仅编译/空跑语义 |
+| js | ⭕ | **未验证**（差异 D14，挂欠账 F9、随 M5 收口——六门从不跑 js，编译承诺不可由门禁兑现）；池层形态描述为空实现/直通（Lease=Client 直通），非本包交付承诺 |
 | wasm-gc | ❌ | 上游 runtime 缺口 |
 
 ## 性能影响
