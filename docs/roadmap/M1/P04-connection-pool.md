@@ -75,12 +75,18 @@
 
 1. Given P03 echo 夹具 + 池（K=8），When 并发 100 个「acquire→请求→校验回显
    id→release」，Then 全部请求 body 与自身 id 匹配（串号检测为零）。
-2. Given 长跑 ≥10k 请求，Then idle 数守恒（借出+空闲 = 总数）、（native）fd 数
-   不随请求数增长（无泄漏）。
+2. Given 长跑（native ≥10k 请求；wasm/moonrun 按吞吐分档降额，实测见
+   specs/003-m1-p03-test-fixtures/t004-record.md），Then idle 数守恒
+   （借出+空闲 = 总数）且无泄漏按双证据断言：外部——P03 夹具累计 accept
+   连接数 == 池内累计新建连接数；内部——池侧 `conn_id` 基数守恒
+   （借出+空闲+已关 = 累计新建）（owner 2026-10-19 裁决 Q04，判据因由见
+   「测试方案」）。
 
 ### US-3 驱逐与 evict_all（P1）
 
-作为使用者，空闲连接在 keep_alive 到期后被关闭；`evict_all()` 立即清空且可重复调用。
+作为使用者，空闲连接在 keep_alive 到期后由**显式驱逐入口** `evict_expired()`
+或后续池操作（acquire/release 顺手剔除）关闭——池无常驻任务，不会自动清扫；
+`evict_all()` 立即清空且可重复调用。
 
 **验收场景**：
 
@@ -180,7 +186,11 @@ L1 杠杆本体（03 §6 分臂）：新建 ≈10ms → 单连接顺序复用 41
 - US-1–US-4 场景全部基于 P03 夹具（echo/延迟/故障注入），native+wasm 双绿。
 - 长跑泄漏用例（≥10k 请求）以独立标记（如 `@bench`/长测标签）与常规测试分离，
   避免拖慢 CI——具体机制 plan 定。
-- fd 计数断言仅 native（平台相关，wasm 以池内计数守恒代替）。
+- 泄漏判据为双证据（owner 2026-10-19 裁决 Q04，native/wasm 同用）：外部——
+  P03 夹具的累计 accept 连接数 == 池内累计新建连接数（服务端侧看不到多余
+  连接）；内部——池侧 `conn_id` 集合基数守恒（借出+空闲+已关 = 累计新建）。
+  原「fd 计数断言仅 native」因上游公开面无 fd 可数（http 包 mbti 无
+  fd/shutdown）而废弃，自写 `extern "C"` 探测又违反宪法 I 非侵入前提。
 
 ## 澄清问题种子
 
