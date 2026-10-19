@@ -12,7 +12,8 @@
 交付 moonhttp 的 HTTP/1.x 连接池——本全项目最大的性能杠杆（L1）：
 按 **Address**（M1 为直连三元组 scheme/host/port）复用 `@http.Client` 连接，
 提供 **Lease 租约**（一次 exchange 的独占句柄）、**LIFO 空闲栈归还**（热连接优先）、
-**周期驱逐**（空闲超 keep_alive 关闭）与**毒化路径**（不可复用连接绝不回池）。
+**驱逐**（惰性 + 显式：acquire/release 顺手剔除空闲超 keep_alive 者，另暴露
+`evict_expired()`/`evict_all()` 入口）与**毒化路径**（不可复用连接绝不回池）。
 既有实测（03 §6 分臂）：新建连接 ≈10ms/请求（1× 基线）→ 单连接顺序复用
 415–431µs（≈24×）与池 K=16 并发 178–196µs（47–56×）是**两条臂**；
 「≥20×」的量化验收在 P10，本包负责机制正确性。
@@ -29,8 +30,12 @@
 - `Lease`：`acquire(addr)`（命中弹出 / 未命中 `Client::Client(uri)` 新建）/`release()`
   归池判定（`body 已消费完 ∧ !poisoned ∧ idle 未满`，否则 close）/
   `poison()` 毒化标记。
-- 驱逐：周期 `Timer` 扫描 `idle_since` 超 `keep_alive` 者关闭；`evict_all()` 幂等
-  （`Client::close` 幂等，`client.mbt:142-151`）。
+- 驱逐：惰性 + 显式（owner 2026-10-19 裁决，README 差异 D15）——池自身不养常驻
+  任务；超期判定为 `now` 的纯函数（`idle_since` 与 `keep_alive` 比较），
+  `acquire`/`release` 时顺手剔除超期者；另暴露同步显式入口
+  `evict_expired()`/`evict_all()`（幂等，`Client::close` 幂等兜底，
+  `client.mbt:142-151`）；周期性扫描由调用方（P05/P09/P10）在自己的
+  task group 里 `spawn_bg(no_wait=true)` 驱动。
 - 归池前提的执行侧钩子：`Connection: close` 响应头判定接口（读响应头后检查，
   命中则读完 body 后 close 不回池——管线侧调用点在 P05/P06 落地）。
 
@@ -79,8 +84,8 @@
 
 **验收场景**：
 
-1. Given keep_alive=1s 的池与 2 条空闲连接，When 等待超期 + 驱逐周期，
-   Then idle 清空、连接已关闭。
+1. Given keep_alive=1s 的池与 2 条空闲连接，When 推进可注入时钟过 keep_alive
+   并调用 `evict_expired()`，Then 断言剔除 2 条、idle 清空、连接已关闭。
 2. Given 任意状态，When 连续 `evict_all()` 两次，Then 无错误、idle 为空（幂等）。
 
 ### US-4 毒化路径（P2）
@@ -102,9 +107,12 @@ release 时绝不回池、直接 close。
 - 同 host 不同端口/scheme → 不同 Address（键隔离）；host 大小写规范化后同键
   （依赖 P01 HttpUrl 规范化）；
 - acquire 新建连接失败（P03 注入 connect 拒绝）→ 错误透传、池状态不变；
-- 驱逐 Timer 与 acquire/release 竞争（同一空闲连接恰在驱逐瞬间被取出——不得
-  double-close 崩溃，close 幂等兜底）；
-- 池在无任何活动时 Timer 空转成本（设计上避免忙轮询）。
+- 驱逐与 acquire/release 竞争：惰性 + 显式口径下该竞态在结构上不存在——剔除与
+  弹出同处一个 `Mutex` 临界区、临界区内无 await，无需专门构造时序用例；
+  `Client::close` 幂等（`io.mbt:71-81`）降为兜底保障；
+- 池在无任何活动时零空转成本（无常驻任务，无调用即无驱逐）；「不得忙轮询」
+  的要求改由调用方侧承担——P05/P09/P10 自设的扫描周期不得形成忙轮询
+  （README 差异 D15）。
 
 ## 需求种子
 
@@ -112,7 +120,8 @@ release 时绝不回池、直接 close。
 - **FR-002** release MUST 满足「body 已消费完 ∧ 未毒化 ∧ idle 未满」才回池。
 - **FR-003** 毒化/超期/栈满路径 MUST 关闭连接，绝不回池。
 - **FR-004** acquire MUST LIFO 弹出（最热连接优先）。
-- **FR-005** 驱逐 MUST 周期执行且 close 幂等（重复关闭安全）。
+- **FR-005** 驱逐 MUST 可周期执行（周期由调用方驱动），MUST 提供显式入口
+  `evict_expired`/`evict_all`，close MUST 幂等（重复关闭安全）。
 - **FR-006** 池操作临界区 MUST 无 IO（宪法「IO 时不持锁」）。
 - **FR-007** `stale_evictions`/`per_host_total` 计数 MUST 可读（P10/未来 06 观测）。
 
@@ -125,8 +134,16 @@ release 时绝不回池、直接 close。
 - 被动检测为主：不主动探测空闲连接死活（OkHttp 同款），长闲连接被服务端静默
   关闭由 P07 stale-retry 兜底——**池化正确性依赖该闭环**，P07 未落地前长闲场景
   错误率上升属已知中间状态（集成顺序上 P07 紧随）。
-- 驱逐 Timer 生命周期：挂在池自身的 TaskGroup/独立句柄，进程内常驻；
-  句柄形态在 plan 定（澄清种子 C2）。
+- 驱逐驱动形态：**惰性 + 显式**（owner 2026-10-19 裁决，README 差异 D15；
+  原报告 03 §3.3 的常驻 Timer 形态被否决）——池不养常驻任务，只暴露同步显式
+  入口 `evict_expired()`/`evict_all()`；周期性扫描由调用方（P05/P09/P10）
+  在各自 task group 里 `spawn_bg(no_wait=true)` 驱动。否决因由：原 §3.3 的
+  前提在 M1 不可实现——Timer 挂 HttpClient 的 TaskGroup（README.md:94），
+  但 M1 无 HttpClient（builder 归 P08）且 MoonBit 无析构钩子；`spawn_bg`
+  出组调用即 abort（task_group.mbt:129-130）；常驻 evictor 每轮 await Timer
+  使 event loop 的 `timers` 恒非空，deadlock 检查前置条件
+  `timeout < 0 && blocked_tasks == 0`（event_loop.mbt:353）永不触发——
+  测试/进程静默挂住，只能靠 CI 外层超时兜底。
 
 ## 侵入性与宪法合规
 
@@ -168,8 +185,10 @@ L1 杠杆本体（03 §6 分臂）：新建 ≈10ms → 单连接顺序复用 41
 ## 澄清问题种子
 
 - **C1** `Connection: close` 判定接口形状（池侧提供谓词 vs 管线自查响应头）。
-- **C2** 驱逐 Timer 的宿主与生命周期（独立 TaskGroup / 池内句柄；测试模式下
-  手动触发清扫的口子）。
+- **C2**（已裁决，owner 2026-10-19）驱逐驱动形态为惰性 + 显式：不存在独立的
+  Timer 宿主与生命周期问题——池暴露同步 `evict_expired()`/`evict_all()`，
+  周期扫描由调用方驱动（见「关键设计要点」）。原 C2 想要的「测试模式下手动
+  触发清扫的口子」正是 `evict_expired()`。
 - **C3** Mutex 的取舍：事件循环单线程下是否退化为普通字段 + 文档约定
   （原文为「防 re-entrancy/未来多线程」保留 Mutex——遵原文，但确认无性能噪点）。
 - **C4** max_idle/keep_alive 的配置面（pool 构造参数 vs HttpClient builder 透传，

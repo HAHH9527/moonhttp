@@ -2,7 +2,7 @@
 
 > 用途：M1 工作包拆分（`docs/roadmap/M1/`）中**显式降级或裁剪、需后续里程碑回补**
 > 的条目明细。总入口与跨里程碑汇总见 [`../deferred-items.md`](../deferred-items.md)；
-> 差异源头与理由详表见 `docs/roadmap/M1/README.md` 第 3 节（D1–D10）。
+> 差异源头与理由详表见 `docs/roadmap/M1/README.md` 第 3 节（D1–D15）。
 > 后续里程碑（M2–M5）做 roadmap 拆分时必读：逐条核对，将到期条目纳入对应工作包。
 
 ## 使用约定
