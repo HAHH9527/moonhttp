@@ -12,6 +12,34 @@ docs/roadmap/M1/P04-connection-pool.md 的全文（speckit 输入种子，唯一
 描述输入）" ＋ owner 已裁决既定前提 P1–P10（2026-10-19，落点见
 「既定裁决前提」；clarify 阶段不得重开为待议问题）。
 
+## Clarifications
+
+### Session 2026-10-19
+
+- Q: `ConnectionPool` 的 `max_idle` 与 `keep_alive` 在本包（P04）以什么
+  形式暴露为可配置项？（种子 C4）→ A: 仅以 `ConnectionPool` 构造参数
+  暴露（缺省 5 / 5min）；builder 透传归 P08（owner 2026-10-19 裁决；
+  P04 公开面不引入 builder 形态，`.mbti` 冻结面随之收窄）。
+- Q: 长跑/泄漏用例（native ≥10k 请求级、wasm/moonrun 按吞吐分档降额）
+  是否默认排除在常规 `moon test` 质量门（六门）之外？（种子 C5）→ A:
+  默认排除——常规六门「全绿」不含长跑；长跑以显式命令/标记单独执行，
+  通过证据单独登记进包级 DoD（owner 2026-10-19 裁决；具体隔离机制归
+  plan）。
+- Q: `stale_evictions` 计数器在本包统计哪些「关闭不回池」事件？→ A:
+  仅计超期剔除——`evict_expired()` 与 acquire/release 惰性剔除各 +1；
+  `evict_all()` 不计（可能关闭未超期连接）；毒化/栈满不计（US-4 以
+  idle 不增长断言）（owner 2026-10-19 裁决；相对 03 §3.4 原义的有意
+  语义扩展与 P07 归属见 FR-007 注记）。
+- Q: 池内部状态（空闲栈与计数）在事件循环单线程模型下，是否保留互斥锁
+  保护？（种子 C3）→ A: 保留——遵 03 §3.2 与种子原文，防 re-entrancy、
+  为未来多线程留形；性能噪点由 P10 基准证实/证伪，退化形态不在本包
+  范围（owner 2026-10-19 裁决）。
+- Q: 同一 Lease 的 `release()` 被调用第二次（或 release 之后又调用
+  `poison()`）时，池应表现出什么可判定行为？→ A: release 幂等——首次
+  调用生效（按归池判定回池或关闭），后续 release/poison 均为 no-op，
+  不重复入栈、不破坏空闲栈守恒（owner 2026-10-19 裁决；内部「已释放」
+  标记属实现细节、归 plan，不进公开面）。
+
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
@@ -109,6 +137,9 @@ US-1/US-2/US-3 已构成可用的最小池。
    管线或 P05 集成测试覆盖）。
 3. **Given** 响应体未消费完的 Lease（按调用方契约先行毒化，见 FR-011），
    **When** release，**Then** 不回池。
+4. **Given** 已 release 的 Lease，**When** 再次 release（或先 poison 再
+   release），**Then** 均为 no-op——不重复入栈、不二次关闭，空闲栈守恒
+   保持（借出+空闲+已关 ＝ 累计新建；FR-018）。
 
 （stale-retry 命中与超时取消两行的端到端验收分别落在 P07/P08，映射口径
 见包级 DoD-2。）
@@ -130,6 +161,8 @@ US-1/US-2/US-3 已构成可用的最小池。
 - 长闲连接被服务端静默关闭：本池不主动探测（OkHttp 同款），由 P07
   stale-retry 兜底——P07 未落地前长闲场景错误率上升属已知中间状态，
   本 spec 不将其写成池可独立保证的性质（FR-017）。
+- 同一 Lease 重复 release / 释放后毒化：release 幂等（首次生效，后续
+  no-op），空闲栈守恒不被破坏（FR-018）。
 
 ## Requirements *(mandatory)*
 
@@ -180,8 +213,9 @@ US-1/US-2/US-3 已构成可用的最小池。
 - `Address`：M1 直连三元组 scheme/host/port（host 剥 IPv6 括号、大小写
   规范化；`proxy`/`trust` 指纹不在 M1，差异 D3）。
 - `ConnectionPool`：`max_idle`（默认 5）/`keep_alive`（默认 5min）可
-  配置；空闲栈按 Address 分桶、LIFO 取放；`per_host_total` 与
-  `stale_evictions` 观测计数（FR-013 的观测语义）。
+  配置——配置面为池构造参数（owner 2026-10-19 裁决，见 Clarifications；
+  builder 透传归 P08）；空闲栈按 Address 分桶、LIFO 取放；
+  `per_host_total` 与 `stale_evictions` 观测计数（FR-013 的观测语义）。
 - `Lease` 租约：acquire / release / poison() 生命周期与归池判定。
 - 驱逐：惰性 + 显式（P2/差异 D15），含 `evict_expired()`/`evict_all()`
   两个同步显式入口。
@@ -214,9 +248,20 @@ US-1/US-2/US-3 已构成可用的最小池。
 - **FR-005**（种子；差异 D15）驱逐 MUST 可周期执行（周期由调用方驱动），
   MUST 提供显式同步入口 `evict_expired()`/`evict_all()`；池 MUST NOT
   启动任何常驻扫描任务；连接关闭 MUST 幂等（重复关闭安全）。
-- **FR-006**（种子）池操作临界区 MUST 无 IO（宪法「IO 时不持锁」）。
-- **FR-007**（种子）`stale_evictions`/`per_host_total` 计数 MUST 可读
-  （用户故事验收与 P10/未来 06 观测的判据面）。
+- **FR-006**（种子；C3 裁决见 Clarifications）池操作临界区 MUST 无 IO
+  （宪法「IO 时不持锁」）；内部状态以互斥锁保护——遵 03 §3.2 原文保留
+  （防 re-entrancy、为未来多线程留形），性能噪点由 P10 基准证实/证伪，
+  退化形态不在本包范围。
+- **FR-007**（种子；计数口径 2026-10-19 裁决，见 Clarifications）
+  `stale_evictions`/`per_host_total` 计数 MUST 可读（用户故事验收与
+  P10/未来 06 观测的判据面）。`stale_evictions` MUST 仅计超期剔除：
+  `evict_expired()` 与 acquire/release 惰性剔除各 +1；`evict_all()` 的
+  关闭与毒化/栈满关闭 MUST NOT 计入（毒化/栈满路径以 idle 不增长断言
+  观测）。语义偏移注记：本口径把「stale」相对 03 §3.4 原文（仅
+  stale-retry 命中 +1，`03-connection-pool/README.md:102`）有意扩展为
+  「陈旧连接家族 ＝ 超期剔除 ＋ P07 stale-retry 命中」——因 stale-retry
+  归 P07 承载，本包内该家族当前只有超期剔除；P07 落地时其命中行照
+  03 §3.4 对同一计数器 +1（集成归属见 DoD-2 映射口径）。
 - **FR-008**（P1/差异 D13）建连 MUST 只经公开构造器
   `Client::Client(uri)`；MUST NOT 依赖上游非公开 API 或 deprecated 别名
   （`--deny-warn` 质量门下零警告编译）。
@@ -253,18 +298,24 @@ US-1/US-2/US-3 已构成可用的最小池。
   的空闲连接一定可用」：长闲连接被服务端静默关闭由 P07 stale-retry
   兜底，P07 未落地前长闲场景错误率上升属已知中间状态（集成顺序上
   P07 紧随）。
+- **FR-018**（2026-10-19 裁决，见 Clarifications）Lease 终结幂等：同一
+  Lease 的 `release()` 首次调用生效（按 FR-002 归池判定回池或关闭），
+  其后重复 `release()` 或 `poison()` MUST 为 no-op——MUST NOT 重复入
+  空闲栈、MUST NOT 二次关闭、MUST NOT 破坏空闲栈守恒（借出+空闲+已关
+  ＝ 累计新建）；内部「已释放」标记属实现细节（归 plan），不进公开面。
 
 ### Key Entities
 
 - **Address**：池键。M1 为直连三元组 scheme/host/port（host 已剥 IPv6
   括号、大小写规范化）；等值语义见 FR-014；`proxy`/`trust` 指纹不在 M1
   （差异 D3，随 M2/M3 扩展）。
-- **ConnectionPool**：按 Address 分桶的 LIFO 空闲栈 + 配置（`max_idle`
-  默认 5、`keep_alive` 默认 5min）+ 观测计数（`per_host_total`、
-  `stale_evictions`）；驱逐为惰性 + 显式，无任何常驻任务。
+- **ConnectionPool**：按 Address 分桶的 LIFO 空闲栈 + 配置（构造参数
+  `max_idle` 默认 5、`keep_alive` 默认 5min；builder 透传归 P08）+
+  观测计数（`per_host_total`、`stale_evictions`）；驱逐为惰性 + 显式，
+  无任何常驻任务。
 - **Lease**：一次 exchange 的独占句柄，带毒化标记；acquire（命中弹出 /
   未命中经 `Client::Client(uri)` 新建）、release（归池判定）、poison()
-  是其公开生命周期。
+  是其公开生命周期；终结后重复 release/poison 为 no-op（FR-018）。
 - **IdleLease**：空闲栈条目 = 连接 + 空闲起点时刻；超期判定为「当前
   时刻的纯函数」（起点与 keep_alive 比较，无内部时钟副作用）。
 
@@ -273,8 +324,9 @@ US-1/US-2/US-3 已构成可用的最小池。
 ### Measurable Outcomes
 
 - **SC-001**: US-1–US-4 全部验收场景测试全绿，native 与 wasm 双 target
-  （宪法 IV/V）；并发串号为 0（US-2 场景 1 的 100 请求回显全部与自身
-  id 匹配）。
+  （宪法 IV/V；「全绿」口径随 DoD-1——裁决 C5：长跑用例显式执行、
+  单独登记，不在默认六门内）；并发串号为 0（US-2 场景 1 的 100 请求
+  回显全部与自身 id 匹配）。
 - **SC-002**: 零泄漏（双证据、native/wasm 同用）——长跑结束后：夹具
   累计 accept 连接数 == 池内累计新建连接数；池侧 conn_id 基数满足
   「借出+空闲+已关 = 累计新建」。两证据误差均为 0。
@@ -298,13 +350,15 @@ US-1/US-2/US-3 已构成可用的最小池。
 - 时钟确定性：US-3 场景 1 依赖「可注入时钟」推进 keep_alive 到期；注入
   形态（构造助手/测试钩子）由 plan 裁决，本 spec 只约定「超期判定可被
   测试确定性地驱动到任一时刻」。
+- 长跑隔离的具体机制（标记/目录/过滤形态）与 Lease「已释放」标记的
+  内部形态归 plan（行为契约已裁决，见 Clarifications）。
 - 池自身开销亚微秒级（Map 查找+栈弹出+互斥取放）为设计约束（宪法 II）；
   量化验收（≥20× 门槛、K∈{1,4,16,64} 矩阵、RSS 曲线）归 P10，本包测试
   不断言延迟数字（避免基准抖动侵蚀单元测试稳定性）。
 - `src/client/placeholder` 本包不删除（P6）：删除动作留给 implement
   收口片，避免基线 160 的记账被搅动。
-- `max_idle=5` / `keep_alive=5min` 为种子默认值；配置入口形态（池构造
-  参数 vs 上层 builder 透传）留澄清 C4。
+- `max_idle=5` / `keep_alive=5min` 为种子默认值；配置入口已裁决为池
+  构造参数（2026-10-19，见 Clarifications），builder 透传归 P08。
 - 周期扫描的宿主（P05/P09/P10 各自 task group）不在本包交付面内；本包
   仅保证被驱动的显式入口存在且语义可判定（P2）。
 
@@ -324,12 +378,17 @@ US-1/US-2/US-3 已构成可用的最小池。
 测试只断言机制正确性与无泄漏，不断言延迟数字。
 
 **测试方案**：US-1–US-4 场景全部基于 P03 夹具（echo/延迟/故障注入），
-native+wasm 双绿；长跑泄漏用例以独立标记（如 `@bench`/长测标签）与常规
-测试分离，避免拖慢 CI——具体机制留澄清 C5；泄漏判据为双证据（FR-009）。
+native+wasm 双绿；长跑泄漏用例**默认排除在常规六门外**（裁决 C5，见
+Clarifications），以显式命令/标记单独执行、通过证据单独登记进包级
+DoD——具体隔离机制（标记/目录/过滤形态）归 plan；泄漏判据为双证据
+（FR-009）。
 
 ## 包级 DoD（验收判据）
 
-1. US-1–US-4 验收场景测试全绿（native/wasm 双 target）。
+1. US-1–US-4 验收场景测试全绿（native/wasm 双 target）。「全绿」口径
+   （裁决 C5，见 Clarifications）：常规子集（默认六门）全绿；长跑/
+   泄漏用例（US-2 场景 2）默认排除在六门之外，以显式命令单独执行并
+   登记通过证据——两部分合为 DoD-1 完成判据。
 2. 毒化路径表（03 §3.4 全部行）在本包或集成包（P05/P07/P08）中逐行有
    对应用例，本包 DoD 范围内至少覆盖「毒化标记/栈满/超期/
    Connection: close/残 body」五行。**映射口径**：03 §3.4 五行与上述
@@ -347,19 +406,21 @@ native+wasm 双绿；长跑泄漏用例以独立标记（如 `@bench`/长测标�
 4. P03 夹具可观测性扩展（累计 accept 计数 / 每连接请求数 / per-route
    次序脚本）随本包首片交付并有自证元测试（P9 裁决）。
 
-## 待澄清项（移交 /speckit.clarify；C1/C2 已裁决不重开）
+## 待澄清项（种子 C1–C5 已全部裁决，无遗留）
 
 - **C1**（已裁决，承 P4）`Connection: close` 判定接口形状：管线自查
   响应头（池只认 poison()；判定以文档约定 + P05 集成用例桩承载）。
 - **C2**（已裁决，owner 2026-10-19，差异 D15）驱逐驱动形态为惰性 +
   显式；原 C2 想要的「测试模式下手动触发清扫的口子」正是
   `evict_expired()`。
-- **C3** Mutex 的取舍：事件循环单线程下是否退化为普通字段 + 文档约定
-  （原文为「防 re-entrancy/未来多线程」保留 Mutex——遵原文，但确认无
-  性能噪点）。
-- **C4** `max_idle`/`keep_alive` 的配置面（池构造参数 vs 上层 builder
-  透传，与 P08 的 builder 设计对齐）。
-- **C5** 长跑/泄漏用例与常规 `moon test` 的隔离机制。
+- **C3**（已裁决，owner 2026-10-19，见 Clarifications）池内部状态保留
+  互斥锁保护（遵 03 §3.2 原文）；性能噪点由 P10 基准证实/证伪，退化
+  形态不在本包范围。
+- **C4**（已裁决，owner 2026-10-19，见 Clarifications Session
+  2026-10-19）`max_idle`/`keep_alive` 仅以池构造参数暴露（缺省
+  5 / 5min）；builder 透传归 P08。
+- **C5**（已裁决，owner 2026-10-19，见 Clarifications）长跑/泄漏用例
+  默认排除在常规六门外，显式执行并单独登记证据；具体隔离机制归 plan。
 
 ## 参考
 
