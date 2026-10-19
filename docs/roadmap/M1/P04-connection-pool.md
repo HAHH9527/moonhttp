@@ -3,7 +3,8 @@
 > 里程碑：M1 性能核心 ｜ 前置依赖：P01、P03 ｜ 人力估计：~3 人日（核心+租约+驱逐 ~2，
 > 池级测试 ~1；P10 另有基准验收）
 > 来源：`proj-init-docs/okhttp-on-async-http/03-connection-pool/README.md` §3.1–§3.4/§7/§8
-> 侵入性：非侵入（全部经 `Client::connect/close/skip_response_body` 公开 API）｜
+> 侵入性：非侵入（全部经 `Client::Client(uri)` 建连与 `close`/`skip_response_body`
+> 公开 API；上游无公开 `Client::connect`，见「侵入性与宪法合规」小节）｜
 > 建议特性 slug：`m1-p04-connection-pool`
 
 ## 功能描述（speckit 输入种子）
@@ -12,8 +13,9 @@
 按 **Address**（M1 为直连三元组 scheme/host/port）复用 `@http.Client` 连接，
 提供 **Lease 租约**（一次 exchange 的独占句柄）、**LIFO 空闲栈归还**（热连接优先）、
 **周期驱逐**（空闲超 keep_alive 关闭）与**毒化路径**（不可复用连接绝不回池）。
-既有实测：新建连接 ≈10ms/请求 → 池化并发 ≈0.18–0.42ms（47–56×）；
-M1 判据「≥20×」的量化验收在 P10，本包负责机制正确性。
+既有实测（03 §6 分臂）：新建连接 ≈10ms/请求（1× 基线）→ 单连接顺序复用
+415–431µs（≈24×）与池 K=16 并发 178–196µs（47–56×）是**两条臂**；
+「≥20×」的量化验收在 P10，本包负责机制正确性。
 
 ## 范围
 
@@ -24,10 +26,10 @@ M1 判据「≥20×」的量化验收在 P10，本包负责机制正确性。
 - `ConnectionPool`：`max_idle`（默认 5）/`keep_alive`（默认 5min）可配置；
   `Mutex[PoolInner]`（临界区无 IO）；`idle : Map[Address, Array[IdleLease]]`
   LIFO 栈；`per_host_total` 与 `stale_evictions` 观测计数。
-- `Lease`：`acquire(addr)`（命中弹出 / 未命中 `Client::connect` 新建）/`release()`
+- `Lease`：`acquire(addr)`（命中弹出 / 未命中 `Client::Client(uri)` 新建）/`release()`
   归池判定（`body 已消费完 ∧ !poisoned ∧ idle 未满`，否则 close）/
   `poison()` 毒化标记。
-- 驱逐：周期 `Timer` 扫描 `idle_since` 超 `keep_alive` 者关闭；`evictAll()` 幂等
+- 驱逐：周期 `Timer` 扫描 `idle_since` 超 `keep_alive` 者关闭；`evict_all()` 幂等
   （`Client::close` 幂等，`client.mbt:142-151`）。
 - 归池前提的执行侧钩子：`Connection: close` 响应头判定接口（读响应头后检查，
   命中则读完 body 后 close 不回池——管线侧调用点在 P05/P06 落地）。
@@ -71,15 +73,15 @@ M1 判据「≥20×」的量化验收在 P10，本包负责机制正确性。
 2. Given 长跑 ≥10k 请求，Then idle 数守恒（借出+空闲 = 总数）、（native）fd 数
    不随请求数增长（无泄漏）。
 
-### US-3 驱逐与 evictAll（P1）
+### US-3 驱逐与 evict_all（P1）
 
-作为使用者，空闲连接在 keep_alive 到期后被关闭；`evictAll()` 立即清空且可重复调用。
+作为使用者，空闲连接在 keep_alive 到期后被关闭；`evict_all()` 立即清空且可重复调用。
 
 **验收场景**：
 
 1. Given keep_alive=1s 的池与 2 条空闲连接，When 等待超期 + 驱逐周期，
    Then idle 清空、连接已关闭。
-2. Given 任意状态，When 连续 `evictAll()` 两次，Then 无错误、idle 为空（幂等）。
+2. Given 任意状态，When 连续 `evict_all()` 两次，Then 无错误、idle 为空（幂等）。
 
 ### US-4 毒化路径（P2）
 
@@ -128,11 +130,18 @@ release 时绝不回池、直接 close。
 
 ## 侵入性与宪法合规
 
-- 非侵入：`Client::connect`/`close`/`skip_response_body` 全公开。
+- 非侵入：建连只经公开构造器 `Client::Client(uri)`（上游 `client.mbt:115` 的
+  `#alias(new, deprecated)` 别名 `Client::new` 触发弃用警告、`--deny-warn`
+  质量门直接判红，故文档一律用规范名 `Client::Client`；uri 不带路径时
+  `resolve_url` 补 `path="/"`（request.mbt:36-52），从而通过 `client.mbt:117-125`
+  的 guard，`Client::Client("http://host:port")` 形态可用）与公开
+  `close`/`skip_response_body`——上游无公开 `Client::connect`（http mbti
+  公开面仅 `RequestMethod::Connect` 变体）。
 - 宪法 II：本包是「已实测杠杆必须保持不回归」的核心载体——P10 门禁直接挂钩；
   池自身开销须亚微秒级（Map 查找+栈弹出+Mutex 取放）。
 - 宪法 V：js 上池无意义（fetch 连接由浏览器管理），退化为空实现/直通——
-  归 P05/P09 的 js 路径处理，本包在 js 仅要求编译通过。
+  归 P05/P09 的 js 路径处理，本包在 js 按 README 差异 D9 口径标注**未验证
+  （挂 F9，随 M5 收口）**——六门从不跑 js，「仅编译通过」无法由门禁兑现。
 
 ## target 矩阵
 
@@ -144,7 +153,8 @@ release 时绝不回池、直接 close。
 
 ## 性能影响
 
-L1 杠杆本体：churn ≈10ms → 复用 0.42ms → 池化并发 0.18ms（47–56×，round2）。
+L1 杠杆本体（03 §6 分臂）：新建 ≈10ms → 单连接顺序复用 415–431µs（≈24×）
+→ 池 K=16 并发 178–196µs（47–56×，round2）。
 量化验收（≥20× 门槛、K∈{1,4,16,64} 矩阵、RSS 曲线）在 P10 统一执行——本包测试
 只断言机制正确性与无泄漏，不断言延迟数字（避免基准抖动侵蚀单元测试稳定性）。
 
@@ -171,6 +181,13 @@ L1 杠杆本体：churn ≈10ms → 复用 0.42ms → 池化并发 0.18ms（47�
 1. US-1–US-4 验收场景测试全绿（native/wasm 双 target）。
 2. 毒化路径表（03 §3.4 全部行）在本包或集成包（P05/P07/P08）中逐行有对应用例，
    本包 DoD 范围内至少覆盖「毒化标记/栈满/超期/Connection: close/残 body」五行。
+   **映射口径**：03 §3.4 五行与上述五项非同表换名，对应为——「协议错误
+   （BadRequest 等）」↔ 毒化标记（poison() 的原型触发源：解析失败即毒化）、
+   「`Connection: close` 响应头」↔ Connection: close 判定、「响应体未消费完
+   即弃」↔ 残 body（后两组同名语义直对应）；「stale-retry 命中（02）」↔ P07、
+   「Call.cancel / 超时取消」↔ P08（集成包承载）；本包自列的「栈满」「超期」
+   为池容量/驱逐侧「不回池即 close」家族（03 §3.2/§3.3 的推论，不在 §3.4
+   毒化表内）——补此映射闭合「逐行」口径。
 3. `moon info && moon fmt` 干净；`.mbti` 冻结 Address/ConnectionPool/Lease 公开面。
 
 ## 参考
