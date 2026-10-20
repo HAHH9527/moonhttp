@@ -136,7 +136,8 @@ release 时绝不回池、直接 close。
 - 结构照 `03 §3.2`：`ConnectionPool{max_idle, keep_alive, inner : Mutex[PoolInner]}`；
   `IdleLease{conn, idle_since}`；`Lease{addr, conn, pool, poisoned}`。
 - 独占语义：租约期间连接只属于当前 exchange，池无需 per-connection 锁；
-  Mutex 仅保护 idle 栈取放。
+  Mutex 保护 PoolInner 全部状态（含 borrowed/closed 记账与观测计数），
+  非仅 idle 栈取放（差异 D16，2026-10-20 owner 裁决）。
 - 被动检测为主：不主动探测空闲连接死活（OkHttp 同款），长闲连接被服务端静默
   关闭由 P07 stale-retry 兜底——**池化正确性依赖该闭环**，P07 未落地前长闲场景
   错误率上升属已知中间状态（集成顺序上 P07 紧随）。
