@@ -63,11 +63,16 @@ US-3 之前；US-2 压轴，因其长跑守恒口径消费全部关闭路径（�
   `priv mut accepted_total`（accept 成功点 +1）+ `accepted_total() -> Int`；
   `priv conn_request_counts : Array[Int32]`（按 accept 序号）+ 拷贝语义
   访问器；`RouteScript = Single | Sequence(Array)`（第 i 次命中取
-  `min(i, len-1)` 末位驻留；既有 mount 覆盖式语义不变，routes :62/:170）。
+  `min(i, len-1)` 末位驻留）；序列脚本经**新入口 `mount_sequence`**
+  挂载——既有 `mount` 签名与覆盖式语义不变（内部把 ResponseScript 包
+  成 `RouteScript::Single`，既有 `.mount(` 调用点零破坏，routes
+  :62/:170）。**不新增同名顶层 `mount`**：顶层函数不可重载（E4051，
+  实测见 research R9）；`pub impl Trait for Type with fn` 正规重载路
+  需为 internal 夹具引入 trait、扩依赖面，判过重否决（宪法 VI）。
   **`.mbti` 增面逐处归因（T025 口径：internal 非对外承诺但须有意识）**：
   `accepted_total()` → FR-009 外部证据/US-2 场景 2；`conn_request_counts()`
-  → 长跑 keep-alive 复用自证；次序脚本类型与 mount 重载 → FR-010 集成
-  桩/US-4 场景 2（research R5）
+  → 长跑 keep-alive 复用自证；次序脚本类型与 `mount_sequence` →
+  FR-010 集成桩/US-4 场景 2（research R5/R9）
 - [ ] T003 [P] Address 类型（先红后绿）：`src/client/address_test.mbt` 写
   P04-E①～⑤（红：无 Address 类型）→ 实现 `src/client/client.mbt`
   `Address::new(scheme~, host~, port~)`（规范化单点收口：scheme/host
@@ -106,17 +111,24 @@ native|wasm`（`pool_test.mbt` + `pool_wbtest.mbt`）——`@http.Client` 原语
 - [ ] T005 [US1] acquire 新建与失败透传（FR-008/FR-015）：
   `pool_test.mbt` 写 P04-US1①（空池 acquire → 新建连接、
   `per_host_total(addr)` 递增为 1；uri 形态 `\{scheme}://\{host}:\{port}`
-  仅经 `Client::Client(uri)`——D13）与 P04-E⑥（P03 注入 connect 拒绝 →
-  错误原样透传、`per_host_total` 不虚增、白盒 idle/borrowed/closed 零
-  变化，FR-015）→ 实现 acquire 建连路径：锁内查桶（无命中）→ **解锁后
-  建连**（FR-006 临界区无 IO）→ 成功才 `per_host_total` +1 并入 borrowed
-  （data-model 不变量 6）
+  仅经 `Client::Client(uri)`——D13）与 P04-E⑥ 黑盒侧（P03 注入
+  connect 拒绝 → 错误原样透传、`per_host_total` 不虚增，FR-015）；
+  P04-E⑥ 白盒侧改派 `pool_wbtest.mbt`（**同名跨文件**：`-f "P04-E*"`
+  按测试名收集、不分文件）：断言 idle/borrowed/closed 三集合零变化
+  （priv 状态黑盒不可读，E4091，research R9）→ 实现 acquire 建连路径：
+  锁内查桶（无命中）→ **解锁后建连**（FR-006 临界区无 IO）→ 成功才
+  `per_host_total` +1 并入 borrowed（data-model 不变量 6）
 - [ ] T006 [US1] release 归池 + LIFO + 复用率（FR-002/FR-004/SC-003）：
   `pool_test.mbt` 写 P04-US1②——同 Address **串行 acquire/release
-  ≥100 次循环**，断言三件：① 每次弹出的 conn_id 与上一次 release 归
-  栈的相同（LIFO 命中，白盒辅证）；② 循环结束 `per_host_total(addr)`
-  == 1；③ 循环全程零新建连接（首建之后计数恒 1）→ 实现 release 归池
-  判定（同步 `try_acquire` 失败即 abort，research R3；未毒化 ∧ idle
+  ≥100 次循环**（黑盒可观测面仅公开计数器），断言两件（W13 编号续
+  用）：② 循环结束 `per_host_total(addr)` == 1；③ 循环全程零新建连接
+  （首建之后计数恒 1）。**黑盒不配当 LIFO 判据**：串行单连接循环下
+  「conn_id 相同」恒真（每次 acquire 桶里只有它）；且 conn_id 为 priv
+  （data-model 实体 4），黑盒读 priv 编译即报 E4091（research R9）。
+  真 LIFO 次序改派 `pool_wbtest.mbt` **P04-FR⑧**（①⑦已用、⑧空闲）：
+  造两条同 Address 空闲连接，release A → release B → acquire 断言得
+  B（栈尾=最热，conn_id 白盒可读）→ 实现 release 归池判定
+  （同步 `try_acquire` 失败即 abort，research R3；未毒化 ∧ idle
   未满 → push 尾部、`idle_since = now_ms()`；否则 `close()`）与
   acquire 命中 `pop()`（尾 = 最热）
 - [ ] T007 [US1] 栈满 close 不入栈（FR-003 分支）：`pool_test.mbt` 写
@@ -223,16 +235,20 @@ US-3/US-4 场景 native+wasm 双绿
   ——风险 R2：串行 accept 的排队延迟不得伪装成池失效）→ 全部请求 body
   与自身 id 匹配（串号 0）；如暴露实现缺陷在本任务内修复并补回归断言
 - [ ] T018 [US2] 长跑双证据（US-2 场景 2 + FR-009/Q04/R7）：新增
-  `src/client/pool_longrun_test.mbt`——首步**三连回归自检**（长跑条目
+  `src/client/pool_longrun_wbtest.mbt`（**白盒**——`_wbtest.mbt` 与本包
+  同编译：`next_conn_id`、三集合基数、F-6 每连接计数全为包内私有，黑盒
+  不可读（E4091，research R9）；且 SC-002「两证据误差均为 0」要求双
+  证据同一测体内对齐）——首步**三连回归自检**（长跑条目
   已声明 `#skip`；包内实跑 `moon test -p hahh9527/moonhttp/client
   -f "P04-LONGRUN*" --include-skipped --target native`，**核对输出
   `Total tests:` 非 0**——防 `-p` 写成目录路径的假绿；失败即停手报告、
-  回 research R8 留档重议，不得自行换机制）；随后 P04-LONGRUN①（native ≥10k 请求：外部证据
-  `accepted_total() == 池内累计新建`（白盒 `next_conn_id - 1`）＋内部
-  证据三集合基数守恒（不变量 5）＋复用度自证（存在 count ≥ 2 的连接，
-  F-6））与 P04-LONGRUN②（wasm/moonrun 按 t004-record.md 吞吐分档
-  降额，数值本任务校准并记录）。**判据只用双证据，禁 fd 计数（C-7）；
-  时间推进只用注入时钟，禁 sleep 串联**；通过证据登记进包级 DoD-1
+  回 research R8 留档重议，不得自行换机制）；随后 P04-LONGRUN①（native
+  ≥10k 请求：外部证据 `accepted_total() == 池内累计新建`（白盒
+  `next_conn_id - 1`）＋内部证据三集合基数守恒（不变量 5）＋复用度
+  自证（存在 count ≥ 2 的连接，F-6））与 P04-LONGRUN②（wasm/moonrun
+  按 t004-record.md 吞吐分档降额，数值本任务校准并记录）。**判据只用
+  双证据，禁 fd 计数（C-7）；时间推进只用注入时钟，禁 sleep 串联**；
+  通过证据登记进包级 DoD-1
 
 **Checkpoint**: 全部用户故事独立可用；六门默认套与长跑证据双轨就绪
 
@@ -274,10 +290,10 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 | B-P05 残 body 契约 | T010 | pool_test.mbt P04-US4② | 计划 |
 | B-P06 stale-retry 命中 | — | — | **集成承载：P07**（spec DoD-2 映射口径；命中时对同一 `stale_evictions` +1） |
 | B-P07 Call.cancel / 超时取消 | — | — | **集成承载：P08** |
-| B-P08 租借/新建/LIFO/栈满容量 | T005、T006、T007、T008 | pool_test P04-US1①②③ + pool_wbtest P04-FR③ | 计划 |
+| B-P08 租借/新建/LIFO/栈满容量 | T005、T006、T007、T008 | pool_test P04-US1①②③ + pool_wbtest P04-FR③⑧ | 计划 |
 | B-P09 驱逐显式入口与幂等 | T013、T015、T016 | pool_test P04-US3② + pool_wbtest P04-FR⑤⑦ + P04-E⑦ | 计划 |
 | B-P10 并发租借正确性 | T017 | pool_test.mbt P04-US2① | 计划 |
-| B-P11 长跑双证据守恒 | T018 | pool_longrun_test.mbt P04-LONGRUN①② | 计划 |
+| B-P11 长跑双证据守恒 | T018 | pool_longrun_wbtest.mbt P04-LONGRUN①② | 计划 |
 | B-P12 夹具可观测性扩展 | T002 | scripted_server_test.mbt P04-FIX①②③ | 计划 |
 
 ## FR-001～FR-018 覆盖核对表
@@ -287,7 +303,7 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 | FR-001 租约独占 | T005/T006/T008 | 白盒 conn_id 互异 + borrowed 不交（不变量 1） |
 | FR-002 归池判定（池侧谓词） | T006/T007/T009 | 未毒化 ∧ idle 未满 ⇔回池，否则 close |
 | FR-003 不回池三路径 | T007/T009/T013/T014 | 毒化/栈满/超期逐分支断言 |
-| FR-004 LIFO | T006 | conn_id 断言弹出同一实例 |
+| FR-004 LIFO | T006（白盒 P04-FR⑧） | 双连接 release A→B→acquire 得 B（栈尾=最热） |
 | FR-005 可周期执行 + 显式入口 + close 幂等 | T013/T014/T015 | 无常驻任务（E⑦）；同步入口；幂等断言 |
 | FR-006 临界区无 IO/无 await | T004/T005（解锁后建连）+ T013（abort 防御） | 结构审 + R3 防御路径 |
 | FR-007 计数可读与口径 | T007/T009/T013/T015 | Q3 口径钉死（FR⑦白盒） |
@@ -298,7 +314,7 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 | FR-012 命名 snake_case | T019 | 冻结面审（零 camelCase） |
 | FR-013 per_host_total 非硬上限 | T005/T017 | 并发租借不受计数约束（K=64 形态） |
 | FR-014 Address 键隔离/规范化 | T003 | P04-E①～⑤ |
-| FR-015 acquire 失败透传 | T005 | P04-E⑥（池状态零变化） |
+| FR-015 acquire 失败透传 | T005 | P04-E⑥ 黑盒（透传/计数不虚增）+ 白盒（三集合零变化） |
 | FR-016 冻结面对账 | T004/T019 | contracts §1 逐条 |
 | FR-017 P07 兜底声明（非测试项） | — | spec 如实登记；不构造「取出即可用」断言 |
 | FR-018 终结幂等 | T012 | P04-FR④ + P04-US4④ |
@@ -336,8 +352,10 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 ### 并行机会
 
 - T002 ∥ T003（不同文件）
-- Phase 3 内 T005 → T006/T007 → T008 串行（同文件演进）；T008 白盒可与
-  T006 并行（不同文件）
+- Phase 3 内 T005 → T006 → T007 → T008 串行（W15 归属纠偏后：T005/T006
+  各含 pool_test 黑盒与 pool_wbtest 白盒两半，T008 也在 pool_wbtest——
+  白盒侧同文件演进，原「T008 与 T006 并行」口径作废）；Phase 3 内无
+  任务标 [P]，[P] 语义（不同文件、无未完成依赖）不受影响
 - T013/T014/T015 同文件（pool_wbtest/client.mbt）串行；T016 依赖 T013 的
   时钟注入设施
 - T017 与 T018 同文件（pool_test/longrun 不同文件，可并行准备）

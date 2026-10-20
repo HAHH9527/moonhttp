@@ -97,8 +97,8 @@ src/
 │   ├── client.mbt                 # 新：Address/ConnectionPool/Lease
 │   ├── address_test.mbt           # 新：FR-014 键隔离/规范化（黑盒）
 │   ├── pool_test.mbt              # 新：US-1/3/4 场景（黑盒独立驱动）
-│   ├── pool_wbtest.mbt            # 新：时钟注入/conn_id 守恒/终结幂等（白盒）
-│   ├── pool_longrun_test.mbt      # 新：US-2 场景 2 双证据长跑（默认跳过，C5）
+│   ├── pool_wbtest.mbt            # 新：时钟注入/conn_id 守恒/终结幂等/LIFO 次序（白盒）
+│   ├── pool_longrun_wbtest.mbt    # 新：US-2 场景 2 双证据长跑（白盒，默认跳过，C5）
 │   └── client_test.mbt            # 既有 placeholder 测试保留（P6）
 ├── internal/
 │   └── fixtures/                  # P03 夹具扩展（implement 首片，P9）
@@ -157,23 +157,23 @@ Lease（release/poison）；`src/core` 期望零 diff；命名全 snake_case；
 | spec 条目 | 元测试（文件·盒型） | 状态 |
 | --- | --- | --- |
 | FR-014 键隔离/规范化/equal/hash | address_test·黑盒（P04-E*） | 计划 |
-| FR-001 独占 / FR-004 LIFO / US-1 场景 1-3 | pool_test·黑盒（P04-US1*）+ pool_wbtest（id 断言） | 计划 |
+| FR-001 独占 / FR-004 LIFO / US-1 场景 1-3 | pool_test·黑盒（P04-US1*）+ pool_wbtest（conn_id 断言：FR③/FR⑧） | 计划 |
 | FR-002 归池判定 / FR-003 不回池三路径 / US-4 场景 1-3 | pool_test·黑盒（P04-US4*，含 F-7 次序桩） | 计划 |
 | FR-005 显式驱逐 / US-3 场景 1-2 | pool_test·黑盒（P04-US3*）+ pool_wbtest（时钟注入推进） | 计划 |
 | FR-006 临界区无 await | pool_wbtest·白盒（不变量断言 + R3 防御路径） | 计划 |
 | FR-007 计数可读与口径 | pool_test + pool_wbtest（Q3 口径：evict_all/毒化/栈满不加） | 计划 |
 | FR-008 建连公开构造 | pool_test·黑盒（D13；`--deny-warn` 门下零 deprecated） | 计划 |
-| FR-009/US-2 双证据 | pool_wbtest（内部守恒）+ pool_longrun_test（外部 accept 计数） | 计划 |
+| FR-009/US-2 双证据 | pool_longrun_wbtest（双证据同测体：外部 accept 计数＋内部守恒） | 计划 |
 | FR-010/US-4 场景 2（Connection: close 桩） | pool_test·黑盒（F-7 次序脚本桩管线） | 计划 |
 | FR-011 release 无状态参数（P5） | pool_test·黑盒（残 body 契约形态）+ 契约面审（contracts §1 无枚举） | 计划 |
 | FR-012 命名 | contracts §1 冻结面审（.mbti 零 camelCase） | 计划 |
 | FR-013 观测非上限（K=64 形态） | pool_test·黑盒（公开观测器可断，并发租借不受 per_host_total 约束） | 计划 |
-| FR-015 acquire 失败透传 | pool_test·黑盒（P03 connect 拒绝注入） | 计划 |
+| FR-015 acquire 失败透传 | pool_test·黑盒（透传/计数）+ pool_wbtest（三集合零变化，P04-E⑥ 同名跨文件） | 计划 |
 | FR-016/SC-007 冻结面 | moon info 审视 vs contracts/pool-api.md §1 | 计划 |
 | FR-017 P07 兜底声明 | 非测试项（spec 如实登记；不构造「取出即可用」断言） | 不适用 |
 | FR-018/US-4 场景 4 终结幂等 | pool_wbtest·白盒 + pool_test 黑盒（重复 release 守恒） | 计划 |
 | US-2 场景 1（K=8 并发 100） | pool_test·黑盒（P04-US2*；serve_n(n≥K) 预启动，见风险 R2） | 计划 |
-| SC-002 长跑双证据 | pool_longrun_test（默认跳过，显式执行，quickstart §3） | 计划 |
+| SC-002 长跑双证据 | pool_longrun_wbtest（默认跳过，显式执行，quickstart §3） | 计划 |
 
 ## 验收口径（收口六门 + 专项；命令全录 quickstart.md）
 

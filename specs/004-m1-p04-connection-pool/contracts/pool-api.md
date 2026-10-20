@@ -56,7 +56,7 @@ pub fn Lease::poison(Self) -> Unit
 | --- | --- |
 | `ScriptedServer::accepted_total(Self) -> Int` | FR-009 外部证据 / US-2 场景 2（R5 F-5） |
 | `ScriptedServer::conn_request_counts(Self) -> Array[Int]` | 复用自证（长跑 keep-alive ≥2 请求）/ US-2 场景 2（R5 F-6） |
-| 次序脚本类型（`RouteScript`/`Sequence`）与 mount 重载 | FR-010 集成桩 / US-4 场景 2（R5 F-7） |
+| 次序脚本类型（`RouteScript`/`Sequence`）与 `mount_sequence` 入口 | FR-010 集成桩 / US-4 场景 2（R5 F-7/R9） |
 
 ## 2. 方法契约（行为语义，正文为 spec FR 的 plan 级细化）
 

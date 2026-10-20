@@ -169,9 +169,13 @@ mutex, `try_acquire` always return `false`」；`:53`
   - F-6：按 accept 序号记账 `priv conn_request_counts : Array[Int32]`
     （下标=连接序号），`serve_connection` 每完成一次请求 +1；访问器
     `conn_request_counts() -> Array[Int]`（拷贝语义，防内部别名逃逸）。
-  - F-7：mount 增加次序形态——`RouteScript = Single(ResponseScript) |
-    Sequence(Array[ResponseScript])`，第 i 次命中取 `min(i, len-1)`
-    （末位驻留）；覆盖式 mount 语义保持不变，Sequence 是纯增量。
+  - F-7：新增次序入口 **`mount_sequence`**——`RouteScript =
+    Single(ResponseScript) | Sequence(Array[ResponseScript])`，第 i 次
+    命中取 `min(i, len-1)`（末位驻留）；既有 `mount` 签名与覆盖式语义
+    保持不变（内部把 ResponseScript 包成 `RouteScript::Single`）。
+    不新增同名顶层 `mount`：顶层函数不可重载（E4051，W15 实测，见
+    R9）；`pub impl Trait for Type with fn` 正规重载路需为 internal
+    夹具引入 trait、扩依赖面，判过重否决（R9）。
 - **用途对账**：F-5 → US-2 场景 2 外部证据（FR-009：accepted_total ==
   池内新建数）；F-6 → 复用自证（长跑后存在 `count ≥ 2` 的连接 ⇒
   keep-alive 复用真实发生，且总量守恒）；F-7 → US-4 场景 2 的集成桩
@@ -180,7 +184,7 @@ mutex, `try_acquire` always return `false`」；`:53`
 - **`.mbti` 归因（T025 先例，003 tasks）**：`src/internal/fixtures` 是
   internal 包，`.mbti` 非对外承诺；但每个增面仍逐处归因——
   `accepted_total()`/`conn_request_counts()` → FR-009/US-2 场景 2；
-  次序脚本类型与 mount 重载 → FR-010 集成桩/US-4 场景 2。归因写在
+  次序脚本类型与 `mount_sequence` 入口 → FR-010 集成桩/US-4 场景 2。归因写在
   tasks 对应条目，`moon info` 审视时按归因核对（违零即查）。
 - **Alternatives considered**：在池侧自建一个「计数服务器」——否决：
   重复建设且绕开 P03 夹具单点收口（owner P9 裁决就是扩展夹具）；
@@ -223,7 +227,7 @@ mutex, `try_acquire` always return `false`」；`:53`
 | `src/client/address_test.mbt` | 黑盒 | FR-014 键隔离/规范化、equal/hash |
 | `src/client/pool_test.mbt` | 黑盒 | US-1/US-3/US-4 场景（P03 夹具 + `@http.Client` 原语独立驱动，不经 P05） |
 | `src/client/pool_wbtest.mbt` | 白盒 | 时钟注入（R2）、conn_id 守恒（R7 内部证据）、终结幂等（FR-018）、临界区不变量、evict_all 不计数口径 |
-| `src/client/pool_longrun_test.mbt` | 黑盒 | US-2 场景 2（双证据长跑；默认跳过，见下） |
+| `src/client/pool_longrun_wbtest.mbt` | 白盒 | US-2 场景 2（双证据长跑同测体；默认跳过，见下） |
 | `src/internal/fixtures/scripted_server*.mbt`（增量） | 黑盒 | F-5/F-6/F-7 自证元测试（归因见 R5） |
 
 - **命名约定**：`P04-<域><序> 描述`（域 ∈ US1/US2/US3/US4/E/FR/SC/
@@ -257,3 +261,46 @@ mutex, `try_acquire` always return `false`」；`:53`
   `--target wasm --deny-warn`；池与夹具全部公开 API，无 native-stub。
 - **core 侧改动**：零（P04 不改 core 任何文件；`src/core/pkg.generated.mbti`
   期望零 diff）。
+
+## R9｜测试盒型归属与 mount 形态的实测事实（W15 补记，2026-10-20）
+
+> 本节是 T005/T006/T018「黑盒/白盒归属」与夹具 mount 入口形态的判定
+> 依据。探针类结论由 host 与 agent 各自独立复跑一致（临时最小例、
+> 未触碰本仓 src）；行号锚点为 agent 本机实读。
+
+- **黑盒不可读 priv（盒型归属总依据）**：`*_test.mbt` 由构建系统另建
+  一个包，被测包私有成员不可访问——黑盒读 `Lease.conn_id`（priv）报
+  `Error: [4091] … has no field conn_id`（实测）；同一行放
+  `_wbtest.mbt` 则通过（白盒与本包 `.mbt` 同编译，实测
+  `Total tests: 2, passed: 2`）。黑盒/白盒分列构建为独立测试可执行
+  （实测产物含 `p.blackbox_test` / `p.whitebox_test` 两个工件）。
+  ⇒ `conn_id`、`next_conn_id`、三集合、F-6 计数等 priv 状态的断言
+  只能落白盒（T006-FR⑧、T005-E⑥ 白盒侧、T018 白盒长跑的归属依据）。
+- **顶层同名函数不可重载（E4051）**：两个同名顶层 `pub fn` 并存报
+  `Error: [4051] The toplevel identifier mount is declared twice`
+  （实测）；上游 `moonbitlang/async` 全源 `pub overload` 零命中；
+  MoonBit 正规重载走 `pub impl Trait for Type with fn …`（工具链
+  core/builtin：array.mbt:376 `pub impl[T] Add for Array[T] with fn
+  add`、bytes.mbt:809 同型，builtin 内该形态 225 处）。⇒ 夹具次序
+  脚本不新增同名 `mount`：`mount` 签名与覆盖式语义不变（内部包成
+  `RouteScript::Single`），序列脚本另起 `mount_sequence`；trait 路需
+  为 internal 夹具引入 trait、扩依赖面，判过重否决（宪法 VI）。
+- **夹具现状（W15 实读复核）**：`ResponseScript` 为 `pub(all) struct`
+  （scripted_server.mbt:28-35，非 sum 类型）；`routes :
+  Map[(String, String), ResponseScript]` :62；`mount` :161-171；路由
+  读站点 :227；`.mount(` 既有调用点：夹具五测试文件共 44 处
+  （raw_peer_test 13 / scripted_server_test 17 / sc003_sc004_test 7 /
+  scripted_peer_test 4 / fr015_observation_test 3），另有
+  core/wire_form_test.mbt:86 的 `ScriptedPeer::mount` 1 处（全仓
+  45）——`mount` 不改签名即零破坏。
+- **编号占用**：`P04-FR①～⑦` 已用；`P04-FR⑧` 全库零命中（本轮启用，
+  归 T006 白盒 LIFO 次序）。
+- **【implement 期前置事项】白盒夹具可见性**：`src/client/moon.pkg`
+  当前 `import` 为空块（实读；无 test-import / wbtest-import）。A-3
+  定的白盒长跑（`pool_longrun_wbtest.mbt`）需在白盒视图可见
+  `@fixtures`；所需 manifest 写法（`import` / test 限定 / wbtest 层，
+  参 fixtures/moon.pkg:20-22 已见的 `import { … } for "test"` 语法）
+  **本轮未实测**——implement 落笔前先做一次红判验证（黑盒
+  pool_test 对 `@fixtures` 的可见性一并覆盖）再写进任务，禁止当既成
+  前提。`#skip` 在 `_wbtest.mbt` 白盒块上的生效性同样未单独实测，由
+  T018 首步三连自检一并回归，失败按 R8 留档处理。

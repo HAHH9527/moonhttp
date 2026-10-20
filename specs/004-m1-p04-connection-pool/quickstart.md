@@ -44,10 +44,11 @@ moon test -p hahh9527/moonhttp/client -f "P04-US*" --target native
 # US2① 单独跑（K=8 并发 100 请求串号检测）：
 moon test -p hahh9527/moonhttp/client -f "P04-US2*" --target native
 # E①–⑤ Address 键隔离/规范化（FR-014，address_test）＋ E⑥ acquire
-# 失败透传（FR-015，pool_test）＋ E⑦ 零空转护栏（D15，pool_wbtest）：
+# 失败透传（FR-015：黑盒 pool_test 透传/计数 ＋ 白盒 pool_wbtest 三集
+# 合零变化，同名跨文件）＋ E⑦ 零空转护栏（D15，pool_wbtest）：
 moon test -p hahh9527/moonhttp/client -f "P04-E*"   --target native
 # 白盒（pool_wbtest）：FR①② 时钟注入/构造校验、FR③ 独占/守恒、
-# FR④ 终结幂等、FR⑤⑥ 超期剔除、FR⑦ 计数口径：
+# FR④ 终结幂等、FR⑤⑥ 超期剔除、FR⑦ 计数口径、FR⑧ LIFO 次序：
 moon test -p hahh9527/moonhttp/client -f "P04-FR*"  --target native
 # 夹具扩展自证（FIX①②③：F-5/F-6/F-7 计数与次序脚本）：
 moon test -p hahh9527/moonhttp/internal/fixtures -f "P04-FIX*" --target native
