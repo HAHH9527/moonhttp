@@ -282,8 +282,11 @@ mutex, `try_acquire` always return `false`」；`:53`
   MoonBit 正规重载走 `pub impl Trait for Type with fn …`（工具链
   core/builtin：array.mbt:376 `pub impl[T] Add for Array[T] with fn
   add`、bytes.mbt:809 同型；该形态在 builtin 内 287 处——口径
-  `grep -c 'pub impl.*with fn' $MOON_HOME/lib/core/builtin/*.mbt`
-  逐文件求和，2026-10-20 host 与 agent 复跑一致）。⇒ 夹具次序
+  `grep -c 'pub impl.*with fn' ~/.moon/lib/core/builtin/*.mbt`
+  逐文件求和（Windows 下 `~` ＝ `%USERPROFILE%`，即
+  `%USERPROFILE%\.moon\lib\core\builtin`；安装根可经 `moon --version`
+  输出确认——本机打出 `~\.moon\bin\moon.exe`。2026-10-20 host 与
+  agent 复跑一致）。⇒ 夹具次序
   脚本不新增同名 `mount`：`mount` 签名与覆盖式语义不变（内部包成
   `RouteScript::Single`），序列脚本另起 `mount_sequence`；trait 路需
   为 internal 夹具引入 trait、扩依赖面，判过重否决（宪法 VI）。
