@@ -358,7 +358,9 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
   任务标 [P]，[P] 语义（不同文件、无未完成依赖）不受影响
 - T013/T014/T015 同文件（pool_wbtest/client.mbt）串行；T016 依赖 T013 的
   时钟注入设施
-- T017 与 T018 同文件（pool_test/longrun 不同文件，可并行准备）
+- T017 与 T018 异文件、可并行准备：T017 落 pool_test.mbt，T018 落
+  pool_longrun_wbtest.mbt（W15 改名后）；均未标 [P]，与 [P] 语义
+  （不同文件、无未完成依赖）不冲突
 
 ## Implementation Strategy
 

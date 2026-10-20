@@ -281,7 +281,9 @@ mutex, `try_acquire` always return `false`」；`:53`
   （实测）；上游 `moonbitlang/async` 全源 `pub overload` 零命中；
   MoonBit 正规重载走 `pub impl Trait for Type with fn …`（工具链
   core/builtin：array.mbt:376 `pub impl[T] Add for Array[T] with fn
-  add`、bytes.mbt:809 同型，builtin 内该形态 225 处）。⇒ 夹具次序
+  add`、bytes.mbt:809 同型；该形态在 builtin 内 287 处——口径
+  `grep -c 'pub impl.*with fn' $MOON_HOME/lib/core/builtin/*.mbt`
+  逐文件求和，2026-10-20 host 与 agent 复跑一致）。⇒ 夹具次序
   脚本不新增同名 `mount`：`mount` 签名与覆盖式语义不变（内部包成
   `RouteScript::Single`），序列脚本另起 `mount_sequence`；trait 路需
   为 internal 夹具引入 trait、扩依赖面，判过重否决（宪法 VI）。
@@ -302,5 +304,13 @@ mutex, `try_acquire` always return `false`」；`:53`
   参 fixtures/moon.pkg:20-22 已见的 `import { … } for "test"` 语法）
   **本轮未实测**——implement 落笔前先做一次红判验证（黑盒
   pool_test 对 `@fixtures` 的可见性一并覆盖）再写进任务，禁止当既成
-  前提。`#skip` 在 `_wbtest.mbt` 白盒块上的生效性同样未单独实测，由
-  T018 首步三连自检一并回归，失败按 R8 留档处理。
+  前提。
+- **`#skip` 白盒面（已实测，host 2026-10-20）**：临时最小包白盒文件
+  加 `#skip` 块——默认 `moon test --target native` ⇒ `Total tests: 1`
+  （skip 条目不计数）；`--include-skipped` ⇒ `Total tests: 2` 且该条
+  **真实执行**（埋点 snapshot 失败：`test p/pool_wbtest.mbt:7
+  ("P04-SKIPWB whitebox skipped") failed`）；`--target wasm` 默认套 ⇒
+  `Total tests: 1`（与 native 一致）。⇒ `#skip` 语义在 `_wbtest.mbt`
+  与黑盒完全一致，A-3 长跑改白盒不动摇 W13 skip 主案。T018 首步三连
+  自检**保留原样**——它防的是 `-p` 写成目录路径的假绿，与 skip 生效
+  性是两件事。
