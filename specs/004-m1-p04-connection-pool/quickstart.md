@@ -17,7 +17,7 @@
 moon clean
 moon check --target native --deny-warn   # 门 1
 moon check --target wasm   --deny-warn   # 门 2
-moon test  --target native --deny-warn   # 门 3（默认套：不含长跑，裁决 C5）
+moon test  --target native --deny-warn   # 门 3（默认套：长跑条目 #skip 不计数，裁决 C5）
 moon test  --target wasm   --deny-warn   # 门 4（同上）
 moon fmt --check                          # 门 5
 moon info                                 # 门 6：审 .mbti diff——
@@ -37,16 +37,19 @@ moon test -p hahh9527/moonhttp/internal/fixtures --target native --deny-warn
 ## 2. 分场景验证（对应 spec US-1～US-4）
 
 ```powershell
-# US-1 租借归还 / US-3 驱逐与 evict_all / US-4 毒化路径（P03 夹具 +
+# US1①–③ 租借归还 / US2① 并发串号 / US3①–② 驱逐与 evict_all /
+# US4①–④ 毒化路径（共 10 条，全在 pool_test.mbt 黑盒；P03 夹具 +
 # @http.Client 原语独立驱动，不经 P05）：
 moon test -p hahh9527/moonhttp/client -f "P04-US*" --target native
-# US-2 场景 1（K=8 并发 100 请求串号检测）：
+# US2① 单独跑（K=8 并发 100 请求串号检测）：
 moon test -p hahh9527/moonhttp/client -f "P04-US2*" --target native
-# Address 键隔离/规范化（FR-014）：
+# E①–⑤ Address 键隔离/规范化（FR-014，address_test）＋ E⑥ acquire
+# 失败透传（FR-015，pool_test）＋ E⑦ 零空转护栏（D15，pool_wbtest）：
 moon test -p hahh9527/moonhttp/client -f "P04-E*"   --target native
-# 白盒：时钟注入 / conn_id 守恒 / 终结幂等（FR-018）/ 临界区不变量：
+# 白盒（pool_wbtest）：FR①② 时钟注入/构造校验、FR③ 独占/守恒、
+# FR④ 终结幂等、FR⑤⑥ 超期剔除、FR⑦ 计数口径：
 moon test -p hahh9527/moonhttp/client -f "P04-FR*"  --target native
-# 夹具扩展自证（F-5/F-6/F-7 计数与次序脚本）：
+# 夹具扩展自证（FIX①②③：F-5/F-6/F-7 计数与次序脚本）：
 moon test -p hahh9527/moonhttp/internal/fixtures -f "P04-FIX*" --target native
 ```
 
@@ -54,14 +57,20 @@ moon test -p hahh9527/moonhttp/internal/fixtures -f "P04-FIX*" --target native
 
 ## 3. 长跑/无泄漏双证据（US-2 场景 2；默认排除六门，裁决 C5）
 
+长跑用例声明 `#skip` 属性：默认 `moon test` 不计数、不执行；显式执行经
+`--include-skipped`（主案已核证：2026-10-20 host 实测，双 target、含
+无属性对照组，见 research R8）。
+
 ```powershell
-# skip 语法核证通过后的显式执行形态（research R8 主案）：
 moon test -p hahh9527/moonhttp/client -f "P04-LONGRUN*" `
   --include-skipped --target native
 moon test -p hahh9527/moonhttp/client -f "P04-LONGRUN*" `
   --include-skipped --target wasm
-# 降级案（skip 语法核证失败）：stress 独立包 -p hahh9527/moonhttp/client/stress
 ```
+
+- 执行后核对 `Total tests:` 非 0（防 `-p` 写成目录路径的假绿，见 §0）。
+- 禁止以 `#cfg` 充当跳过：条件编译会让测试从编译单元整个消失，
+  `--include-skipped` 救不回来（2026-10-20 实测反例，research R8）。
 
 - 断言口径（Q04 双证据）：外部——`accepted_total() == 池内累计新建`
   （白盒 `next_conn_id - 1`）；内部——`借出 + 空闲 + 已关 = 累计新建`

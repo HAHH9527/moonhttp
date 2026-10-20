@@ -109,7 +109,7 @@ src/
 
 **Structure Decision**: 池入既有门面包 `src/client`（README 第 5 节包布局
 裁决：执行管线/池/超时/Dispatcher 入门面包）；不拆子包（宪法 VI；长跑
-降级案才引入 stress 子包，见 R8）。夹具扩展落在既有 internal 包内（P9），
+隔离走 `#skip` 主案，见 R8）。夹具扩展落在既有 internal 包内（P9），
 `.mbti` 增面逐处归因（T025 先例）。
 
 ## 四个决策节（细则见 research.md / data-model.md / contracts/）
@@ -167,7 +167,7 @@ Lease（release/poison）；`src/core` 期望零 diff；命名全 snake_case；
 | FR-010/US-4 场景 2（Connection: close 桩） | pool_test·黑盒（F-7 次序脚本桩管线） | 计划 |
 | FR-011 release 无状态参数（P5） | pool_test·黑盒（残 body 契约形态）+ 契约面审（contracts §1 无枚举） | 计划 |
 | FR-012 命名 | contracts §1 冻结面审（.mbti 零 camelCase） | 计划 |
-| FR-013 观测非上限（K=64 形态） | pool_wbtest·白盒（并发租借不受 per_host_total 约束） | 计划 |
+| FR-013 观测非上限（K=64 形态） | pool_test·黑盒（公开观测器可断，并发租借不受 per_host_total 约束） | 计划 |
 | FR-015 acquire 失败透传 | pool_test·黑盒（P03 connect 拒绝注入） | 计划 |
 | FR-016/SC-007 冻结面 | moon info 审视 vs contracts/pool-api.md §1 | 计划 |
 | FR-017 P07 兜底声明 | 非测试项（spec 如实登记；不构造「取出即可用」断言） | 不适用 |
@@ -193,11 +193,14 @@ Lease（release/poison）；`src/core` 期望零 diff；命名全 snake_case；
 **跑 0 个测试却返回 exit 0**（假绿）。所有分包命令用全包名，执行后检查
 `Total tests:` 非 0（quickstart §0）。
 
-### 长跑显式执行（裁决 C5 主案 + 降级案）
+### 长跑显式执行（裁决 C5 主案，2026-10-20 核证定案）
 
-- 主案：skip 属性默认跳过 + `-f "P04-LONGRUN*" --include-skipped` 显式跑
-  （旗标已核证；skip 语法 implement 首任务冒烟核证）。
-- 降级案：stress 独立包 + 六门 `-p` 枚举（R8）。
+- 主案：长跑条目声明 `#skip`（默认 `moon test` 不计数、不执行）+ 显式跑
+  `moon test -p hahh9527/moonhttp/client -f "P04-LONGRUN*"
+  --include-skipped`（skip 语法 2026-10-20 host 实测核证：双 target、
+  含无属性对照组；禁以 `#cfg` 充当跳过——证据见 research R8）。
+- 回退仅留档（非 live 备选）：T018 首步三连自检失败即停手报告、回
+  research R8 重议，不得自行切换机制。
 - 通过证据（Q04 双证据）登记进包级 DoD-1；wasm 分档数值 implement 期
   按 t004-record.md 校准。
 
@@ -206,7 +209,9 @@ Lease（release/poison）；`src/core` 期望零 diff；命名全 snake_case；
 1. 六门全绿 + `.mbti` diff 审视结论归档（对账 contracts/pool-api.md §1）。
 2. 长跑双证据记录（native/wasm 各一份：规模、accepted_total、守恒断言
    结果）随交付归档，登记进包级 DoD-1。
-3. skip 语法冒烟核证结论记录（主案/降级案择一，含证据）。
+3. 长跑隔离机制核证已归档（2026-10-20）：skip 语法 host 实测通过（双
+   target、含无属性对照组），主案 `#skip` + `--include-skipped` 定案
+   （research R8）；T018 首步仅余包内三连回归自检。
 4. `src/client/placeholder` 的删除评估留给 implement 收口片（P6；本包
    不删，基线 160 记账不被搅动）。
 

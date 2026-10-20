@@ -84,11 +84,17 @@ pub fn Lease::poison(Self) -> Unit
 - `released == true` ⇒ no-op（FR-018）。
 - 首次调用：置 released；上锁（同步路径 `try_acquire`，失败即 abort，
   R3）后——
-  - `poisoned == false` 且 `idle[addr].length() < max_idle` ⇒ 回栈
-    （idle_since = now_ms()，FR-002 池侧谓词；body 已消费完是调用方
-    契约，P5）；
-  - 否则（毒化 ∨ 栈满）⇒ `conn.close()`（幂等，C-3），id → closed；
-    **不加 stale_evictions**（FR-007 口径）。
+  1. 先做**惰性剔除**（与 `acquire` 第 1 步共用同一超期判定函数，R2
+     时间语义单点/不变量 7）：`idle[addr]` 中超期条目自尾向头全部弹出
+     并 `close`（不破坏 R4.1 的 LIFO 序），每条 `stale_evictions` +1
+     （FR-007/T014 口径：release 时超期条目不入栈）。
+  2. 评估归池谓词——
+     - `poisoned == false` 且 `idle[addr].length() < max_idle` ⇒ 回栈
+       （idle_since = now_ms()，FR-002 池侧谓词；body 已消费完是调用方
+       契约，P5）；
+     - 否则（毒化 ∨ 栈满）⇒ `conn.close()`（幂等，C-3），id → closed；
+       **不加 stale_evictions**（FR-007 口径：该计数只属于上面第 1 步
+       的超期剔除分支，毒化/栈满不计）。
 
 ### `Lease::poison()`（同步）
 

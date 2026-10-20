@@ -228,16 +228,27 @@ mutex, `try_acquire` always return `false`」；`:53`
 
 - **命名约定**：`P04-<域><序> 描述`（域 ∈ US1/US2/US3/US4/E/FR/SC/
   LONGRUN），沿用 003 `P03-Bxxⓝ` 风格；`-f` 按测试名 glob 过滤。
-- **长跑排除机制（裁决 C5 的机制落定，主案 + 降级案）**：
-  - 主案：长跑测试声明 skip 属性（默认跳过），显式执行用
-    `moon test -p <包> -f "P04-LONGRUN*" --include-skipped`。
-    旗标核证情况：`-f`/`--include-skipped` 存在性已核证（003 research
-    P-h）；skip 属性语法在 003 时点未核证——**implement 首任务先写
-    1 秒级冒烟核证**，通过则定案。
-  - 降级案（冒烟失败时）：长跑测试移入独立包（如 `src/client/stress/`），
-    六门的 test 门改为「-p 枚举非 stress 包」，显式执行时单独 -p stress。
-    代价：包枚举需随包增长维护（记录于 tasks 收尾）。
-  - 两条路都保证：常规六门不含长跑（C5）；长跑证据随包级 DoD 登记。
+- **长跑排除机制（裁决 C5 的机制落定；主案 2026-10-20 host 实测定案）**：
+  - 主案（live）：长跑测试声明 `#skip`（可带理由 `#skip("理由")`），
+    默认 `moon test` 不计数、不执行；显式执行用
+    `moon test -p hahh9527/moonhttp/client -f "P04-LONGRUN*"
+    --include-skipped`。核证证据：2026-10-20 host 实测（toolchain
+    0.1.20261012 / moonc 0.10.15，单文件 moon test 法，未建包未碰本仓；
+    native 与 wasm 双 target 各一遍）——`#skip` ⇒ 默认 `Total tests`
+    少 1；`--include-skipped` ⇒ 计数恢复且测试本体真实执行；同文件无
+    属性对照组稳定多 1（排除计数口径巧合）。`-f`/`--include-skipped`
+    存在性先前已核证（003 research P-h）。唯一未实测组合＝包内
+    「`-p` 全包名 + `-f` + `--include-skipped`」三连，由 T018 首步
+    回归自检覆盖。
+  - **禁止以 `#cfg` 充当跳过**：`#cfg(target="js")` 是条件编译，该测试
+    在 `moonc gen-test-info -json -target native` 输出中整个消失
+    （并非被标 skipped），`--include-skipped` 救不回来（2026-10-20
+    实测反例）。
+  - 降级案（**非 live 备选**，仅当 T018 三连自检失败时回退重议）：
+    长跑测试移入独立包（如 `src/client/stress/`），六门的 test 门改为
+    「-p 枚举非 stress 包」，显式执行时单独 -p stress；代价＝包枚举
+    随包增长维护。回退须先停手报告 owner，不得自行切换机制。
+  - 主案保证：常规六门不含长跑（C5）；长跑证据随包级 DoD 登记。
 - **「-p 假验证」警示（必须写进 quickstart 与任务口径）**：`moon test -p`
   **只认包名**（形如 `hahh9527/moonhttp/client`）；写成目录路径（如
   `-p src/client`）会**跑 0 个测试却返回 exit 0**——这是假绿。所有分包

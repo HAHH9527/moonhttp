@@ -40,7 +40,7 @@ pub fn Address::hash(self) -> Int
   不同键（互不租借，FR-014）。
 - 键构造 noraise：不解析 URL，不做网络语义校验（窄语义，R4.3）。
 
-## 实体 2：PoolInner（互斥保护的可变状态，不进公开面）
+## 实体 2：PoolInner（互斥保护的可变状态，不进公开面；公开外壳见下）
 
 ```text
 priv struct PoolInner {
@@ -52,7 +52,7 @@ priv struct PoolInner {
   next_conn_id : Int                      // 单调发号器，1 起
 }
 
-priv struct ConnectionPool {
+pub struct ConnectionPool {              // 公开外壳（contracts §1/FR-016）；字段全 priv
   priv max_idle : Int                     // > 0
   priv keep_alive_ms : Int                // >= 0
   priv inner : Mutex[PoolInner]           // C3 裁决：保留互斥锁（R3 分流用法）
@@ -140,7 +140,9 @@ pub fn Lease::release(self) -> Unit
 3. **LIFO**：同桶内，`idle_since` 自尾向头单调不增（FR-004；超期剔除
    splice 不破坏该序）。
 4. **临界区**：对 `inner` 的每次持锁段内无 IO、无 await（FR-006；
-   锁用法分流见 R3——同步路径 try_acquire 失败即 abort）。
+   锁用法分流见 R3——同步路径 try_acquire 失败即 abort）。保护范围＝
+   PoolInner 全部字段（idle/borrowed/closed/per_host_total/
+   stale_evictions/next_conn_id，差异 D16），非仅 idle 栈取放。
 5. **守恒恒等式**：`borrowed.count + Σ idle.count + closed.count ==
    next_conn_id - 1`，对任意调用序列（含重复 release/poison、并发
    acquire、任意驱逐交错）恒成立（FR-009 内部证据；FR-018）。

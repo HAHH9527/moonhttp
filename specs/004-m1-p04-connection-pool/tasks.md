@@ -111,12 +111,14 @@ native|wasm`（`pool_test.mbt` + `pool_wbtest.mbt`）——`@http.Client` 原语
   变化，FR-015）→ 实现 acquire 建连路径：锁内查桶（无命中）→ **解锁后
   建连**（FR-006 临界区无 IO）→ 成功才 `per_host_total` +1 并入 borrowed
   （data-model 不变量 6）
-- [ ] T006 [US1] release 归池 + LIFO（FR-002/FR-004）：`pool_test.mbt` 写
-  P04-US1②（release 干净 Lease 后再次 acquire 同 Address → 弹出**同一
-  连接实例**（conn_id 相同，白盒辅证）、无新建）→ 实现 release 归池判定
-  （同步 `try_acquire` 失败即 abort，research R3；未毒化 ∧ idle 未满 →
-  push 尾部、`idle_since = now_ms()`；否则 `close()`）与 acquire 命中
-  `pop()`（尾 = 最热）
+- [ ] T006 [US1] release 归池 + LIFO + 复用率（FR-002/FR-004/SC-003）：
+  `pool_test.mbt` 写 P04-US1②——同 Address **串行 acquire/release
+  ≥100 次循环**，断言三件：① 每次弹出的 conn_id 与上一次 release 归
+  栈的相同（LIFO 命中，白盒辅证）；② 循环结束 `per_host_total(addr)`
+  == 1；③ 循环全程零新建连接（首建之后计数恒 1）→ 实现 release 归池
+  判定（同步 `try_acquire` 失败即 abort，research R3；未毒化 ∧ idle
+  未满 → push 尾部、`idle_since = now_ms()`；否则 `close()`）与
+  acquire 命中 `pop()`（尾 = 最热）
 - [ ] T007 [US1] 栈满 close 不入栈（FR-003 分支）：`pool_test.mbt` 写
   P04-US1③（`max_idle=1`：两条连接先后 release → 第二条被 close、不入
   栈；复用不受影响）→ 实现栈满分支（不回池即 close 家族，不计
@@ -221,9 +223,11 @@ US-3/US-4 场景 native+wasm 双绿
   ——风险 R2：串行 accept 的排队延迟不得伪装成池失效）→ 全部请求 body
   与自身 id 匹配（串号 0）；如暴露实现缺陷在本任务内修复并补回归断言
 - [ ] T018 [US2] 长跑双证据（US-2 场景 2 + FR-009/Q04/R7）：新增
-  `src/client/pool_longrun_test.mbt`——首步**skip 语法冒烟核证**
-  （research R8 主案：1 秒级验证 skip 属性；失败即切降级案 stress 独立
-  包并记录）；随后 P04-LONGRUN①（native ≥10k 请求：外部证据
+  `src/client/pool_longrun_test.mbt`——首步**三连回归自检**（长跑条目
+  已声明 `#skip`；包内实跑 `moon test -p hahh9527/moonhttp/client
+  -f "P04-LONGRUN*" --include-skipped --target native`，**核对输出
+  `Total tests:` 非 0**——防 `-p` 写成目录路径的假绿；失败即停手报告、
+  回 research R8 留档重议，不得自行换机制）；随后 P04-LONGRUN①（native ≥10k 请求：外部证据
   `accepted_total() == 池内累计新建`（白盒 `next_conn_id - 1`）＋内部
   证据三集合基数守恒（不变量 5）＋复用度自证（存在 count ≥ 2 的连接，
   F-6））与 P04-LONGRUN②（wasm/moonrun 按 t004-record.md 吞吐分档
@@ -305,11 +309,14 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 | --- | --- | --- |
 | SC-001 全绿 + 串号 0 | T017/T020 | 「全绿」口径随 DoD-1（C5：长跑显式执行） |
 | SC-002 零泄漏双证据 | T018 + T020 对账 | 证据随 DoD-1 登记 |
-| SC-003 复用命中率 | T006（LIFO）+ T018（长跑 ≥100 次） | 无 |
+| SC-003 复用命中率 | T006 | 串行 ≥100 次 → per_host_total==1；T018 只承担 SC-002 双证据 |
 | SC-004 驱逐确定性/幂等 | T013/T015 | 无 |
 | SC-005 毒化零回池 | T007/T009/T010/T012/T013 | 无 |
 | SC-006 外部网络依赖 0 | 全部测试任务（P03 夹具 loopback） | 无 |
 | SC-007 公开面零泄漏 | T004/T019 | 对账 contracts §1 |
+
+> 注：SC 验收全部骑在 US/FR/E/LONGRUN 前缀用例上，不单设 SC 前缀
+> （owner 2026-10-20 裁决，宪法 VI YAGNI）。
 
 ## Dependencies & Execution Order
 
@@ -349,8 +356,9 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 - **`-p` 只认包名**：`moon test -p hahh9527/moonhttp/client`；写目录路径
   （如 `-p src/client`）**跑 0 个测试却返回 exit 0**（假绿）——每条 `-p`
   命令后核对 `Total tests:` 非 0（quickstart §0）
-- **测试命名**：`P04-US*`/`P04-E*`/`P04-FR*`/`P04-SC*`/`P04-LONGRUN*`/
-  夹具侧 `P04-FIX*`（与 quickstart `-f` glob 一致，不得自创前缀）
+- **测试命名**：`P04-US*`/`P04-E*`/`P04-FR*`/`P04-LONGRUN*`/
+  夹具侧 `P04-FIX*`（与 quickstart `-f` glob 一致，不得自创前缀；不设
+  SC 前缀，SC 验收骑上述前缀用例）
 - **先红后绿**：每任务元测试先失败再转绿；落笔即绿的护栏断言（T016、
   T010 契约面审）须在任务产出中显式标注「护栏/未红判据」，不得静默
   （003 T008/T016 先例）
