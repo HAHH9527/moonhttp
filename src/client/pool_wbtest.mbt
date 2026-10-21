@@ -314,7 +314,8 @@ async test "P04-FR⑤ 注入时钟超期剔除：确定性/计数口径/幂等/�
     let server = @fixtures.ScriptedServer::start()
     let mut now : Int64 = 10_000
     let pool = ConnectionPool::with_clock(max_idle=5, keep_alive_ms=1000, now_fn=() => {
-      now,
+      let t = now
+      t
     })
     let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
     let a = pool.acquire(addr)
@@ -357,6 +358,81 @@ async test "P04-FR⑤ 注入时钟超期剔除：确定性/计数口径/幂等/�
       pool.inner.idle.get(addr).unwrap_or([]).length(),
       1,
       msg="未超期连接原样保留",
+    )
+    server.close()
+  }
+}
+
+///|
+// P04-FR⑥（FR-005 下半：acquire/release 惰性剔除，T014）：超期连接在
+// acquire 命中前被顺手剔除——拿到的是新建连接且 stale_evictions +1；
+// release 时超期条目不入栈（先剔除后评估归池谓词，contracts §2 步骤 1）。
+// 时间语义与 T013 共享单点（R2/不变量 7）。
+async test "P04-FR⑥ 惰性剔除：acquire 命中前剔除 / release 超期条目不入栈" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    // R2 对策（同 FR③）：预启动 accept 循环；全程共 7 条新建连接
+    let _serving = group.spawn(() => server.serve_n(7, timeout_ms=8000))
+    let mut now : Int64 = 10_000
+    let pool = ConnectionPool::with_clock(max_idle=5, keep_alive_ms=1000, now_fn=() => {
+      let t = now
+      t
+    })
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    a.release()
+    b.release()
+    // 超期后 acquire：命中前顺手剔除 2 条 → 拿到的是新建连接
+    now = 11_500
+    let c = pool.acquire(addr)
+    assert_eq(
+      pool.stale_evictions(),
+      2,
+      msg="acquire 惰性剔除 2 条超期（每条 +1）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      3,
+      msg="命中路径被惰性剔除清空 → 新建（FR-006 步骤 1→3）",
+    )
+    assert_eq(c.conn_id, 3, msg="c 应为新建发号 3")
+    // d/e 新建后回池，超期后由 f 的 acquire 惰性剔除（acquire 侧再证）
+    let d = pool.acquire(addr)
+    let e = pool.acquire(addr)
+    assert_eq(d.conn_id, 4, msg="d 应为新建发号 4")
+    assert_eq(e.conn_id, 5, msg="e 应为新建发号 5")
+    d.release()
+    e.release()
+    now = 13_000
+    let f = pool.acquire(addr)
+    assert_eq(
+      pool.stale_evictions(),
+      4,
+      msg="f 的 acquire 惰性剔除超期的 d/e（+2）",
+    )
+    assert_eq(f.conn_id, 6, msg="f 应为新建发号 6")
+    // release 侧：g 新建；f 回池后超期；g 的 release 先剔除 f 再入栈
+    let g = pool.acquire(addr)
+    assert_eq(g.conn_id, 7, msg="g 应为新建发号 7")
+    f.release()
+    now = 14_500
+    g.release()
+    assert_eq(
+      pool.stale_evictions(),
+      5,
+      msg="release 惰性剔除超期的 f（+1）——超期条目不入栈",
+    )
+    // 栈中唯一条目应为 g（conn_id=7），守恒恒等式保持（c 保持在租）
+    let bucket = pool.inner.idle.get(addr).unwrap_or([])
+    assert_eq(bucket.length(), 1, msg="仅 g 在栈")
+    assert_eq(bucket[0].conn_id, g.conn_id, msg="栈中应为 g")
+    assert_eq(
+      pool.inner.borrowed.length() +
+      bucket.length() +
+      pool.inner.closed.length(),
+      pool.inner.next_conn_id - 1,
+      msg="守恒恒等式（不变量 5）",
     )
     server.close()
   }

@@ -207,10 +207,13 @@ pub async fn ConnectionPool::acquire(
 ) -> Lease {
   // 锁内查桶：命中 LIFO pop（FR-004，尾=最热）；id 迁 idle→borrowed 同
   // 锁段（不变量 5 无隙）。此段即 FR-006 临界区形态：无 IO、无 await。
+  // 先做惰性剔除（FR-005 下半/contracts §2 步骤 1：超期条目弹出关闭、
+  // 每条 stale_evictions +1，与 evict_expired 共享判定单点），再评估命中。
   self.lock.acquire()
   let mut hit : IdleLease? = None
   match self.inner.idle.get(addr) {
-    Some(bucket) =>
+    Some(bucket) => {
+      self.evict_bucket_locked(bucket)
       match bucket.pop() {
         Some(idle) => {
           self.inner.borrowed[idle.conn_id] = ()
@@ -218,6 +221,7 @@ pub async fn ConnectionPool::acquire(
         }
         None => ()
       }
+    }
     None => ()
   }
   self.lock.release()
@@ -271,6 +275,9 @@ pub fn Lease::release(self : Lease) -> Unit {
       fresh
     }
   }
+  // 惰性剔除（FR-005 下半/contracts §2 release 步骤 1，与 T013 共享判定
+  // 单点）：超期条目自栈弹出关闭（每条 +1）——超期条目不入栈
+  pool.evict_bucket_locked(bucket)
   let full = bucket.length() >= pool.max_idle
   if !self.poisoned && !full {
     // 回池：尾部 push（LIFO），入栈瞬间快照时钟（不变量 7：idle_since 不可变）
