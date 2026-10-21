@@ -229,7 +229,7 @@ US-3/US-4 场景 native+wasm 双绿
 "P04-US2*" --target native|wasm`；场景 2＝显式执行（默认排除六门，C5），
 命令见 quickstart §3
 
-- [ ] T017 [US2] 并发租借串号检测（US-2 场景 1）：`pool_test.mbt` 写
+- [X] T017 [US2] 并发租借串号检测（US-2 场景 1）：`pool_test.mbt` 写
   P04-US2①（K=8 池 × 并发 100 个「acquire→请求→校验回显 id→release」，
   echo 夹具 B-04；**先 `serve_n(n≥K)` 预启动 accept 循环再放行客户端**
   ——风险 R2：串行 accept 的排队延迟不得伪装成池失效）→ 全部请求 body
