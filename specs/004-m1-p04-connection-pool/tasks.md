@@ -37,7 +37,7 @@ US-3 之前；US-2 压轴，因其长跑守恒口径消费全部关闭路径（�
 
 **Purpose**: 动工前固化基线，供后续 diff 归因与回归对照
 
-- [ ] T001 记录动工前基线（可机器复核、免构建只读部分先行）：静态测试计数
+- [X] T001 记录动工前基线（可机器复核、免构建只读部分先行）：静态测试计数
   `grep -rhP '^\s*(async\s+)?test\s' src --include='*_test.mbt' --include='*_wbtest.mbt' | wc -l`
   当前实测 **== 160**（18 个文件）；再依次运行六门（`moon check --target
   native/wasm --deny-warn`、`moon test --target native/wasm --deny-warn`
