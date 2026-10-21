@@ -132,3 +132,88 @@ async test "P04-US1③ 栈满第二条 release 关闭不入栈且复用不受影
     server.close()
   }
 }
+
+///|
+// P04-US4①（FR-003/FR-011 毒化路径，T009）：毒化 Lease release → 连接
+// 关闭、idle 不增长（黑盒可观测推演＝再 acquire 得到的是新建连接，
+// per_host_total 1→2；若毒化连接曾回池则命中复用、计数停在 1）。
+async test "P04-US4① 毒化 release 不回池且再 acquire 为新建" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = @client.ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let lease = pool.acquire(addr)
+    assert_eq(pool.per_host_total(addr), 1, msg="首 acquire 新建记 1")
+    lease.poison()
+    lease.release()
+    let lease2 = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="毒化连接不得回池——再 acquire 须新建（若回池则计数停在 1）",
+    )
+    lease2.release()
+    server.close()
+  }
+}
+
+///|
+// P04-US4②（FR-011 残 body 调用方契约，P5/Q07，T010）：池不可内省在途
+// body——「body 已消费完」是调用方契约，池只认 poison 标记。两分支对照：
+// A（违约侧＝未消费完）→ 调用方 MUST 先 poison() 再 release → 不回池；
+// B（履约侧＝已消费完/skip_response_body 收口）→ 直接 release → 正常回池。
+// 探针客户端实证 C-4 执行原语（真实残 body 连接上 skip_response_body 干净
+// 收口）——判定逻辑归 P05/P06 管线，本测试只钉契约形态。
+// 【护栏/未红判据】判定分支 T009 已就位，本测试落笔即绿（显式记录）；
+// 同时完成契约面审：release 无状态参数、无新增公开枚举（见任务产出）。
+async test "P04-US4② 残 body 契约两分支对照：poison 不回池 / 履约回池" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/body", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"payload-0123456789"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let pool = @client.ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    // 探针（C-4 原语实证）：真实连接上响应体未读完 → skip_response_body 收口
+    let probe = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    let _serving_probe = group.spawn(() => server.serve_once(timeout_ms=3000))
+    probe.request(Get, "/body")
+    let _head = probe.end_request()
+    probe.skip_response_body()
+    probe.close()
+    _serving_probe.wait()
+    // 分支 A（违约侧）：未消费完 → 调用方义务＝poison 后 release → 不回池
+    let lease_a = pool.acquire(addr)
+    lease_a.poison()
+    lease_a.release()
+    // 分支 B（履约侧）：已消费完（skip_response_body 已收口）→ 直接 release → 回池
+    let lease_b = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="毒化的 A 不回池：B 应为新建（计数 1→2）",
+    )
+    lease_b.release()
+    let lease_c = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="履约的 B 正常回池：C 应命中复用（计数不动）",
+    )
+    lease_c.release()
+    server.close()
+  }
+}

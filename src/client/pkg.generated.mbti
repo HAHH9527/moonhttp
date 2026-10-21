@@ -29,6 +29,7 @@ pub fn ConnectionPool::per_host_total(Self, Address) -> Int
 pub struct Lease {
   // private fields
 }
+pub fn Lease::poison(Self) -> Unit
 pub fn Lease::release(Self) -> Unit
 
 // Type aliases

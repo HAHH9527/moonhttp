@@ -154,12 +154,12 @@ native+wasm 双绿（MVP 增量）
 **Independent Test**: `moon test -p hahh9527/moonhttp/client --target
 native|wasm -f "P04-US4*"`（黑盒）+ `-f "P04-FR*"`（白盒幂等/守恒）
 
-- [ ] T009 [US4] poison 标记 + release 不回池（FR-003/FR-011）：
+- [X] T009 [US4] poison 标记 + release 不回池（FR-003/FR-011）：
   `pool_test.mbt` 写 P04-US4①（毒化 Lease release → 连接关闭、idle 不
   增长；再 acquire 得到的是新建连接）→ 实现 `Lease::poison()`（仅置
   `poisoned` 标记，不碰锁）与 release 判定毒化分支（→ close，**不加
   `stale_evictions`**，FR-007 口径；池只认 poison 标记，P4/Q06）
-- [ ] T010 [US4] 残 body 调用方契约（P5/Q07）：`pool_test.mbt` 写
+- [X] T010 [US4] 残 body 调用方契约（P5/Q07）：`pool_test.mbt` 写
   P04-US4②（响应体未消费完的 Lease 按调用方契约先 `poison()` → release
   不回池；`skip_response_body()` 后 release → 正常回池，两分支对照）→
   无新增实现（判定分支 T009 已就位）；本任务同时完成契约面审记录：

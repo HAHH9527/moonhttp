@@ -129,14 +129,14 @@ pub struct ConnectionPool {
 // 独占租约（data-model 实体 4，公开面 FR-001/002/011/018）：acquire 的
 // 返回值；release 按归池谓词回流或关闭；poison 仅置标记（池只认它，P4）；
 // released 为终结幂等锚（FR-018，no-op 短路）。
-// 注：poisoned/released 的 mut 随写入行为引入（T009/T012）——T006 仅读
-// poisoned 于归池谓词，先以不可变形态在场（避免 unused_mut 假红）。
+// 注：poisoned 的 mut 自 T009（poison 写入）在场；released 的 mut 自
+// T012（终结幂等写入门）引入——先以不可变形态在场（避免 unused_mut 假红）。
 pub struct Lease {
   priv conn : @http.Client
   priv conn_id : Int32
   priv addr : Address
   priv pool : ConnectionPool
-  priv poisoned : Bool
+  priv mut poisoned : Bool
   priv released : Bool
 }
 
@@ -282,6 +282,15 @@ pub fn Lease::release(self : Lease) -> Unit {
     pool.inner.closed[self.conn_id] = ()
   }
   pool.lock.release()
+}
+
+///|
+/// 毒化标记（FR-011，P4 裁决：池只认 poison 标记）：仅置 poisoned，不碰
+/// 锁（Lease 自身标记，无共享状态）；关闭动作延后到 release（毒化分支 →
+/// close，不计 stale_evictions）。已终结（released）的 no-op 短路随 T012
+/// 终结幂等接入。
+pub fn Lease::poison(self : Lease) -> Unit {
+  self.poisoned = true
 }
 
 ///|
