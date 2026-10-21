@@ -7,6 +7,17 @@ pub fn placeholder() -> Bool
 // Errors
 
 // Types and methods
+pub struct Address {
+  // private fields
+} derive(Eq, Hash)
+pub fn Address::equal(Self, Self) -> Bool
+pub fn Address::hash(Self) -> Int
+pub fn Address::hash_combine(Self, Hasher) -> Unit
+pub fn Address::host(Self) -> String
+pub fn Address::new(scheme~ : String, host~ : String, port~ : Int) -> Self
+pub fn Address::not_equal(Self, Self) -> Bool
+pub fn Address::port(Self) -> Int
+pub fn Address::scheme(Self) -> String
 
 // Type aliases
 

@@ -73,7 +73,7 @@ US-3 之前；US-2 压轴，因其长跑守恒口径消费全部关闭路径（�
   `accepted_total()` → FR-009 外部证据/US-2 场景 2；`conn_request_counts()`
   → 长跑 keep-alive 复用自证；次序脚本类型与 `mount_sequence` →
   FR-010 集成桩/US-4 场景 2（research R5/R9）
-- [ ] T003 [P] Address 类型（先红后绿）：`src/client/address_test.mbt` 写
+- [X] T003 [P] Address 类型（先红后绿）：`src/client/address_test.mbt` 写
   P04-E①～⑤（红：无 Address 类型）→ 实现 `src/client/client.mbt`
   `Address::new(scheme~, host~, port~)`（规范化单点收口：scheme/host
   小写化、IPv6 剥方括号；noraise）/`scheme/host/port` 访问器/`equal`/
