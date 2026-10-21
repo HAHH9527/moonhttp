@@ -108,7 +108,7 @@ native|wasm`（`pool_test.mbt` + `pool_wbtest.mbt`）——`@http.Client` 原语
 
 ### Implementation for User Story 1（每任务 = 元测试先红 → 实现转绿）
 
-- [ ] T005 [US1] acquire 新建与失败透传（FR-008/FR-015）：
+- [X] T005 [US1] acquire 新建与失败透传（FR-008/FR-015）：
   `pool_test.mbt` 写 P04-US1①（空池 acquire → 新建连接、
   `per_host_total(addr)` 递增为 1；uri 形态 `\{scheme}://\{host}:\{port}`
   仅经 `Client::Client(uri)`——D13）与 P04-E⑥ 黑盒侧（P03 注入

@@ -64,3 +64,34 @@ test "P04-FR② 合法参数零拒绝且 new 缺省形态可用" {
   })
   assert_eq((pool3.now_ms)(), 0L)
 }
+
+///|
+// P04-E⑥ 白盒侧（FR-015，T005）：建连失败后 idle/borrowed/closed 三集合
+// 零变化、发号器不动——无半租约（contracts §2 第 4 条）。与 pool_test 的
+// 同名黑盒用例按 -f "P04-E*" 跨文件一并收集（research R9）。
+async test "P04-E⑥ acquire 建连失败透传且计数不虚增" {
+  let pool = ConnectionPool::with_clock(max_idle=5, keep_alive_ms=300_000, now_fn=() => {
+    42L
+  })
+  let addr = Address::new(scheme="http", host="127.0.0.1", port=0)
+  let raised = try {
+    let _lease = pool.acquire(addr)
+    false
+  } catch {
+    _ => true
+  }
+  assert_true(raised, msg="建连失败必须原样透传（FR-015）")
+  // 三集合零变化（priv 状态白盒直读）：无半租约、无计数漂移
+  assert_eq(pool.inner.borrowed.length(), 0, msg="borrowed 必须为空")
+  assert_eq(pool.inner.closed.length(), 0, msg="closed 必须为空")
+  let mut idle_total = 0
+  for _key, bucket in pool.inner.idle {
+    idle_total = idle_total + bucket.length()
+  }
+  assert_eq(idle_total, 0, msg="idle 必须为空")
+  assert_eq(
+    pool.inner.next_conn_id,
+    1,
+    msg="发号器不得在失败路径推进（守恒恒等式无隙）",
+  )
+}

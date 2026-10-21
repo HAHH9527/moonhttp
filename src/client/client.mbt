@@ -179,3 +179,58 @@ fn ConnectionPool::with_clock(
     now_ms: now_fn,
   }
 }
+
+///|
+// 同步路径锁纪律（R3）：try_acquire 失败即 abort（fail fast）——失败只可能
+// 意味「有人跨 await 持锁」，即 FR-006 临界区不变量已被破坏，属实现级缺陷，
+// 立即爆红而非静默跳过（静默跳过会让 SC-004 确定性断言变 flaky）。
+fn sync_lock_or_abort(lock : @async.Mutex, site : String) -> Unit {
+  if !lock.try_acquire() {
+    abort(
+      "\{site}：同步路径锁竞争——FR-006 临界区不变量已被破坏（R3 fail fast）",
+    )
+  }
+}
+
+///|
+// 独占租借（contracts §2，FR-001/004/008/015）。T005 交付建连路径：
+// 锁内查桶（pop 命中路径 T006 接入）→ 解锁后建连（FR-006 临界区无 IO）→
+// 成功才记账——conn_id 分配与入 borrowed 同锁段，守恒恒等式无隙（不变量
+// 5）；per_host_total 新建必然 +1（不变量 6）。建连失败错误原样透传、
+// 池状态零变化（FR-015：无半租约、计数不虚增）。uri 形态
+// \{scheme}://\{host}:\{port} 仅经 Client::Client(uri) 单点收口（D13）。
+pub async fn ConnectionPool::acquire(
+  self : ConnectionPool,
+  addr : Address,
+) -> Lease {
+  // 锁内查桶（此段即 FR-006 临界区形态：无 IO、无 await）
+  self.lock.acquire()
+  self.lock.release()
+  // 解锁后建连（FR-006）
+  let uri = "\{addr.scheme()}://\{addr.host()}:\{addr.port()}"
+  let client = @http.Client::Client(uri)
+  // 建连成功才记账（不变量 5/6）
+  self.lock.acquire()
+  let conn_id = self.inner.next_conn_id
+  self.inner.next_conn_id = conn_id + 1
+  self.inner.per_host_total[addr] = self.inner.per_host_total
+    .get(addr)
+    .unwrap_or(0) +
+    1
+  self.inner.borrowed[conn_id] = ()
+  self.lock.release()
+  { conn: client, conn_id, addr, pool: self, poisoned: false, released: false, }
+}
+
+///|
+// 按键查询累计新建连接数（FR-007/FR-013）：未见过 key 返回 0；单调不减
+// （观测非硬上限——同 addr 并发租借数不受其约束）。
+pub fn ConnectionPool::per_host_total(
+  self : ConnectionPool,
+  addr : Address,
+) -> Int32 {
+  sync_lock_or_abort(self.lock, "per_host_total")
+  let total = self.inner.per_host_total.get(addr).unwrap_or(0)
+  self.lock.release()
+  total
+}
