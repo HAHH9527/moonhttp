@@ -544,3 +544,104 @@ async test "P04-E⑦ 零空转：仅时钟推进不驱动驱逐" {
     server.close()
   }
 }
+
+///|
+// P04-US2①（US-2 场景 1 串号检测，T017）：K=8 池 × 并发 100 个
+// 「acquire→请求→校验回显 id→release」，echo 夹具 B-04；先
+// serve_n(n=100≥K) 预启动 accept 循环再放行客户端（R2：排队延迟不得
+// 伪装成池失效）。判据：全部请求 body 与自身 id 匹配（串号 0）。
+// 【盒型改派注记（R9 纪律）】请求须经租约内核连接（Lease.conn，priv）
+// 直驱——黑盒不可达（冻结面 Lease 仅 release/poison），故本用例落白盒；
+// -f "P04-US2*" glob 语义不变。
+async test "P04-US2① 并发租借串号检测：K=8 池 × 并发 100" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("POST", "/echo", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Echo,
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let total = 100
+    let wave = 25
+    // 预启动 accept（n=total≥K）：洪峰期全部新建连接可被即时接受。
+    // wasm/moonrun 的 listen backlog 远小于 native SOMAXCONN（2026-10-21
+    // 实测：单波 100 并发 connect 在 wasm 拒连、native 通过——宿主差异，
+    // 非池缺陷），故 4 波 × 25 并发、波间屏障等 accept 排水；波内并发
+    // 25 ≫ K=8，交错充分、总量 100 不变。
+    let _serving = group.spawn(() => server.serve_n(total, timeout_ms=20000))
+    let pool = ConnectionPool::new(max_idle=8, keep_alive_ms=300_000)
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    let mismatches : Array[Int32] = []
+    let failures : Array[Int32] = []
+    for base in 0..<total {
+      if base % wave == 0 {
+        let tasks = []
+        for i in base..<(base + wave) {
+          let k = i
+          tasks.push(
+            group.spawn(() => {
+              let lease = pool.acquire(addr)
+              let conn = lease.conn
+              conn.request(Post, "/echo")
+              conn.write("req-\{k}")
+              let resp = conn.end_request()
+              let body = conn.read_all().text()
+              if resp.code != 200 {
+                failures.push(k)
+              }
+              // 回显校验：体 = "<服务端单调id>:<请求体原样>"——后段须与本任务
+              // 自身 id 精确一致（串号即错）
+              let mismatch = match body.find(":") {
+                Some(pos) => body[pos + 1:].to_owned() != "req-\{k}"
+                None => true
+              }
+              if mismatch {
+                mismatches.push(k)
+              }
+              lease.release()
+            }),
+          )
+        }
+        for task in tasks {
+          task.wait()
+        }
+      }
+    }
+    assert_eq(
+      failures.length(),
+      0,
+      msg="存在非 200 结局的任务数 \{failures.length()}（首个 \{match failures.get(0) { Some(k) => k; None => -1 }}）",
+    )
+    assert_eq(
+      mismatches.length(),
+      0,
+      msg="串号任务数 \{mismatches.length()}（首个 \{match mismatches.get(0) { Some(k) => k; None => -1 }}）",
+    )
+    // 池侧守恒附带校验（并发交错后）
+    let mut idle_total = 0
+    for _key, bucket in pool.inner.idle {
+      idle_total = idle_total + bucket.length()
+    }
+    assert_eq(
+      pool.inner.borrowed.length() + idle_total + pool.inner.closed.length(),
+      pool.inner.next_conn_id - 1,
+      msg="并发 100 后守恒恒等式（不变量 5）",
+    )
+    // 显式收尾（关键：accept 预算必须自然耗尽——组退出取消若命中阻塞在
+    // accept 等待的任务会悬挂，双 target 实测）：实际新建数由白盒直读，
+    // 差值用一次性哑连接补齐（Client 构造即建连、close 即 handler 以
+    // EOF 正常收尾）；此后形态与 FR③ 一致——handler 阻塞在 keep-alive
+    // read_request，由测试组退出时的结构化取消收尾（不算失败）。
+    let consumed = pool.inner.next_conn_id - 1
+    let mut filled = consumed
+    while filled < total {
+      let dummy = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+      dummy.close()
+      filled = filled + 1
+    }
+    server.close()
+  }
+}
