@@ -81,7 +81,7 @@ US-3 之前；US-2 压轴，因其长跑守恒口径消费全部关闭路径（�
   断言面：跨端口不同键（E①）、跨 scheme 不同键（E②）、host 大小写
   规范化同键（E③）、IPv6 括号剥离（E④）、equal/hash 一致且可作 Map 键
   （E⑤）（FR-014；键含端口的物理依据＝client.mbt:58 Host 构造期固化）
-- [ ] T004 池骨架 + 注入式时钟（先红后绿）：`src/client/client.mbt` 实现
+- [X] T004 池骨架 + 注入式时钟（先红后绿）：`src/client/client.mbt` 实现
   `ConnectionPool`/`PoolInner`/`IdleLease`/`Lease` 结构骨架（data-model
   实体 2～4；`Mutex[PoolInner]` 按 C3 裁决保留）+ 公开构造
   `ConnectionPool::new(max_idle? : Int, keep_alive_ms? : Int)`（缺省

@@ -1,4 +1,21 @@
 import {
+  "moonbitlang/async",
+  "moonbitlang/async/http",
 }
+
+// 白盒测试的构造校验断言面（@test.expect_error/assert_raise，P04-FR②）；
+// 仅测试可见，不进入池运行时依赖。
+import {
+  "moonbitlang/core/test",
+} for "wbtest"
+
+// 骨架期临时抑制（T004，复核点 T019 冻结审）：池四实体骨架先于消费者——
+// PoolInner/Lease 字段自 T005/T006/T009/T012 起接入读写，IdleLease 自 T006
+// release 归池起构造。消费面接通后应复核移除本抑制（fixtures/core 的
+// 包级 options 抑制先例同款，理由显式登记）。
+
+options(
+  warnings: "-unused_field-struct_never_constructed",
+)
 
 pkgtype(kind: "library")

@@ -19,6 +19,15 @@ pub fn Address::not_equal(Self, Self) -> Bool
 pub fn Address::port(Self) -> Int
 pub fn Address::scheme(Self) -> String
 
+pub struct ConnectionPool {
+  // private fields
+}
+pub fn ConnectionPool::new(max_idle? : Int, keep_alive_ms? : Int) -> Self
+
+pub struct Lease {
+  // private fields
+}
+
 // Type aliases
 
 // Traits
