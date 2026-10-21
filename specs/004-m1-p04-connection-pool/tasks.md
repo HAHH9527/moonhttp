@@ -410,3 +410,41 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 - **[P] 语义**：不同文件、无未完成依赖；[Story] 标签对应 spec 用户故事
 - 每任务或逻辑组完成后 commit；每个 Checkpoint 处停机验证（TDD 纪律，
   宪法 IV）
+
+---
+
+## Phase 8: Convergence（2026-10-21 converge 对账追加）
+
+**来源**：`/speckit-converge` 对 spec/plan/tasks/contracts/data-model/宪法 与
+当前代码的分维度评估＋逐条对抗复核（行为面 FR/SC/US/Edge/DoD/不变量/冻结面
+零缺口；六门全新实测双 target 191/191 绿、长跑双证据显式执行复跑通过；
+15 条候选发现经复核驳回 13 条——均内容全等于 D15/D16/Q3/Q06 已登记裁决、
+spec 明文免除或已交付条目）。存活两条 partial/LOW，均为收口 hygiene 与
+对账面同步，无新功能义务。
+
+- [ ] T022 闭环 `src/client/moon.pkg` 警告抑制的自设复核点：移除
+  「骨架期临时」两项 `-unused_field-struct_never_constructed`（现况
+  `client.mbt` 五实体字段全部有读写点、五结构全部有构造点，moon.pkg:15-18
+  注记自述复核点为 T019 而 T019 审结论未及），保留 `-unused_package` 及
+  moon.pkg:8-13 作用域实证理由；移除后 `moon check --target native|wasm
+  --deny-warn` 与 `moon test` 双 target 复验全绿（若转红则逐处声明级豁免或
+  按 P02 plan.md:57 先例登记为有理由例外），复核结论以追加注记形式落 T019
+  审记录（不 rewrite 原三条结论）per tasks:T019 / plan:质量门 (partial)
+- [ ] T023 回写 P04-US2① 的文件/盒型归属（实位 `pool_wbtest.mbt:556`，
+  盒型改派注记 `:549-555`：Lease.conn 为 priv 黑盒不可达）：quickstart §2
+  「共 10 条，全在 pool_test.mbt 黑盒」改为标注 US2① 在白盒、T017 描述、
+  plan FR/US↔元测试映射表 US-2 场景 1 行、B-xx 对账表 B-P10 行、并行机会
+  注共五处改 `pool_wbtest·白盒`，均保留「`-f "P04-US2*"` 按测试名跨文件
+  收集、glob 语义不变」说明（沿 T005:116/T006:128 改派注先例）；research.md
+  R9 归属依据清单补记 T017 改派理由 per tasks:T017 / B-P10 / SC-001 (partial)
+
+**复核顺带核实的编辑性残留（非缺口、不单列任务）**：data-model.md:132 的
+「research R4.2 补记」应为 R4.4（R4.2 是 Map 迭代序条）；tasks T001 与
+baseline.md:4 的「对照物：Phase 7 的 T024/T025」系陈旧引用（本文件无 T024/
+T025，Phase 7 实为 T019～T021）——两处随任意后续产物触碰时顺手修正。
+
+**重跑警告（契约行为，勿当作预期）**：本命令契约无 `already_tracked` 出路
+——上两条被 implement 勾选前，重复运行 converge 会为同样内容再发新编号
+（P02 T023≡T009 先例）。届时正确处置＝删除新编号＋在本 Phase 留墓碑「由
+T022/T023 单点跟踪」、编号作废不复用；禁止写「下次重跑应仅剩两条」之类
+不成立预期。
