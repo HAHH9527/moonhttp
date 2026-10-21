@@ -437,3 +437,110 @@ async test "P04-FR⑥ 惰性剔除：acquire 命中前剔除 / release 超期条
     server.close()
   }
 }
+
+///|
+// P04-FR⑦（FR-007 计数口径钉死，Q3，T015）：evict_all 关闭、毒化关闭、
+// 栈满关闭均不加 stale_evictions；仅超期剔除（显式 + 惰性）+1。
+async test "P04-FR⑦ 计数口径：仅超期剔除计入 stale_evictions" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    // R2 对策（同 FR③）：预启动 accept 循环；全程共 6 条新建连接
+    let _serving = group.spawn(() => server.serve_n(6, timeout_ms=8000))
+    let mut now : Int64 = 10_000
+    let pool = ConnectionPool::with_clock(max_idle=1, keep_alive_ms=1000, now_fn=() => {
+      let t = now
+      t
+    })
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    // ① evict_all 关闭：不计入
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    a.release()
+    pool.evict_all()
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="evict_all 关闭不加 stale_evictions（Q3）",
+    )
+    // ② 毒化关闭：不计入
+    b.poison()
+    b.release()
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="毒化关闭不加 stale_evictions",
+    )
+    // ③ 栈满关闭：不计入
+    let c = pool.acquire(addr)
+    let d = pool.acquire(addr)
+    c.release()
+    d.release()
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="栈满关闭不加 stale_evictions",
+    )
+    // ④ 超期剔除（显式入口）：计入 +1（c 在栈、idle_since=now）
+    now = 12_000
+    pool.evict_expired()
+    assert_eq(
+      pool.stale_evictions(),
+      1,
+      msg="仅超期剔除计入（显式入口 +1）",
+    )
+    // ⑤ 超期剔除（惰性）：计入 +1
+    let e = pool.acquire(addr)
+    e.release()
+    now = 14_000
+    let f = pool.acquire(addr)
+    assert_eq(pool.stale_evictions(), 2, msg="惰性剔除计入（+1）")
+    f.release()
+    assert_eq(
+      pool.inner.borrowed.length() +
+      (match pool.inner.idle.get(addr) {
+        Some(bucket) => bucket.length()
+        None => 0
+      }) +
+      pool.inner.closed.length(),
+      pool.inner.next_conn_id - 1,
+      msg="口径全程守恒（不变量 5）",
+    )
+    server.close()
+  }
+}
+
+///|
+// P04-E⑦（spec 边界「无活动零成本」/D15 零空转守护，T016）：构造含 2 条
+// 空闲连接的池 → 仅推进虚拟时钟 10×keep_alive、不调用任何池入口 → idle
+// 不变、stale_evictions == 0——证明池无常驻任务、无调用即无驱逐。
+// 性质＝【落笔即绿的护栏断言】（设计上无常驻任务；若红即实现被引入后台
+// 任务，显式违规 D15——非静默未红判据）。
+async test "P04-E⑦ 零空转：仅时钟推进不驱动驱逐" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let mut now : Int64 = 10_000
+    let pool = ConnectionPool::with_clock(max_idle=5, keep_alive_ms=1000, now_fn=() => {
+      let t = now
+      t
+    })
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    a.release()
+    b.release()
+    // 仅推进虚拟时钟 10×keep_alive（10000ms），零池入口调用
+    now = 20_000
+    // 白盒直读：idle 原样 2 条、计数 0——时钟自流不构成驱逐
+    assert_eq(
+      pool.inner.idle.get(addr).unwrap_or([]).length(),
+      2,
+      msg="无常驻任务：时钟推进后 idle 原样（D15）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="无调用即无驱逐：stale_evictions 恒 0",
+    )
+    server.close()
+  }
+}

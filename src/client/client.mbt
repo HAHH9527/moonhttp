@@ -364,3 +364,20 @@ pub fn ConnectionPool::evict_expired(self : ConnectionPool) -> Unit {
   }
   self.lock.release()
 }
+
+///|
+// 清空全部空闲桶（FR-005 显式入口，contracts §2）：同步锁 fail fast（R3）
+// 后逐桶逐一 close（幂等 C-3）、迁 Closed；不加 stale_evictions（Q3 口径
+// ——evict_all 可关未超期连接，非「陈旧」语义）；borrowed 不受影响（只清
+// 空闲，在租连接由其 Lease 生命周期管理）。幂等：第二次调用零效果、零错误。
+pub fn ConnectionPool::evict_all(self : ConnectionPool) -> Unit {
+  sync_lock_or_abort(self.lock, "evict_all")
+  for _key, bucket in self.inner.idle {
+    for entry in bucket {
+      entry.conn.close()
+      self.inner.closed[entry.conn_id] = ()
+    }
+    let _ = bucket.clear()
+  }
+  self.lock.release()
+}

@@ -375,3 +375,42 @@ async test "P04-US3① evict_expired 未超期零误剔且复用不受影响" {
     server.close()
   }
 }
+
+///|
+// P04-US3②（US-3 场景 2 + Clarifications Q3，T015）：任意状态连续
+// evict_all() 两次 → 无错误、idle 为空（黑盒观测：其后 acquire 全为新建、
+// 计数递增）；borrowed 不受影响。
+async test "P04-US3② evict_all 连续两次幂等且清空空闲" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = @client.ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    a.release()
+    let _keep = b
+    // b 保持在租（borrowed 不受 evict_all 影响）
+    pool.evict_all()
+    pool.evict_all()
+    // 空闲已清空：两次 acquire 均为新建（计数 2→3→4）
+    let c = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      3,
+      msg="evict_all 后首次 acquire 须新建（空闲已清空）",
+    )
+    let d = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      4,
+      msg="第二次 acquire 亦新建（无空闲可复用）",
+    )
+    c.release()
+    d.release()
+    server.close()
+  }
+}

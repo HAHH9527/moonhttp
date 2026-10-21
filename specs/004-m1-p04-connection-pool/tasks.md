@@ -191,24 +191,24 @@ native|wasm -f "P04-US4*"`（黑盒）+ `-f "P04-FR*"`（白盒幂等/守恒）
 **Independent Test**: `moon test -p hahh9527/moonhttp/client --target
 native|wasm -f "P04-US3*"`（黑盒）+ `-f "P04-FR*"`（白盒时钟推进）
 
-- [ ] T013 [US3] evict_expired + 注入时钟超期剔除（FR-005；R2 落地）：
+- [X] T013 [US3] evict_expired + 注入时钟超期剔除（FR-005；R2 落地）：
   `pool_wbtest.mbt` 写 P04-FR⑤（`with_clock(keep_alive_ms=1000)` + 2 条
   空闲连接 → 虚拟时钟推进过阈 → `evict_expired()` 剔除 2 条：
   `stale_evictions` +2、idle 清空、未超期连接 0 误剔）与 P04-US3① 黑盒
   同断言 → 实现 `evict_expired`：全桶扫描自尾向头 splice（结果不依赖
   Map 迭代序，R4.2）；**同步路径 `try_acquire` 失败即 abort**（R3——
   静默跳过＝饥饿＋验收 flaky，禁止）
-- [ ] T014 [US3] 惰性剔除（FR-005 下半：acquire/release 顺手剔除）：
+- [X] T014 [US3] 惰性剔除（FR-005 下半：acquire/release 顺手剔除）：
   `pool_wbtest.mbt` 写 P04-FR⑥（超期连接在 acquire 命中前被顺手剔除——
   拿到的是新建连接且 `stale_evictions` +1；release 时超期条目不入栈）→
   实现 acquire/release 路径接入与 T013 共享的超期判定函数（时间语义
   单点，R2 不变量 7）
-- [ ] T015 [US3] evict_all 幂等 + 计数口径（US-3 场景 2 + Clarifications
+- [X] T015 [US3] evict_all 幂等 + 计数口径（US-3 场景 2 + Clarifications
   Q3）：`pool_test.mbt` 写 P04-US3②（任意状态连续 `evict_all()` 两次 →
   无错误、idle 为空）→ 实现（清空全部桶逐一 `close`，borrowed 不动）；
   `pool_wbtest.mbt` 写 P04-FR⑦（口径钉死：`evict_all()` 关闭、毒化关闭、
   栈满关闭均**不加** `stale_evictions`；仅超期剔除三条路径 +1）
-- [ ] T016 [US3] 零空转守护断言（spec 边界「无活动零成本」/D15）：
+- [X] T016 [US3] 零空转守护断言（spec 边界「无活动零成本」/D15）：
   `pool_wbtest.mbt` 写 P04-E⑦（构造含 2 条空闲连接的池 → 仅推进虚拟
   时钟 10×keep_alive、不调用任何入口 → idle 不变、
   `stale_evictions` == 0——证明池无常驻任务、无调用即无驱逐）。性质为
