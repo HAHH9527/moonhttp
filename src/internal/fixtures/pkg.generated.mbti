@@ -58,6 +58,11 @@ pub(all) struct ResponseScript {
   close_after_response : Bool
 }
 
+pub(all) enum RouteScript {
+  Single(ResponseScript)
+  Sequence(Array[ResponseScript])
+}
+
 pub struct ScriptedPeer {
   // private fields
 }
@@ -70,8 +75,11 @@ pub async fn ScriptedPeer::start() -> Self
 pub struct ScriptedServer {
   // private fields
 }
+pub fn ScriptedServer::accepted_total(Self) -> Int
 pub fn ScriptedServer::close(Self) -> Unit
+pub fn ScriptedServer::conn_request_counts(Self) -> Array[Int]
 pub fn ScriptedServer::mount(Self, String, String, ResponseScript) -> Unit
+pub fn ScriptedServer::mount_sequence(Self, String, String, Array[ResponseScript]) -> Unit
 pub fn ScriptedServer::peak_concurrent(Self) -> Int
 pub fn ScriptedServer::port(Self) -> Int
 pub async fn ScriptedServer::serve_n(Self, Int, timeout_ms? : Int) -> Unit

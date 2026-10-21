@@ -56,7 +56,7 @@ US-3 之前；US-2 压轴，因其长跑守恒口径消费全部关闭路径（�
 
 **⚠️ CRITICAL**: 本阶段未完成前不得开始任何 US 行为任务
 
-- [ ] T002 [P] 夹具可观测性扩展 F-5/F-6/F-7（首片，先红后绿）：
+- [X] T002 [P] 夹具可观测性扩展 F-5/F-6/F-7（首片，先红后绿）：
   `src/internal/fixtures/scripted_server_test.mbt` 写自证元测试
   P04-FIX①②③（红：`accepted_total` 访问器不存在、无每连接请求数、
   同路由无法次序编排）→ 实现 `src/internal/fixtures/scripted_server.mbt`：

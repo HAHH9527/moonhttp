@@ -43,6 +43,16 @@ pub(all) enum Framing {
 }
 
 ///|
+/// 路由脚本（F-7，P04 T002/R5/R9）：Single 即既有 mount 的单脚本（覆盖式
+/// 语义不变）；Sequence 按该路由的命中序取第 min(i, len-1) 个脚本（末位
+/// 驻留）。不新增同名顶层 mount——顶层函数不可重载（E4051，R9），次序
+/// 脚本经新入口 mount_sequence 挂载。
+pub(all) enum RouteScript {
+  Single(ResponseScript)
+  Sequence(Array[ResponseScript])
+}
+
+///|
 /// 体计划：Static 定长静态体；Echo（B-04）体 = "<id>:<请求体原样>"（FR-013）；
 /// Drip（B-02）按块滴流，块间 sleep(interval_ms)。
 pub(all) enum BodyPlan {
@@ -59,11 +69,14 @@ pub(all) enum BodyPlan {
 /// 中间态（协同式调度下跨任务可见且无竞态）。
 pub struct ScriptedServer {
   priv server : @http.Server
-  priv routes : Map[(String, String), ResponseScript]
+  priv routes : Map[(String, String), RouteScript]
+  priv route_hits : Map[(String, String), Int32] // F-7：Sequence 路由命中序
   priv mut closed : Bool
   priv mut next_id : Int32 // B-04 echo 单调 id（FR-013）
   priv mut active_conns : Int32 // 当前在途连接处理数
   priv mut peak_conns : Int32 // 在途高水位（≥2 即证并发处理）
+  priv mut accepted_total : Int32 // F-5：累计接受连接数（accept 成功点 +1）
+  priv conn_request_counts : Array[Int32] // F-6：按 accept 序号的每连接请求数
 }
 
 ///|
@@ -137,10 +150,13 @@ pub async fn ScriptedServer::start() -> ScriptedServer {
       return {
         server,
         routes: Map([], capacity=8),
+        route_hits: Map([], capacity=8),
         closed: false,
         next_id: 1,
         active_conns: 0,
         peak_conns: 0,
+        accepted_total: 0,
+        conn_request_counts: [],
       }
     } catch {
       err => last_error = Some(err)
@@ -157,7 +173,9 @@ pub fn ScriptedServer::port(self : ScriptedServer) -> Int32 {
 
 ///|
 /// 声明式路由（FR-012）：method+path 精确匹配；仅 start 之后、close 之前
-/// 可调用（close 后为无害 no-op）。
+/// 可调用（close 后为无害 no-op）。覆盖式语义不变（内部包成
+/// RouteScript::Single，既有调用点零破坏，R9）；同路由命中序随重声明
+/// 复位（声明即重开，次序脚本确定性归 T011 桩消费方）。
 pub fn ScriptedServer::mount(
   self : ScriptedServer,
   meth : String,
@@ -167,7 +185,24 @@ pub fn ScriptedServer::mount(
   if self.closed {
     return
   }
-  self.routes[(meth, path)] = script
+  self.routes[(meth, path)] = Single(script)
+  self.route_hits[(meth, path)] = 0
+}
+
+///|
+/// 次序脚本挂载（F-7，P04 T002）：同路由第 i 次命中取 scripts[min(i,
+/// len-1)]（末位驻留）；与 mount 同为覆盖式声明，命中序随重声明复位。
+pub fn ScriptedServer::mount_sequence(
+  self : ScriptedServer,
+  meth : String,
+  path : String,
+  scripts : Array[ResponseScript],
+) -> Unit {
+  if self.closed {
+    return
+  }
+  self.routes[(meth, path)] = Sequence(scripts)
+  self.route_hits[(meth, path)] = 0
 }
 
 ///|
@@ -186,7 +221,11 @@ pub async fn ScriptedServer::serve_once(
     let served = @async.with_timeout_opt(timeout_ms) <| () => {
       let (conn, _peer_addr) = self.server.accept()
       conn_opt = Some(conn)
-      self.serve_connection(conn)
+      // F-5/F-6（P04 T002）：accept 成功点累计 +1，并按序号开请求记账位
+      self.accepted_total = self.accepted_total + 1
+      let conn_index = self.conn_request_counts.length()
+      self.conn_request_counts.push(0)
+      self.serve_connection(conn, conn_index)
     }
     Ok(served)
   } catch {
@@ -208,10 +247,12 @@ pub async fn ScriptedServer::serve_once(
 ///|
 // 单连接服务循环：read_request 直到 EOF/错误；路由精确匹配后按脚本应答。
 // 终止条件：对端关闭（@io.ReaderClosed，parser.mbt:346-348）/脚本声明关闭/
-// 未声明路由（404 收尾）。
+// 未声明路由（404 收尾）。conn_index 为本连接的 accept 序号（F-6 记账位，
+// 每完成一次请求 +1）。
 async fn ScriptedServer::serve_connection(
   self : ScriptedServer,
   conn : @http.ServerConnection,
+  conn_index : Int32,
 ) -> Unit {
   for ;; {
     let req = match
@@ -224,7 +265,21 @@ async fn ScriptedServer::serve_connection(
       Err(_) => break
       Ok(req) => req
     }
-    let script = self.routes.get((method_name(req.meth), req.path))
+    // F-6：本连接每完成一次请求 +1（read_request 成功即一次完整请求）
+    self.conn_request_counts[conn_index] = self.conn_request_counts[conn_index] +
+      1
+    let key = (method_name(req.meth), req.path)
+    let script = match self.routes.get(key) {
+      // F-7：Sequence 按命中序取 min(i, len-1)（末位驻留）；Single 原样
+      Some(Sequence(scripts)) => {
+        let i = self.route_hits.get(key).unwrap_or(0)
+        self.route_hits[key] = i + 1
+        let last = scripts.length() - 1
+        Some(scripts[if i < last { i } else { last }])
+      }
+      Some(Single(script)) => Some(script)
+      None => None
+    }
     let keep = match script {
       Some(script) => {
         let served = self.serve_script(conn, req, script)
@@ -283,6 +338,10 @@ pub async fn ScriptedServer::serve_n(
           }
           // 串行 accept：同一时刻至多一个在途 accept（上游约束，见上）
           let (conn, _peer_addr) = self.server.accept()
+          // F-5/F-6（P04 T002）：accept 成功点累计 +1，按序号开请求记账位
+          self.accepted_total = self.accepted_total + 1
+          let conn_index = self.conn_request_counts.length()
+          self.conn_request_counts.push(0)
           group.spawn_bg(() => {
             // 高水位观测位：进入 +1 / 退出 -1，退出路径恒执行（含超时/错误）
             self.active_conns = self.active_conns + 1
@@ -291,7 +350,7 @@ pub async fn ScriptedServer::serve_n(
             }
             let outcome : Result[Unit?, Error] = try {
               let r = @async.with_timeout_opt(timeout_ms) <| () => {
-                self.serve_connection(conn)
+                self.serve_connection(conn, conn_index)
               }
               Ok(r)
             } catch {
@@ -471,6 +530,27 @@ fn drip_block(n : Int32) -> BytesView {
 /// 峰值定格）。单连接 serve_once 不计入（观测位语义限 serve_n）。
 pub fn ScriptedServer::peak_concurrent(self : ScriptedServer) -> Int32 {
   self.peak_conns
+}
+
+///|
+/// 累计接受连接数（F-5，P04 T002/R5）：accept 成功点 +1 的累计值。
+/// 归因：FR-009 外部证据 / US-2 场景 2（长跑无泄漏双证据服务侧证据面）。
+pub fn ScriptedServer::accepted_total(self : ScriptedServer) -> Int32 {
+  self.accepted_total
+}
+
+///|
+/// 每连接请求数（F-6，P04 T002/R5）：按 accept 序号排列的请求记账拷贝。
+/// 归因：长跑 keep-alive 复用自证 / US-2 场景 2；拷贝语义——改写返回值
+/// 不影响夹具内部状态。
+pub fn ScriptedServer::conn_request_counts(
+  self : ScriptedServer,
+) -> Array[Int32] {
+  let out : Array[Int32] = []
+  for count in self.conn_request_counts {
+    out.push(count)
+  }
+  out
 }
 
 ///|

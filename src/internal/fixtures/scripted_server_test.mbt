@@ -701,3 +701,149 @@ async test "P03-US4① 滴流场景：按操作超时 1s 下 15KB 滴流不触�
     )
   }
 }
+
+///|
+// P04-FIX①（F-5 累计 accept 连接数，P04 R5/T002）：每条被接受的连接 +1，
+// 累计不回落。归因：FR-009 外部证据 / US-2 场景 2（长跑无泄漏双证据的
+// 服务侧证据面）。红判据：accepted_total 访问器不存在（编译红）。
+async test "P04-FIX① accepted_total：逐连接累计接受数" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/hi", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"hi"),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    assert_eq(
+      server.accepted_total(),
+      0,
+      msg="动工前累计接受数应为 0",
+    )
+    // 第 1 条连接
+    let serving1 = group.spawn(() => server.serve_once(timeout_ms=3000))
+    let client1 = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    client1.request(Get, "/hi")
+    let _resp1 = client1.end_request()
+    client1.close()
+    serving1.wait()
+    assert_eq(
+      server.accepted_total(),
+      1,
+      msg="第 1 条连接后累计接受数应为 1",
+    )
+    // 第 2 条连接（独立 TCP 连接，非 keep-alive 复用）
+    let serving2 = group.spawn(() => server.serve_once(timeout_ms=3000))
+    let client2 = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    client2.request(Get, "/hi")
+    let _resp2 = client2.end_request()
+    client2.close()
+    serving2.wait()
+    server.close()
+    assert_eq(
+      server.accepted_total(),
+      2,
+      msg="第 2 条连接后累计接受数应为 2",
+    )
+  }
+}
+
+///|
+// P04-FIX②（F-6 每连接请求数，P04 R5/T002）：按 accept 序号记账，单连接
+// keep-alive 承载两个请求记 [2]；访问器拷贝语义（改返回值不影响内部）。
+// 归因：长跑 keep-alive 复用自证 / US-2 场景 2。红判据：无每连接请求数
+// 访问器（编译红）。
+async test "P04-FIX② conn_request_counts：单连接两请求记 [2] 且拷贝语义" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    // close_after_response=false：保持连接，第二条请求骑同一 keep-alive 连接
+    server.mount("GET", "/count", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"ok"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=3000))
+    let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    // 同一连接上顺序两个请求（F-1 keep-alive 多请求路径）
+    client.request(Get, "/count")
+    let _r1 = client.end_request()
+    let _b1 = client.read_all().text()
+    client.request(Get, "/count")
+    let _r2 = client.end_request()
+    let _b2 = client.read_all().text()
+    client.close()
+    serving.wait()
+    server.close()
+    assert_eq(
+      server.accepted_total(),
+      1,
+      msg="两请求应骑同一连接（accept 数=1）",
+    )
+    assert_eq(
+      server.conn_request_counts(),
+      [2],
+      msg="单连接两次请求应记 [2]（按 accept 序号）",
+    )
+    // 拷贝语义：改写返回数组不影响夹具内部记账
+    let copied = server.conn_request_counts()
+    copied[0] = 999
+    assert_eq(
+      server.conn_request_counts(),
+      [2],
+      msg="访问器必须拷贝语义（内部状态不可经返回值篡改）",
+    )
+  }
+}
+
+///|
+// P04-FIX③（F-7 per-route 次序脚本，P04 R5/T002）：mount_sequence 声明
+// [first, second]，同路由第 i 次命中取 min(i, len-1)——第 1/2/3 次命中
+// 依次 200/201/201（末位驻留）；且每条命中连接独立（跨连接按路由计序，
+// 不按连接计序）。归因：FR-010 集成桩 / US-4 场景 2。红判据：无次序脚本
+// 入口 mount_sequence（编译红）。
+async test "P04-FIX③ mount_sequence：同路由次序编排、末位驻留" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount_sequence("GET", "/seq", [
+      {
+        status: 200,
+        headers: [],
+        framing: Fixed,
+        body: Static(b"first"),
+        head_delay_ms: 0,
+        close_after_response: true,
+      },
+      {
+        status: 201,
+        headers: [],
+        framing: Fixed,
+        body: Static(b"second"),
+        head_delay_ms: 0,
+        close_after_response: true,
+      },
+    ])
+    // 三次独立命中（各自 serve_once：证明命中序按路由累计、跨连接有效）
+    let codes : Array[Int32] = []
+    for _i in 0..<3 {
+      let serving = group.spawn(() => server.serve_once(timeout_ms=3000))
+      let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+      client.request(Get, "/seq")
+      let resp = client.end_request()
+      let _body = client.read_all().text()
+      client.close()
+      serving.wait()
+      codes.push(resp.code)
+    }
+    server.close()
+    assert_eq(
+      codes,
+      [200, 201, 201],
+      msg="次序脚本应 200→201→201（末位驻留）",
+    )
+  }
+}
