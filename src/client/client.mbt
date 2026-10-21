@@ -312,3 +312,48 @@ pub fn ConnectionPool::per_host_total(
   self.lock.release()
   total
 }
+
+///|
+// 超期剔除计数（FR-007，Q3 口径）：只计超期剔除（evict_expired 与
+// acquire/release 惰性剔除每条 +1）；evict_all 关闭、毒化关闭、栈满关闭
+// 一律不计（data-model 实体 2 注记与 03 §3.4 偏移登记）。
+pub fn ConnectionPool::stale_evictions(self : ConnectionPool) -> Int32 {
+  sync_lock_or_abort(self.lock, "stale_evictions")
+  let count = self.inner.stale_evictions
+  self.lock.release()
+  count
+}
+
+///|
+// 单桶超期剔除（持锁段内调用；T013/T014 共享的超期判定单点，R2 时间语义
+// 单点/不变量 7）：自尾向头 splice（R4.1——不破坏 LIFO 序；R4.2——结果
+// 不依赖 Map 迭代序）；每条关闭（幂等 C-3）、迁 Closed、stale_evictions +1。
+fn ConnectionPool::evict_bucket_locked(
+  self : ConnectionPool,
+  bucket : Array[IdleLease],
+) -> Unit {
+  let mut i = bucket.length() - 1
+  while i >= 0 {
+    let entry = bucket[i]
+    if (self.now_ms)() - entry.idle_since > self.keep_alive_ms.to_int64() {
+      // remove(i)（splice 语义）：自尾向头遍历下，移除 i 不影响 < i 的下标
+      let _ = bucket.remove(i)
+      entry.conn.close()
+      self.inner.closed[entry.conn_id] = ()
+      self.inner.stale_evictions = self.inner.stale_evictions + 1
+    }
+    i = i - 1
+  }
+}
+
+///|
+// 全桶扫描的超期剔除（FR-005 显式入口，D15 同步无 await；R6：-> Unit，
+// 观测走 stale_evictions()）：同步路径锁 fail fast（R3）；幂等——第二次
+// 调用零剔除。周期驱动归调用方 task group（P05/P09/P10）。
+pub fn ConnectionPool::evict_expired(self : ConnectionPool) -> Unit {
+  sync_lock_or_abort(self.lock, "evict_expired")
+  for _key, bucket in self.inner.idle {
+    self.evict_bucket_locked(bucket)
+  }
+  self.lock.release()
+}

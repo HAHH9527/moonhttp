@@ -337,3 +337,41 @@ async test "P04-US4④ 终结幂等：重复 release 不重复入栈" {
     server.close()
   }
 }
+
+///|
+// P04-US3①（FR-005 黑盒侧，T013）：真实时钟下对未超期空闲连接调用
+// evict_expired → 零剔除零误伤（缺省 keep_alive 300s），计数可读、复用
+// 不受影响。黑盒不直接测「到期」——到期能力由白盒 FR⑤ 承载（注入时钟，
+// quickstart §4 口径）。
+async test "P04-US3① evict_expired 未超期零误剔且复用不受影响" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = @client.ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    a.release()
+    b.release()
+    pool.evict_expired()
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="未超期（真实时钟 300s 内）零剔除",
+    )
+    // 复用不受影响：连续两次 acquire 均命中（计数停在 2）
+    let c = pool.acquire(addr)
+    let d = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="驱逐扫描后两条空闲连接仍可复用",
+    )
+    c.release()
+    d.release()
+    server.close()
+  }
+}

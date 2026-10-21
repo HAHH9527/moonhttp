@@ -303,3 +303,61 @@ async test "P04-FR④ 终结幂等：重复终结 no-op 且守恒保持" {
     server.close()
   }
 }
+
+///|
+// P04-FR⑤（FR-005 注入时钟超期剔除，R2 落地，T013）：with_clock
+// (keep_alive_ms=1000) + 2 条空闲连接 → 虚拟时钟推进过阈 →
+// evict_expired() 确定性剔除 2 条：stale_evictions +2、idle 清空、
+// 未超期连接 0 误剔；连续调用幂等（第二次零剔除）。
+async test "P04-FR⑤ 注入时钟超期剔除：确定性/计数口径/幂等/零误剔" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let mut now : Int64 = 10_000
+    let pool = ConnectionPool::with_clock(max_idle=5, keep_alive_ms=1000, now_fn=() => {
+      now,
+    })
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    a.release()
+    b.release()
+    // 未过阈（500ms < 1000ms）：零剔除、零误伤
+    now = 10_500
+    pool.evict_expired()
+    assert_eq(pool.stale_evictions(), 0, msg="未超期不得剔除")
+    assert_eq(
+      pool.inner.idle.get(addr).unwrap_or([]).length(),
+      2,
+      msg="未超期连接须原样在栈",
+    )
+    // 过阈（1500ms > 1000ms）：确定性剔除 2 条
+    now = 11_500
+    pool.evict_expired()
+    assert_eq(
+      pool.stale_evictions(),
+      2,
+      msg="2 条超期剔除 → stale_evictions +2（Q3 口径）",
+    )
+    assert_eq(
+      pool.inner.idle.get(addr).unwrap_or([]).length(),
+      0,
+      msg="超期剔除后 idle 清空",
+    )
+    assert_eq(pool.inner.closed.length(), 2, msg="被剔连接迁移 Closed")
+    // 幂等：连续调用第二次零剔除
+    pool.evict_expired()
+    assert_eq(pool.stale_evictions(), 2, msg="幂等：第二次零剔除")
+    // 未超期连接 0 误剔：新入栈连接（idle_since=11500）推进 500ms 后不被剔
+    let c = pool.acquire(addr)
+    c.release()
+    now = 12_000
+    pool.evict_expired()
+    assert_eq(pool.stale_evictions(), 2, msg="未超期连接 0 误剔")
+    assert_eq(
+      pool.inner.idle.get(addr).unwrap_or([]).length(),
+      1,
+      msg="未超期连接原样保留",
+    )
+    server.close()
+  }
+}
