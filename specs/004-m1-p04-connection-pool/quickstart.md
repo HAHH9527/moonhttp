@@ -38,7 +38,9 @@ moon test -p hahh9527/moonhttp/internal/fixtures --target native --deny-warn
 
 ```powershell
 # US1①–③ 租借归还 / US2① 并发串号 / US3①–② 驱逐与 evict_all /
-# US4①–④ 毒化路径（共 10 条，全在 pool_test.mbt 黑盒；P03 夹具 +
+# US4①–④ 毒化路径（共 10 条：US2① 在 pool_wbtest.mbt 白盒——改派
+# 注记 R9：Lease.conn priv 黑盒不可达，`-f "P04-US2*"` 按测试名跨文件
+# 收集、glob 语义不变；其余 9 条全在 pool_test.mbt 黑盒；P03 夹具 +
 # @http.Client 原语独立驱动，不经 P05）：
 moon test -p hahh9527/moonhttp/client -f "P04-US*" --target native
 # US2① 单独跑（K=8 并发 100 请求串号检测）：

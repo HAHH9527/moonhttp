@@ -275,7 +275,14 @@ mutex, `try_acquire` always return `false`」；`:53`
   `Total tests: 2, passed: 2`）。黑盒/白盒分列构建为独立测试可执行
   （实测产物含 `p.blackbox_test` / `p.whitebox_test` 两个工件）。
   ⇒ `conn_id`、`next_conn_id`、三集合、F-6 计数等 priv 状态的断言
-  只能落白盒（T006-FR⑧、T005-E⑥ 白盒侧、T018 白盒长跑的归属依据）。
+  只能落白盒（T006-FR⑧、T005-E⑥ 白盒侧、T018 白盒长跑、T017-US2①
+  的归属依据）。
+- **【T023 补记，2026-10-21】T017-US2① 盒型改派理由**：并发串号用例
+  须经租约内核连接（`Lease.conn`，priv）直驱发请求，黑盒不可达
+  （E4091；冻结面 Lease 仅 release/poison，见 contracts §1）——原
+  计划 pool_test.mbt 黑盒落点改派 `pool_wbtest.mbt` 白盒（实位
+  :556，改派注记 :549-555）；`-f "P04-US2*"` 按测试名跨文件收集、
+  glob 语义不变（沿本节黑盒/白盒分列构建的实测依据）。
 - **顶层同名函数不可重载（E4051）**：两个同名顶层 `pub fn` 并存报
   `Error: [4051] The toplevel identifier mount is declared twice`
   （实测）；上游 `moonbitlang/async` 全源 `pub overload` 零命中；

@@ -12,13 +12,15 @@ import {
 // （黑盒 US/E + 白盒 FR⑧/T018 长跑），池运行时零引用，lib 编译单元的
 // unused_package 警告随之出现，在下方 warnings 显式抑制。
 //
-// 骨架期临时抑制（T004/T006，复核点 T019 冻结审）：unused_field/
-// struct_never_constructed 系池实体骨架先于消费者（T005/T006/T009/T012
-// 接入读写后复核移除）；unused_package 系 @fixtures/@test 仅测试引用所致
-// （运行时依赖方向不变：client → async/http）。
+// T022 复核移除（2026-10-21）：骨架期临时抑制 unused_field/
+// struct_never_constructed 已移除——复核确认池实体字段全部有读写点、
+// 五结构全部有构造点（T005/T006/T009/T012 接入完毕），后续新增字段/
+// 结构须自带读写点，不再整包抑制；unused_package 保留（作用域实证
+// 理由见上：@fixtures/@test 仅测试引用所致，运行时依赖方向不变：
+// client → async/http）。
 
 options(
-  warnings: "-unused_field-struct_never_constructed-unused_package",
+  warnings: "-unused_package",
 )
 
 pkgtype(kind: "library")

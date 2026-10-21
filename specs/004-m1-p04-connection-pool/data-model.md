@@ -129,7 +129,7 @@ pub fn Lease::release(self) -> Unit
    归 plan 实现期定，不进公开面（spec Clarifications Q5）。
 2. **stale_evictions 口径**：仅「Idle ──超期──▶ Closed」迁移 +1；
    「Borrowed/Idle ──毒化/栈满──▶ Closed」与 evict_all 批量关闭均不加
-   （口径与偏移登记见实体 2 注记，research R4.2 补记为第二处）。
+   （口径与偏移登记见实体 2 注记，research R4.4 补记为第二处）。
 
 ## 不变量（全部可白盒断言）
 

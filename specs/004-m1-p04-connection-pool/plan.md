@@ -172,7 +172,7 @@ Lease（release/poison）；`src/core` 期望零 diff；命名全 snake_case；
 | FR-016/SC-007 冻结面 | moon info 审视 vs contracts/pool-api.md §1 | 计划 |
 | FR-017 P07 兜底声明 | 非测试项（spec 如实登记；不构造「取出即可用」断言） | 不适用 |
 | FR-018/US-4 场景 4 终结幂等 | pool_wbtest·白盒 + pool_test 黑盒（重复 release 守恒） | 计划 |
-| US-2 场景 1（K=8 并发 100） | pool_test·黑盒（P04-US2*；serve_n(n≥K) 预启动，见风险 R2） | 计划 |
+| US-2 场景 1（K=8 并发 100） | pool_wbtest·白盒（P04-US2*；改派注记（T023 回写）：Lease.conn priv 黑盒不可达（R9/E4091）；`-f "P04-US2*"` 按测试名跨文件收集、glob 语义不变；serve_n(n≥K) 预启动，见风险 R2） | 计划 |
 | SC-002 长跑双证据 | pool_longrun_wbtest（默认跳过，显式执行，quickstart §3） | 计划 |
 
 ## 验收口径（收口六门 + 专项；命令全录 quickstart.md）

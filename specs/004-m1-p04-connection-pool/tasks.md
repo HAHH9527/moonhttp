@@ -45,7 +45,7 @@ US-3 之前；US-2 压轴，因其长跑守恒口径消费全部关闭路径（�
   `moon info`），将六门结果与 `src/client/pkg.generated.mbti`（现仅
   placeholder）、`src/core/pkg.generated.mbti`、
   `src/internal/fixtures/pkg.generated.mbti` 快照存入本特性目录
-  `baseline.md`（对照物：Phase 7 的 T024/T025）
+  `baseline.md`（对照物：Phase 7 的 T019～T021）
 
 ---
 
@@ -229,8 +229,12 @@ US-3/US-4 场景 native+wasm 双绿
 "P04-US2*" --target native|wasm`；场景 2＝显式执行（默认排除六门，C5），
 命令见 quickstart §3
 
-- [X] T017 [US2] 并发租借串号检测（US-2 场景 1）：`pool_test.mbt` 写
-  P04-US2①（K=8 池 × 并发 100 个「acquire→请求→校验回显 id→release」，
+- [X] T017 [US2] 并发租借串号检测（US-2 场景 1）：`pool_wbtest.mbt` 写
+  P04-US2①（**盒型改派注记（T023 回写，R9 纪律）**：原计划落
+  pool_test.mbt 黑盒，因请求须经租约内核连接（Lease.conn，priv）直驱
+  ——黑盒不可达（E4091）——改派白盒，实位 pool_wbtest.mbt:556；
+  `-f "P04-US2*"` 按测试名跨文件收集、glob 语义不变。K=8 池 × 并发
+  100 个「acquire→请求→校验回显 id→release」，
   echo 夹具 B-04；**先 `serve_n(n≥K)` 预启动 accept 循环再放行客户端**
   ——风险 R2：串行 accept 的排队延迟不得伪装成池失效）→ 全部请求 body
   与自身 id 匹配（串号 0）；如暴露实现缺陷在本任务内修复并补回归断言
@@ -269,6 +273,13 @@ US-3/US-4 场景 native+wasm 双绿
     core mbti:76-79 先例本身即含此 full-trait 形态）；③ `acquire` 的
     `raise` 后缀未渲染（moonc 对无类型错误不渲染，与上游 http mbti
     `Client::Client` 同款记法）。命名全 snake_case，零 camelCase。
+  - T022 复核结论（2026-10-21，追加注记，不改写上三条）：moon.pkg
+    骨架期临时抑制 `-unused_field-struct_never_constructed` 已移除
+    （保留 `-unused_package` 及 moon.pkg:8-13 作用域实证理由）——
+    复核确认五实体字段全部有读写点、五结构全部有构造点，移除后
+    `moon check --target native|wasm --deny-warn` 与 `moon test` 双
+    target 复验全绿（均 191/191）、`moon fmt --check`/`moon info`
+    通过、`.mbti` 零 diff，无需声明级豁免或例外登记。
 - [X] T020 收口六门（最终轮先 `moon clean` 再全量）：`moon clean` →
   `moon check --target native/wasm --deny-warn` → `moon test --target
   native/wasm --deny-warn`（默认套 `Total tests:` ＝ 160 + 新增数，运行时
@@ -313,7 +324,7 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 | B-P07 Call.cancel / 超时取消 | — | — | **集成承载：P08** |
 | B-P08 租借/新建/LIFO/栈满容量 | T005、T006、T007、T008 | pool_test P04-US1①②③ + pool_wbtest P04-FR③⑧ | 已交付 |
 | B-P09 驱逐显式入口与幂等 | T013、T015、T016 | pool_test P04-US3② + pool_wbtest P04-FR⑤⑦ + P04-E⑦ | 已交付 |
-| B-P10 并发租借正确性 | T017 | pool_test.mbt P04-US2① | 已交付 |
+| B-P10 并发租借正确性 | T017 | pool_wbtest.mbt P04-US2①（白盒改派：Lease.conn priv 黑盒不可达（R9/E4091）；`-f "P04-US2*"` 按测试名跨文件收集、glob 语义不变） | 已交付 |
 | B-P11 长跑双证据守恒 | T018 | pool_longrun_wbtest.mbt P04-LONGRUN①② | 已交付 |
 | B-P12 夹具可观测性扩展 | T002 | scripted_server_test.mbt P04-FIX①②③ | 已交付 |
 
@@ -379,7 +390,9 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
   任务标 [P]，[P] 语义（不同文件、无未完成依赖）不受影响
 - T013/T014/T015 同文件（pool_wbtest/client.mbt）串行；T016 依赖 T013 的
   时钟注入设施
-- T017 与 T018 异文件、可并行准备：T017 落 pool_test.mbt，T018 落
+- T017 与 T018 异文件、可并行准备：T017 落 pool_wbtest.mbt（白盒改派
+  （T023 回写，R9：Lease.conn priv 黑盒不可达）；`-f "P04-US2*"` 按测试
+  名跨文件收集、glob 语义不变），T018 落
   pool_longrun_wbtest.mbt（W15 改名后）；均未标 [P]，与 [P] 语义
   （不同文件、无未完成依赖）不冲突
 
@@ -422,7 +435,7 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 spec 明文免除或已交付条目）。存活两条 partial/LOW，均为收口 hygiene 与
 对账面同步，无新功能义务。
 
-- [ ] T022 闭环 `src/client/moon.pkg` 警告抑制的自设复核点：移除
+- [X] T022 闭环 `src/client/moon.pkg` 警告抑制的自设复核点：移除
   「骨架期临时」两项 `-unused_field-struct_never_constructed`（现况
   `client.mbt` 五实体字段全部有读写点、五结构全部有构造点，moon.pkg:15-18
   注记自述复核点为 T019 而 T019 审结论未及），保留 `-unused_package` 及
@@ -430,18 +443,27 @@ spec 明文免除或已交付条目）。存活两条 partial/LOW，均为收口
   --deny-warn` 与 `moon test` 双 target 复验全绿（若转红则逐处声明级豁免或
   按 P02 plan.md:57 先例登记为有理由例外），复核结论以追加注记形式落 T019
   审记录（不 rewrite 原三条结论）per tasks:T019 / plan:质量门 (partial)
-- [ ] T023 回写 P04-US2① 的文件/盒型归属（实位 `pool_wbtest.mbt:556`，
+  - 复核结论（2026-10-21）：两项临时抑制已移除、`-unused_package` 保留；
+    双 target check/test 复验全绿（均 `Total tests: 191, passed: 191`）、
+    `moon fmt --check`/`moon info` 通过、`.mbti` 零 diff（core 零改动）；
+    无转红、无需声明级豁免或例外登记；追加注记已落 T019 审记录
+- [X] T023 回写 P04-US2① 的文件/盒型归属（实位 `pool_wbtest.mbt:556`，
   盒型改派注记 `:549-555`：Lease.conn 为 priv 黑盒不可达）：quickstart §2
   「共 10 条，全在 pool_test.mbt 黑盒」改为标注 US2① 在白盒、T017 描述、
   plan FR/US↔元测试映射表 US-2 场景 1 行、B-xx 对账表 B-P10 行、并行机会
   注共五处改 `pool_wbtest·白盒`，均保留「`-f "P04-US2*"` 按测试名跨文件
   收集、glob 语义不变」说明（沿 T005:116/T006:128 改派注先例）；research.md
   R9 归属依据清单补记 T017 改派理由 per tasks:T017 / B-P10 / SC-001 (partial)
+  - 回写结论（2026-10-21）：五处归属已全部改 `pool_wbtest·白盒`（保留
+    glob 跨文件收集说明），research.md R9 归属依据清单已补记 T017 改派
+    理由；顺带修正编辑性残留两处（data-model.md R4.2→R4.4、T001 与
+    baseline.md 的「T024/T025」→「T019～T021」陈旧引用）
 
 **复核顺带核实的编辑性残留（非缺口、不单列任务）**：data-model.md:132 的
 「research R4.2 补记」应为 R4.4（R4.2 是 Map 迭代序条）；tasks T001 与
 baseline.md:4 的「对照物：Phase 7 的 T024/T025」系陈旧引用（本文件无 T024/
-T025，Phase 7 实为 T019～T021）——两处随任意后续产物触碰时顺手修正。
+T025，Phase 7 实为 T019～T021）——两处随任意后续产物触碰时顺手修正
+（已于 2026-10-21 随 T023 全部修正）。
 
 **重跑警告（契约行为，勿当作预期）**：本命令契约无 `already_tracked` 出路
 ——上两条被 implement 勾选前，重复运行 converge 会为同样内容再发新编号
