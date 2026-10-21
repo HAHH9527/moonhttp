@@ -258,21 +258,42 @@ US-3/US-4 场景 native+wasm 双绿
 
 **Purpose**: 冻结审视、门禁收口、对账与 DoD
 
-- [ ] T019 `.mbti` 冻结审（FR-016/SC-007）：`moon info` 后逐条对照
+- [X] T019 `.mbti` 冻结审（FR-016/SC-007）：`moon info` 后逐条对照
   `contracts/pool-api.md` §1——`src/client` 冻结面计划外公开项为零
   （时钟/conn_id/内部结构不外泄）；`src/core/pkg.generated.mbti` 零 diff；
   `src/internal/fixtures` 增面与 T002 归因逐条对上（T025 口径）；
   `moon fmt --check` 通过
-- [ ] T020 收口六门（最终轮先 `moon clean` 再全量）：`moon clean` →
+  - 审结论（2026-10-21）：逐条对上；三项先例伴生/记法差异显式登记——
+    ① Address `derive(Eq, Hash)` 入面（P01 HttpUrl 同款，Map 键约束所需）；
+    ② Address 伴生 `not_equal`/`hash_combine`（contracts 引用的
+    core mbti:76-79 先例本身即含此 full-trait 形态）；③ `acquire` 的
+    `raise` 后缀未渲染（moonc 对无类型错误不渲染，与上游 http mbti
+    `Client::Client` 同款记法）。命名全 snake_case，零 camelCase。
+- [X] T020 收口六门（最终轮先 `moon clean` 再全量）：`moon clean` →
   `moon check --target native/wasm --deny-warn` → `moon test --target
   native/wasm --deny-warn`（默认套 `Total tests:` ＝ 160 + 新增数，运行时
   判据不含长跑——C5）→ `moon fmt --check` → `moon info` 审视；随后按
   「B-xx ↔ 任务 ↔ 元测试映射表」对账包级 DoD-2（集成行标承载方），核对
   FR/SC 覆盖核对表（下两表）无缺项；确认包级 DoD-1 长跑证据已登记
   （T018 产出）
-- [ ] T021 `placeholder` 处置记录（P6）：本包保留 `placeholder` 不删；
+  - 六门结果（2026-10-21，clean 后全量）：check native/wasm ✅、
+    test native/wasm 均 `Total tests: 191, passed: 191`（= 160 基线 +
+    31 新增：FIX 3 + E 8 + FR 10 + US 10；长跑不计数）、fmt ✅、
+    info 后 `git status` 零 diff（core 零改动）✅
+  - DoD-2 对账：B-xx 映射表 12 行状态已更新「已交付」（集成承载行
+    B-P06/B-P07 归 P07/P08，范围外）；FR-001～018、SC-001～007 覆盖
+    核对表逐条无缺项（FR-017 为 spec 登记项非测试）
+  - DoD-1：长跑双证据已归档
+    `specs/004-m1-p04-connection-pool/longrun-evidence.md`（native 10k /
+    wasm 2000 分档、三连自检、skip 主案核证）
+- [X] T021 `placeholder` 处置记录（P6）：本包保留 `placeholder` 不删；
   评估「删除动作」的收口片归属与基线 160 记账影响，结论显式记录于任务
   产出（默认：保留，删除留待后续收口片）
+  - 处置结论（2026-10-21）：**保留，不删**——① 契约口径：contracts §1
+    明文「placeholder 保留不删（裁决 P6）」；② 记账影响：删除将使 client
+    包测试数 -1、基线 160 记账漂移（191 → 190），搅动收口对账；③ 归属：
+    删除动作留待后续收口片（P05 门面接线时随首个真实能力入口一并评估），
+    届时在 spec 变更中显式登记基线重置
 
 ---
 
@@ -283,18 +304,18 @@ B-xx 编号 ＝ spec 包级 DoD-2 毒化五行 + 池行为切片（B-P01～B-P12
 
 | 行为 | 任务 | 元测试（文件·名） | 状态 |
 | --- | --- | --- | --- |
-| B-P01 毒化标记不回池 | T009 | pool_test.mbt P04-US4① | 计划 |
-| B-P02 栈满不回池 | T007 | pool_test.mbt P04-US1③ | 计划 |
-| B-P03 超期不回池（惰性+显式） | T013、T014 | pool_wbtest P04-FR⑤⑥ + pool_test P04-US3① | 计划 |
-| B-P04 `Connection: close` 判定（池消费侧） | T011 | pool_test.mbt P04-US4③（次序脚本桩） | 计划 |
-| B-P05 残 body 契约 | T010 | pool_test.mbt P04-US4② | 计划 |
+| B-P01 毒化标记不回池 | T009 | pool_test.mbt P04-US4① | 已交付 |
+| B-P02 栈满不回池 | T007 | pool_test.mbt P04-US1③ | 已交付 |
+| B-P03 超期不回池（惰性+显式） | T013、T014 | pool_wbtest P04-FR⑤⑥ + pool_test P04-US3① | 已交付 |
+| B-P04 `Connection: close` 判定（池消费侧） | T011 | pool_test.mbt P04-US4③（次序脚本桩） | 已交付 |
+| B-P05 残 body 契约 | T010 | pool_test.mbt P04-US4② | 已交付 |
 | B-P06 stale-retry 命中 | — | — | **集成承载：P07**（spec DoD-2 映射口径；命中时对同一 `stale_evictions` +1） |
 | B-P07 Call.cancel / 超时取消 | — | — | **集成承载：P08** |
-| B-P08 租借/新建/LIFO/栈满容量 | T005、T006、T007、T008 | pool_test P04-US1①②③ + pool_wbtest P04-FR③⑧ | 计划 |
-| B-P09 驱逐显式入口与幂等 | T013、T015、T016 | pool_test P04-US3② + pool_wbtest P04-FR⑤⑦ + P04-E⑦ | 计划 |
-| B-P10 并发租借正确性 | T017 | pool_test.mbt P04-US2① | 计划 |
-| B-P11 长跑双证据守恒 | T018 | pool_longrun_wbtest.mbt P04-LONGRUN①② | 计划 |
-| B-P12 夹具可观测性扩展 | T002 | scripted_server_test.mbt P04-FIX①②③ | 计划 |
+| B-P08 租借/新建/LIFO/栈满容量 | T005、T006、T007、T008 | pool_test P04-US1①②③ + pool_wbtest P04-FR③⑧ | 已交付 |
+| B-P09 驱逐显式入口与幂等 | T013、T015、T016 | pool_test P04-US3② + pool_wbtest P04-FR⑤⑦ + P04-E⑦ | 已交付 |
+| B-P10 并发租借正确性 | T017 | pool_test.mbt P04-US2① | 已交付 |
+| B-P11 长跑双证据守恒 | T018 | pool_longrun_wbtest.mbt P04-LONGRUN①② | 已交付 |
+| B-P12 夹具可观测性扩展 | T002 | scripted_server_test.mbt P04-FIX①②③ | 已交付 |
 
 ## FR-001～FR-018 覆盖核对表
 
