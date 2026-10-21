@@ -131,7 +131,7 @@ native|wasm`（`pool_test.mbt` + `pool_wbtest.mbt`）——`@http.Client` 原语
   （同步 `try_acquire` 失败即 abort，research R3；未毒化 ∧ idle
   未满 → push 尾部、`idle_since = now_ms()`；否则 `close()`）与
   acquire 命中 `pop()`（尾 = 最热）
-- [ ] T007 [US1] 栈满 close 不入栈（FR-003 分支）：`pool_test.mbt` 写
+- [X] T007 [US1] 栈满 close 不入栈（FR-003 分支）：`pool_test.mbt` 写
   P04-US1③（`max_idle=1`：两条连接先后 release → 第二条被 close、不入
   栈；复用不受影响）→ 实现栈满分支（不回池即 close 家族，不计
   `stale_evictions`，FR-007 口径）

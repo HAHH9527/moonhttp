@@ -92,3 +92,43 @@ async test "P04-US1② 串行 acquire/release 循环零新建" {
     server.close()
   }
 }
+
+///|
+// P04-US1③（FR-003 栈满分支，T007）：max_idle=1 下两条连接先后 release →
+// 第二条被 close、不入栈；复用不受影响。可观测推演：a.release() 后 idle=[A]，
+// b.release() 触发栈满关闭（若 bug 回池则 idle=[A,B]）；此后两次 acquire
+// 应为「得 A（命中，计数不动）→ 新建（计数 2→3）」——若 B 曾入栈则第二次
+// acquire 复用 B、计数停在 2，即红。
+// 【护栏/未红判据】栈满分支随 T006 归池谓词先行落地，本测试落笔即绿
+// （003 T008/T016 先例口径，非静默）。
+async test "P04-US1③ 栈满第二条 release 关闭不入栈且复用不受影响" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = @client.ConnectionPool::new(max_idle=1, keep_alive_ms=300_000)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    assert_eq(pool.per_host_total(addr), 2, msg="两条连接均须新建")
+    a.release()
+    b.release()
+    let again = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="栈中唯一连接 A 须命中复用（计数不动）",
+    )
+    let more = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      3,
+      msg="B 须已被关闭不入栈（若曾入栈则此处复用、计数停在 2）",
+    )
+    again.release()
+    more.release()
+    server.close()
+  }
+}
