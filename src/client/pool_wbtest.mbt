@@ -127,3 +127,131 @@ async test "P04-FR⑧ LIFO 次序：release A→B 后 acquire 得 B" {
     server.close()
   }
 }
+
+///|
+// P04-FR③（FR-001 独占白盒 + 不变量 1/5，T008）：并发 acquire N → N 个
+// 互异 conn_id 全员在 borrowed（两两不交＝Map 键唯一 + 全员在场）；交错
+// release / 再 acquire 后守恒恒等式恒成立（borrowed+idle+closed ==
+// next_conn_id-1），且命中路径不发新号（next_conn_id 冻结）。
+// 【护栏备注】pop 移除与 borrowed 去重随 T006 接入路径在场，本测试为其
+// 并发交错的回归护栏——若独占/守恒被破坏即红。
+async test "P04-FR③ 并发 acquire 独占与守恒恒等式" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = ConnectionPool::new(max_idle=8, keep_alive_ms=300_000)
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    let n = 8
+    // R2 对策：预启动 accept 循环再放行客户端——wasm 实测（2026-10-21）：
+    // 不预启动时 8 并发 connect 打满监听 backlog 被拒（native 侧backlog
+    // 较大未暴露）。被 accept 的连接处理阻塞在 read_request，由测试组
+    // 退出时的结构化取消收尾（上游 task_group.mbt:116-119：被组取消的
+    // 任务不算失败），无需 drain。
+    let _serving = group.spawn(() => server.serve_n(n, timeout_ms=8000))
+    let leases : Array[Lease?] = Array::make(n, None)
+    let tasks = []
+    for i in 0..<n {
+      let k = i
+      tasks.push(group.spawn(() => leases[k] = Some(pool.acquire(addr))))
+    }
+    for task in tasks {
+      task.wait()
+    }
+    // 断言 1：N 个互异 conn_id
+    let ids : Array[Int32] = []
+    for i in 0..<n {
+      let lease = match leases[i] {
+        Some(l) => l
+        None => fail("并发 acquire \{i} 未取得租约")
+      }
+      ids.push(lease.conn_id)
+    }
+    for i in 0..<n {
+      for j in 0..<n {
+        if i != j {
+          assert_true(
+            ids[i] != ids[j],
+            msg="独占破坏：conn_id \{ids[i]} 重复出租（不变量 1）",
+          )
+        }
+      }
+    }
+    // 断言 2：borrowed 恰含全部 N 个 id（两两不交 + 全员在场）
+    assert_eq(
+      pool.inner.borrowed.length(),
+      n,
+      msg="borrowed 基数应为 N（全员在租）",
+    )
+    for i in 0..<n {
+      assert_true(
+        pool.inner.borrowed.contains(ids[i]),
+        msg="id \{ids[i]} 应在 borrowed 集合",
+      )
+    }
+    // 断言 3：守恒恒等式（不变量 5）
+    let mut idle_total = 0
+    for _key, bucket in pool.inner.idle {
+      idle_total = idle_total + bucket.length()
+    }
+    assert_eq(
+      pool.inner.borrowed.length() + idle_total + pool.inner.closed.length(),
+      pool.inner.next_conn_id - 1,
+      msg="并发 acquire 后守恒恒等式破坏",
+    )
+    // 交错：前半 release（→idle），后半保持在租
+    for i in 0..<4 {
+      match leases[i] {
+        Some(l) => l.release()
+        None => ()
+      }
+    }
+    // 再并发 acquire 4 个：全走 pop 命中，不得发新号
+    let again : Array[Lease?] = Array::make(4, None)
+    let tasks2 = []
+    for i in 0..<4 {
+      let k = i
+      tasks2.push(group.spawn(() => again[k] = Some(pool.acquire(addr))))
+    }
+    for task in tasks2 {
+      task.wait()
+    }
+    for i in 0..<4 {
+      let lease = match again[i] {
+        Some(l) => l
+        None => fail("再 acquire \{i} 未取得租约")
+      }
+      assert_true(
+        ids.contains(lease.conn_id),
+        msg="命中路径发新号：\{lease.conn_id} 不在原 id 集（守恒破坏）",
+      )
+    }
+    assert_eq(
+      pool.inner.next_conn_id,
+      n + 1,
+      msg="全程不得有隐藏新建（发号器冻结于 N+1）",
+    )
+    // 收尾全量 release 后再验守恒（Borrowed→Idle 迁移不破坏恒等式）
+    for i in 0..<4 {
+      match again[i] {
+        Some(l) => l.release()
+        None => ()
+      }
+    }
+    for i in 4..<n {
+      match leases[i] {
+        Some(l) => l.release()
+        None => ()
+      }
+    }
+    let mut idle_after = 0
+    for _key, bucket in pool.inner.idle {
+      idle_after = idle_after + bucket.length()
+    }
+    assert_eq(
+      pool.inner.borrowed.length() + idle_after + pool.inner.closed.length(),
+      pool.inner.next_conn_id - 1,
+      msg="全量 release 后守恒恒等式破坏（不变量 5）",
+    )
+    assert_eq(idle_after, n, msg="max_idle=8 下 N 条应全部回池")
+    server.close()
+  }
+}

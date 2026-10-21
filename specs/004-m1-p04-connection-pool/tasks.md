@@ -135,7 +135,7 @@ native|wasm`（`pool_test.mbt` + `pool_wbtest.mbt`）——`@http.Client` 原语
   P04-US1③（`max_idle=1`：两条连接先后 release → 第二条被 close、不入
   栈；复用不受影响）→ 实现栈满分支（不回池即 close 家族，不计
   `stale_evictions`，FR-007 口径）
-- [ ] T008 [US1] 独占白盒（FR-001）：`pool_wbtest.mbt` 写 P04-FR③
+- [X] T008 [US1] 独占白盒（FR-001）：`pool_wbtest.mbt` 写 P04-FR③
   （并发 acquire N → N 个互异 conn_id；borrowed 集合两两不交；任意交错
   后守恒恒等式成立——data-model 不变量 1/5）→ 实现侧结构校验
   （pop 移除 + borrowed 去重）
