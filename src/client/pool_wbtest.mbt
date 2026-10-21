@@ -576,38 +576,39 @@ async test "P04-US2① 并发租借串号检测：K=8 池 × 并发 100" {
     let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
     let mismatches : Array[Int32] = []
     let failures : Array[Int32] = []
-    for base in 0..<total {
-      if base % wave == 0 {
-        let tasks = []
-        for i in base..<(base + wave) {
-          let k = i
-          tasks.push(
-            group.spawn(() => {
-              let lease = pool.acquire(addr)
-              let conn = lease.conn
-              conn.request(Post, "/echo")
-              conn.write("req-\{k}")
-              let resp = conn.end_request()
-              let body = conn.read_all().text()
-              if resp.code != 200 {
-                failures.push(k)
-              }
-              // 回显校验：体 = "<服务端单调id>:<请求体原样>"——后段须与本任务
-              // 自身 id 精确一致（串号即错）
-              let mismatch = match body.find(":") {
-                Some(pos) => body[pos + 1:].to_owned() != "req-\{k}"
-                None => true
-              }
-              if mismatch {
-                mismatches.push(k)
-              }
-              lease.release()
-            }),
-          )
-        }
-        for task in tasks {
-          task.wait()
-        }
+    // 波次推进（review 2026-10-21 F2 直白化：total/wave 波 × 每波 wave
+    // 并发；原 0..<total 外环 100 次迭代中 96 次空转）
+    for w in 0..<(total / wave) {
+      let base = w * wave
+      let tasks = []
+      for i in base..<(base + wave) {
+        let k = i
+        tasks.push(
+          group.spawn(() => {
+            let lease = pool.acquire(addr)
+            let conn = lease.conn
+            conn.request(Post, "/echo")
+            conn.write("req-\{k}")
+            let resp = conn.end_request()
+            let body = conn.read_all().text()
+            if resp.code != 200 {
+              failures.push(k)
+            }
+            // 回显校验：体 = "<服务端单调id>:<请求体原样>"——后段须与本任务
+            // 自身 id 精确一致（串号即错）
+            let mismatch = match body.find(":") {
+              Some(pos) => body[pos + 1:].to_owned() != "req-\{k}"
+              None => true
+            }
+            if mismatch {
+              mismatches.push(k)
+            }
+            lease.release()
+          }),
+        )
+      }
+      for task in tasks {
+        task.wait()
       }
     }
     assert_eq(

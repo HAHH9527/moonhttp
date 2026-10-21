@@ -267,21 +267,31 @@ pub fn Lease::release(self : Lease) -> Unit {
   self.released = true
   let pool = self.pool
   sync_lock_or_abort(pool.lock, "Lease::release")
-  let bucket = match pool.inner.idle.get(self.addr) {
-    Some(b) => b
-    None => {
-      let fresh : Array[IdleLease] = []
-      pool.inner.idle[self.addr] = fresh
-      fresh
-    }
-  }
+  let bucket = pool.inner.idle.get(self.addr)
   // 惰性剔除（FR-005 下半/contracts §2 release 步骤 1，与 T013 共享判定
-  // 单点）：超期条目自栈弹出关闭（每条 +1）——超期条目不入栈
-  pool.evict_bucket_locked(bucket)
-  let full = bucket.length() >= pool.max_idle
+  // 单点）：超期条目自栈弹出关闭（每条 +1）——超期条目不入栈；桶不存在
+  // ⇒ 该地址空闲栈为空，无超期可剔
+  match bucket {
+    Some(b) => pool.evict_bucket_locked(b)
+    None => ()
+  }
+  let full = match bucket {
+    Some(b) => b.length() >= pool.max_idle
+    None => false
+  }
   if !self.poisoned && !full {
-    // 回池：尾部 push（LIFO），入栈瞬间快照时钟（不变量 7：idle_since 不可变）
-    bucket.push({
+    // 回池：尾部 push（LIFO），入栈瞬间快照时钟（不变量 7：idle_since 不可变）；
+    // 桶不存在才惰性创建（review 2026-10-21 F3 hygiene：毒化/栈满路径
+    // 不留空键桶）
+    let b = match bucket {
+      Some(b) => b
+      None => {
+        let fresh : Array[IdleLease] = []
+        pool.inner.idle[self.addr] = fresh
+        fresh
+      }
+    }
+    b.push({
       conn: self.conn,
       conn_id: self.conn_id,
       idle_since: (pool.now_ms)(),

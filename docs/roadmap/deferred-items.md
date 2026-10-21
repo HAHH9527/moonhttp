@@ -17,7 +17,7 @@
 
 | 里程碑 | 明细文件 | 条目数（未完成/总数） |
 | --- | --- | --- |
-| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 18 / 18 |
+| M1 性能核心 | [`deferred-items/deferred-items-m1.md`](deferred-items/deferred-items-m1.md) | 19 / 19 |
 | M2 完整门面 | （待 M2 拆分时创建） | — |
 | M3–M5 | （待对应里程碑拆分时创建） | — |
 
@@ -43,9 +43,11 @@
 | F16 | abortive close（RST）/半关闭注入能力缺口（上游无 shutdown/SO_LINGER——**需人工批准的上游 PR 候选**，宪法 I） | 未排期（须事先人工批准） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F17 | @http 客户端错误面无法区分响应截断点（read_until 残余串下移错误、无解析进度信号；P07 判据已按错误类型分流，钉死集合仅可观测面） | 未排期（需求驱动；上游候选须人工批准） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F18 | `TcpServer::accept` 并发调用不安全（native PanicError 崩溃 / wasm 悬挂——P03 T008 实测；夹具已按裁决 A 以 serve_n 收口，上游 issue/修复候选**须人工批准**） | 未排期（须事先人工批准） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F19 | IPv6 字面量建连 URI 缺方括号（Host 头非 RFC 3986/7230 权威形态；code-review 2026-10-21 发现·MEDIUM） | M1 / P05 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 
 ## 按里程碑速查（仅未完成）
 
+- **M1 内 P05**：F19（IPv6 URI 方括号修正 + 回归用例，随执行管线接线）。
 - **M2 拆分须核对**：F1–F6（6 条）。
 - **M3 拆分须核对**：F10 评估决策、F12（可配置掩码开关 + 补宪法「不安全配置
   opt-in」条款）、F13（脱敏专版，与 F12 一批设计）；另注意 F2 随带的 Address
