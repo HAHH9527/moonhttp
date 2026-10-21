@@ -60,3 +60,35 @@ async test "P04-E⑥ acquire 建连失败透传且计数不虚增" {
     server.close()
   }
 }
+
+///|
+// P04-US1②③（FR-002/FR-004/SC-003，T006）：同 Address 串行
+// acquire/release ≥100 次循环——② 循环结束 per_host_total(addr) == 1；
+// ③ 循环全程零新建连接（首建之后计数恒 1）。黑盒可观测面仅公开计数器；
+// LIFO 次序判据归白盒 P04-FR⑧（conn_id priv 黑盒不可读，research R9）。
+async test "P04-US1② 串行 acquire/release 循环零新建" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = @client.ConnectionPool::new()
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    for i in 0..<100 {
+      let lease = pool.acquire(addr)
+      assert_eq(
+        pool.per_host_total(addr),
+        1,
+        msg="第 \{i} 次循环出现新建——归池复用断裂（US1③/SC-003）",
+      )
+      lease.release()
+    }
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="循环结束计数应为 1（US1②）",
+    )
+    server.close()
+  }
+}

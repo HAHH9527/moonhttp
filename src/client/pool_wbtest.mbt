@@ -95,3 +95,35 @@ async test "P04-E⑥ acquire 建连失败透传且计数不虚增" {
     msg="发号器不得在失败路径推进（守恒恒等式无隙）",
   )
 }
+
+///|
+// P04-FR⑧（FR-004 真 LIFO 次序，T006 白盒）：造两条同 Address 空闲连接，
+// release A → release B → acquire 断言得 B（栈尾=最热）；再次 acquire 得
+// A；全程 per_host_total 不动（命中路径零新建，不变量 6）。conn_id 白盒
+// 可读（R9）——黑盒不配当 LIFO 判据（串行单连接循环下恒真）。
+async test "P04-FR⑧ LIFO 次序：release A→B 后 acquire 得 B" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    let a = pool.acquire(addr)
+    let b = pool.acquire(addr)
+    assert_true(a.conn_id != b.conn_id, msg="两条连接须互异")
+    assert_eq(pool.per_host_total(addr), 2, msg="两条连接均须新建")
+    a.release()
+    b.release()
+    // 栈态：[A, B]（尾=最热）——acquire 得 B
+    let again = pool.acquire(addr)
+    assert_eq(again.conn_id, b.conn_id, msg="LIFO：acquire 应得最热的 B")
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="命中路径不得新建（不变量 6）",
+    )
+    // 再取应得 A
+    let third = pool.acquire(addr)
+    assert_eq(third.conn_id, a.conn_id, msg="第二次 acquire 应得 A")
+    assert_eq(pool.per_host_total(addr), 2, msg="全程零新建")
+    server.close()
+  }
+}

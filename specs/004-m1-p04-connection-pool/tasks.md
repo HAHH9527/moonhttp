@@ -118,7 +118,7 @@ native|wasm`（`pool_test.mbt` + `pool_wbtest.mbt`）——`@http.Client` 原语
   （priv 状态黑盒不可读，E4091，research R9）→ 实现 acquire 建连路径：
   锁内查桶（无命中）→ **解锁后建连**（FR-006 临界区无 IO）→ 成功才
   `per_host_total` +1 并入 borrowed（data-model 不变量 6）
-- [ ] T006 [US1] release 归池 + LIFO + 复用率（FR-002/FR-004/SC-003）：
+- [X] T006 [US1] release 归池 + LIFO + 复用率（FR-002/FR-004/SC-003）：
   `pool_test.mbt` 写 P04-US1②——同 Address **串行 acquire/release
   ≥100 次循环**（黑盒可观测面仅公开计数器），断言两件（W13 编号续
   用）：② 循环结束 `per_host_total(addr)` == 1；③ 循环全程零新建连接

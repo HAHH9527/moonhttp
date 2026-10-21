@@ -129,13 +129,15 @@ pub struct ConnectionPool {
 // 独占租约（data-model 实体 4，公开面 FR-001/002/011/018）：acquire 的
 // 返回值；release 按归池谓词回流或关闭；poison 仅置标记（池只认它，P4）；
 // released 为终结幂等锚（FR-018，no-op 短路）。
+// 注：poisoned/released 的 mut 随写入行为引入（T009/T012）——T006 仅读
+// poisoned 于归池谓词，先以不可变形态在场（避免 unused_mut 假红）。
 pub struct Lease {
   priv conn : @http.Client
   priv conn_id : Int32
   priv addr : Address
   priv pool : ConnectionPool
-  priv mut poisoned : Bool
-  priv mut released : Bool
+  priv poisoned : Bool
+  priv released : Bool
 }
 
 ///|
@@ -203,9 +205,34 @@ pub async fn ConnectionPool::acquire(
   self : ConnectionPool,
   addr : Address,
 ) -> Lease {
-  // 锁内查桶（此段即 FR-006 临界区形态：无 IO、无 await）
+  // 锁内查桶：命中 LIFO pop（FR-004，尾=最热）；id 迁 idle→borrowed 同
+  // 锁段（不变量 5 无隙）。此段即 FR-006 临界区形态：无 IO、无 await。
   self.lock.acquire()
+  let mut hit : IdleLease? = None
+  match self.inner.idle.get(addr) {
+    Some(bucket) =>
+      match bucket.pop() {
+        Some(idle) => {
+          self.inner.borrowed[idle.conn_id] = ()
+          hit = Some(idle)
+        }
+        None => ()
+      }
+    None => ()
+  }
   self.lock.release()
+  match hit {
+    Some(idle) =>
+      return {
+        conn: idle.conn,
+        conn_id: idle.conn_id,
+        addr,
+        pool: self,
+        poisoned: false,
+        released: false,
+      }
+    None => ()
+  }
   // 解锁后建连（FR-006）
   let uri = "\{addr.scheme()}://\{addr.host()}:\{addr.port()}"
   let client = @http.Client::Client(uri)
@@ -220,6 +247,41 @@ pub async fn ConnectionPool::acquire(
   self.inner.borrowed[conn_id] = ()
   self.lock.release()
   { conn: client, conn_id, addr, pool: self, poisoned: false, released: false, }
+}
+
+///|
+// 归池判定（FR-002，contracts §2）：released 后 no-op 的短路归 T012；
+// 本体——同步锁（R3 fail fast）后评估归池谓词：未毒化 ∧ idle 未满 ⇒
+// push 尾部（idle_since = now_ms()，LIFO 尾=最热）；否则 close（幂等，
+// C-3）且不计 stale_evictions（FR-007 口径）。borrowed 移除两分支恒做
+// （状态迁移 Borrowed→Idle / Borrowed→Closed，不变量 5 守恒）。
+pub fn Lease::release(self : Lease) -> Unit {
+  let pool = self.pool
+  sync_lock_or_abort(pool.lock, "Lease::release")
+  let bucket = match pool.inner.idle.get(self.addr) {
+    Some(b) => b
+    None => {
+      let fresh : Array[IdleLease] = []
+      pool.inner.idle[self.addr] = fresh
+      fresh
+    }
+  }
+  let full = bucket.length() >= pool.max_idle
+  if !self.poisoned && !full {
+    // 回池：尾部 push（LIFO），入栈瞬间快照时钟（不变量 7：idle_since 不可变）
+    bucket.push({
+      conn: self.conn,
+      conn_id: self.conn_id,
+      idle_since: (pool.now_ms)(),
+    })
+    pool.inner.borrowed.remove(self.conn_id)
+  } else {
+    // 毒化 ∨ 栈满：close（幂等，C-3），不加 stale_evictions（Q3 口径）
+    self.conn.close()
+    pool.inner.borrowed.remove(self.conn_id)
+    pool.inner.closed[self.conn_id] = ()
+  }
+  pool.lock.release()
 }
 
 ///|

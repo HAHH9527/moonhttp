@@ -1,27 +1,24 @@
 import {
   "moonbitlang/async",
   "moonbitlang/async/http",
+  "hahh9527/moonhttp/internal/fixtures",
+  "moonbitlang/core/test",
 }
 
-// 白盒测试的构造校验断言面（@test.expect_error/assert_raise，P04-FR②）；
-// 仅测试可见，不进入池运行时依赖。
-import {
-  "moonbitlang/core/test",
-} for "wbtest"
-
-// 黑盒场景测试的夹具面（P03 ScriptedServer，P04-US/E 用例）；
-// 仅黑盒测试可见，不进入池运行时依赖（R9 前置事项：写法本轮实证）。
-import {
-  "hahh9527/moonhttp/internal/fixtures",
-} for "test"
-
-// 骨架期临时抑制（T004，复核点 T019 冻结审）：池四实体骨架先于消费者——
-// PoolInner/Lease 字段自 T005/T006/T009/T012 起接入读写，IdleLease 自 T006
-// release 归池起构造。消费面接通后应复核移除本抑制（fixtures/core 的
-// 包级 options 抑制先例同款，理由显式登记）。
+// 作用域实证结论（R9 前置事项，2026-10-21 实测）：本版本 moon 仅存在
+// "test"（黑盒）作用域，`for "wbtest"` 非法——白盒（_wbtest.mbt）只能
+// 经常规 import 取得依赖（黑盒另有专属作用域）。故 @fixtures 与 @test
+// （白盒 FR② 的 expect_error 断言面）走常规导入：二者仅被测试用例引用
+// （黑盒 US/E + 白盒 FR⑧/T018 长跑），池运行时零引用，lib 编译单元的
+// unused_package 警告随之出现，在下方 warnings 显式抑制。
+//
+// 骨架期临时抑制（T004/T006，复核点 T019 冻结审）：unused_field/
+// struct_never_constructed 系池实体骨架先于消费者（T005/T006/T009/T012
+// 接入读写后复核移除）；unused_package 系 @fixtures/@test 仅测试引用所致
+// （运行时依赖方向不变：client → async/http）。
 
 options(
-  warnings: "-unused_field-struct_never_constructed",
+  warnings: "-unused_field-struct_never_constructed-unused_package",
 )
 
 pkgtype(kind: "library")
