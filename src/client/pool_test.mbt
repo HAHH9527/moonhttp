@@ -217,3 +217,123 @@ async test "P04-US4② 残 body 契约两分支对照：poison 不回池 / 履�
     server.close()
   }
 }
+
+///|
+// P04-US4③（FR-010 池消费侧桩管线，P4/Q06，T011）：F-7 次序脚本同路由
+// 第一响应正常、第二响应携带 Connection: close——测试内桩管线读响应头
+// 做出毒化判定后调用 poison()，验证池侧后果：未毒化 → 回池复用；毒化 →
+// 不回池、后续 acquire 为新建。
+// 红线（Q06）：判定/解析归 P05/P06 管线——判定逻辑全部在本测试桩内，
+// 池侧零解析代码、零新增实现（落笔即绿＝未红判据，显式记录）。
+async test "P04-US4③ Connection: close 桩判定驱动 poison 消费" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount_sequence("GET", "/pipe", [
+      {
+        status: 200,
+        headers: [],
+        framing: Fixed,
+        body: Static(b"first"),
+        head_delay_ms: 0,
+        close_after_response: false,
+      },
+      {
+        status: 200,
+        headers: [("Connection", "close")],
+        framing: Fixed,
+        body: Static(b"second"),
+        head_delay_ms: 0,
+        close_after_response: false,
+      },
+    ])
+    // 桩管线判定阶段（探针客户端骑独立连接，次序计数按路由累计）：
+    // 单连接 keep-alive 顺序两请求，serve_once 承载至探针 EOF 收尾
+    let probe = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    let serving = group.spawn(() => server.serve_once(timeout_ms=3000))
+    let decisions : Array[Bool] = []
+    for _i in 0..<2 {
+      probe.request(Get, "/pipe")
+      let resp = probe.end_request()
+      let _body = probe.read_all().text()
+      // 桩管线判定：读响应头 → 是否必须毒化（P05/P06 的判定形态样例）
+      let conn_hdr = resp.headers.get(@http.CaseInsensitiveString("Connection"))
+      decisions.push(conn_hdr == Some("close"))
+    }
+    probe.close()
+    serving.wait()
+    assert_eq(
+      decisions,
+      [false, true],
+      msg="次序脚本应第一响应无 close、第二响应带 close（F-7）",
+    )
+    // 池侧后果演示：判定 false → 不 poison → 回池复用
+    let pool = @client.ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let lease1 = pool.acquire(addr)
+    if decisions[0] {
+      lease1.poison()
+    }
+    lease1.release()
+    let lease2 = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="判定可复用（未毒化）→ release 回池复用（计数不动）",
+    )
+    lease2.release()
+    // 池侧后果演示：判定 true → poison → 不回池，后续 acquire 为新建
+    let lease3 = pool.acquire(addr)
+    if decisions[1] {
+      lease3.poison()
+    }
+    lease3.release()
+    let lease4 = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="判定 close（毒化）→ 不回池，后续 acquire 为新建",
+    )
+    lease4.release()
+    server.close()
+  }
+}
+
+///|
+// P04-US4④（FR-018 终结幂等黑盒侧，T012）：已 release 的 Lease 再次
+// release / 释放后 poison → 均 no-op——不重复入栈（第二次 release 若再
+// 入栈，则后续两次 acquire 全命中复用、计数停在 1；正确形态＝第二条
+// acquire 落空新建、计数 1→2）、不二次关闭。
+async test "P04-US4④ 终结幂等：重复 release 不重复入栈" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = @client.ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let lease = pool.acquire(addr)
+    lease.release()
+    lease.release()
+    lease.poison()
+    let l1 = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="首个 acquire 应命中复用（计数不动）",
+    )
+    let l2 = pool.acquire(addr)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="重复 release 不得重复入栈（若曾双入栈则此处复用、计数停在 1）",
+    )
+    l1.release()
+    l2.release()
+    server.close()
+  }
+}

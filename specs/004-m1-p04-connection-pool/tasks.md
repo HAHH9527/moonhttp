@@ -165,14 +165,14 @@ native|wasm -f "P04-US4*"`（黑盒）+ `-f "P04-FR*"`（白盒幂等/守恒）
   无新增实现（判定分支 T009 已就位）；本任务同时完成契约面审记录：
   `release` 无状态参数、无新增公开枚举（FR-011；对 contracts/pool-api.md
   §1 核对）
-- [ ] T011 [US4] `Connection: close` 集成桩（FR-010/P4/Q06；F-7 消费）：
+- [X] T011 [US4] `Connection: close` 集成桩（FR-010/P4/Q06；F-7 消费）：
   `pool_test.mbt` 写 P04-US4③（T002 次序脚本：同路由第一响应正常可
   复用、第二响应携带 `Connection: close` → **测试内桩管线**读响应头
   判定后调用 `poison()` → release 不回池、后续 acquire 为新建）→ 实现
   侧零新增（池只消费 poison 标记）。**红线：判定/解析归 P05/P06
   （Q06），本任务禁止引入任何响应头解析任务或池侧解析代码；「端到端」
   验收归 P05 集成**
-- [ ] T012 [US4] 终结幂等（FR-018）：`pool_wbtest.mbt` 写 P04-FR④（已
+- [X] T012 [US4] 终结幂等（FR-018）：`pool_wbtest.mbt` 写 P04-FR④（已
   release 的 Lease 再次 release / 释放后 poison → 均为 no-op；守恒恒等式
   保持，不变量 5）+ `pool_test.mbt` 写 P04-US4④（黑盒同断言：不重复
   入栈、不二次关闭）→ 实现 `released` 标记 no-op 短路（内部 bool 形态，

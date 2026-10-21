@@ -255,3 +255,51 @@ async test "P04-FR③ 并发 acquire 独占与守恒恒等式" {
     server.close()
   }
 }
+
+///|
+// P04-FR④（FR-018 终结幂等白盒，T012）：已 release 的 Lease 再次
+// release / 释放后 poison → 均 no-op——不重复入栈、不二次关闭、标记不
+// 生效；守恒恒等式在任意调用序下保持（不变量 5）。毒化正常路径（先
+// poison 后 release）不受短路守卫影响，一并回归。
+async test "P04-FR④ 终结幂等：重复终结 no-op 且守恒保持" {
+  @async.with_task_group() <| _group => {
+    let server = @fixtures.ScriptedServer::start()
+    let pool = ConnectionPool::new(max_idle=5, keep_alive_ms=300_000)
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=server.port())
+    let lease = pool.acquire(addr)
+    lease.release()
+    lease.release()
+    lease.poison()
+    // priv 直读：idle 恰 1 条、closed 空、终结标记不翻转
+    assert_eq(
+      pool.inner.idle.get(addr).unwrap_or([]).length(),
+      1,
+      msg="重复 release 不得重复入栈（不变量 5 前提）",
+    )
+    assert_eq(pool.inner.closed.length(), 0, msg="不得二次关闭")
+    assert_false(lease.poisoned, msg="释放后 poison 须为 no-op")
+    assert_eq(
+      pool.inner.borrowed.length() + 1 + pool.inner.closed.length(),
+      pool.inner.next_conn_id - 1,
+      msg="终结幂等下守恒恒等式保持（不变量 5）",
+    )
+    // 毒化正常路径回归：先 poison 后 release → close（短路守卫不误伤），
+    // 且不连带清掉其他空闲条目——先备两条连接：A 回池、B 毒化关闭
+    let lease_a = pool.acquire(addr)
+    let lease_b = pool.acquire(addr)
+    lease_a.release()
+    lease_b.poison()
+    lease_b.release()
+    assert_eq(
+      pool.inner.closed.length(),
+      1,
+      msg="毒化路径关闭 B（conn2）",
+    )
+    assert_eq(
+      pool.inner.idle.get(addr).unwrap_or([]).length(),
+      1,
+      msg="毒化关闭不得连带清掉空闲条目（A 应仍在栈）",
+    )
+    server.close()
+  }
+}

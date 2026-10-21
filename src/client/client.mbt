@@ -137,7 +137,7 @@ pub struct Lease {
   priv addr : Address
   priv pool : ConnectionPool
   priv mut poisoned : Bool
-  priv released : Bool
+  priv mut released : Bool
 }
 
 ///|
@@ -250,12 +250,17 @@ pub async fn ConnectionPool::acquire(
 }
 
 ///|
-// 归池判定（FR-002，contracts §2）：released 后 no-op 的短路归 T012；
-// 本体——同步锁（R3 fail fast）后评估归池谓词：未毒化 ∧ idle 未满 ⇒
-// push 尾部（idle_since = now_ms()，LIFO 尾=最热）；否则 close（幂等，
-// C-3）且不计 stale_evictions（FR-007 口径）。borrowed 移除两分支恒做
-// （状态迁移 Borrowed→Idle / Borrowed→Closed，不变量 5 守恒）。
+// 归池判定（FR-002，contracts §2）：已终结（released）⇒ no-op（FR-018
+// 终结幂等：不重复入栈、不二次关闭、不改任何计数）；首次调用置标记后——
+// 同步锁（R3 fail fast）后评估归池谓词：未毒化 ∧ idle 未满 ⇒ push 尾部
+// （idle_since = now_ms()，LIFO 尾=最热）；否则 close（幂等，C-3）且不计
+// stale_evictions（FR-007 口径）。borrowed 移除两分支恒做（状态迁移
+// Borrowed→Idle / Borrowed→Closed，不变量 5 守恒）。
 pub fn Lease::release(self : Lease) -> Unit {
+  if self.released {
+    return
+  }
+  self.released = true
   let pool = self.pool
   sync_lock_or_abort(pool.lock, "Lease::release")
   let bucket = match pool.inner.idle.get(self.addr) {
@@ -287,9 +292,11 @@ pub fn Lease::release(self : Lease) -> Unit {
 ///|
 /// 毒化标记（FR-011，P4 裁决：池只认 poison 标记）：仅置 poisoned，不碰
 /// 锁（Lease 自身标记，无共享状态）；关闭动作延后到 release（毒化分支 →
-/// close，不计 stale_evictions）。已终结（released）的 no-op 短路随 T012
-/// 终结幂等接入。
+/// close，不计 stale_evictions）。已终结（released）⇒ no-op（FR-018）。
 pub fn Lease::poison(self : Lease) -> Unit {
+  if self.released {
+    return
+  }
   self.poisoned = true
 }
 
