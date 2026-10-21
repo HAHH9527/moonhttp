@@ -234,7 +234,7 @@ US-3/US-4 场景 native+wasm 双绿
   echo 夹具 B-04；**先 `serve_n(n≥K)` 预启动 accept 循环再放行客户端**
   ——风险 R2：串行 accept 的排队延迟不得伪装成池失效）→ 全部请求 body
   与自身 id 匹配（串号 0）；如暴露实现缺陷在本任务内修复并补回归断言
-- [ ] T018 [US2] 长跑双证据（US-2 场景 2 + FR-009/Q04/R7）：新增
+- [X] T018 [US2] 长跑双证据（US-2 场景 2 + FR-009/Q04/R7）：新增
   `src/client/pool_longrun_wbtest.mbt`（**白盒**——`_wbtest.mbt` 与本包
   同编译：`next_conn_id`、三集合基数、F-6 每连接计数全为包内私有，黑盒
   不可读（E4091，research R9）；且 SC-002「两证据误差均为 0」要求双
