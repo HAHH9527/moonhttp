@@ -137,3 +137,169 @@ async test "T013⑤ 默认构造：三路径 no-op 不 panic" {
   assert_true(body3.consumed())
   assert_false(body3.dropped())
 }
+
+///|
+// ===== P05 T003：FR-015 裁决面 dispose 语义元测试（contracts §2 六条）=====
+// spy 形态：on_dispose 闭包向数组写标记（同步段），dispose 返回后断言；
+// raise 通道用内建 Failure（测试专用，毒化由注入方在 raise 前完成）。
+
+///|
+// ① consumed()==true ⇒ dispose 为 no-op：Dropped 不触发、on_dispose 不调用
+async test "P05-D① 已消费后 dispose：no-op 不收尾" {
+  let (events, on_event) = event_collector()
+  let calls : Array[Int32] = []
+  let mr = @io.MemoryReader() <| w => { w.write(b"fully-read") }
+  let body = @core.ResponseBody::stream(mr, on_event~, on_dispose=async fn() {
+    @async.pause()
+    calls.push(1)
+  })
+  let _ = body.bytes()
+  assert_true(body.consumed())
+  body.dispose()
+  assert_eq(
+    events.length(),
+    1,
+    msg="已 Consumed ⇒ dispose 不得再触发 Dropped",
+  )
+  assert_true(events[0] is @core.ResponseBodyEvent::Consumed)
+  assert_eq(
+    calls.length(),
+    0,
+    msg="已 Consumed ⇒ on_dispose 不得调用（处置已由 Consumed 通道完成）",
+  )
+}
+
+///|
+// ② 未消费 dispose ⇒ 置 dropped 并触发 Dropped（与 drop() 同一互斥时序）
+// 随后 await on_dispose()
+async test "P05-D② 未消费 dispose：Dropped 触发后 await on_dispose" {
+  let (events, on_event) = event_collector()
+  let calls : Array[Int32] = []
+  let mr = @io.MemoryReader() <| w => { w.write(b"partially") }
+  let body = @core.ResponseBody::stream(mr, on_event~, on_dispose=async fn() {
+    @async.pause()
+    calls.push(1)
+  })
+  let _ = body.read_some()
+  body.dispose()
+  assert_true(
+    body.dropped(),
+    msg="dispose 应置 dropped（与 drop() 同一互斥时序）",
+  )
+  assert_false(body.consumed())
+  assert_eq(events.length(), 1)
+  assert_true(events[0] is @core.ResponseBodyEvent::Dropped)
+  assert_eq(calls.length(), 1, msg="on_dispose 应恰被 await 一次")
+}
+
+///|
+// ③ on_dispose raise ⇒ 错误透传（毒化由注入方在 raise 前完成）
+async test "P05-D③ on_dispose raise：错误透传" {
+  let mr = @io.MemoryReader() <| w => { w.write(b"raise-path") }
+  let body = @core.ResponseBody::stream(mr, on_dispose=async fn() {
+    @async.pause()
+    raise Failure("skip failed")
+  })
+  // 读一段保持「未读完」前态（并让 MemoryReader 生产者协程收尾，避免死锁检测）
+  let _ = body.read_some()
+  let raised = try {
+    body.dispose()
+    false
+  } catch {
+    err => err is Failure(_)
+  }
+  assert_true(
+    raised,
+    msg="on_dispose 的错误必须透传（contracts §2 条款 4）",
+  )
+}
+
+///|
+// ④ on_dispose 缺省 ⇒ 等价当前 drop()（纯状态标记，core 独立可用性）
+async test "P05-D④ 缺省 on_dispose：dispose 等价 drop 纯状态标记" {
+  let (events, on_event) = event_collector()
+  let mr = @io.MemoryReader() <| w => { w.write(b"no-hook") }
+  let body = @core.ResponseBody::stream(mr, on_event~)
+  let _ = body.read_some()
+  body.dispose()
+  assert_true(body.dropped())
+  assert_false(body.consumed())
+  assert_eq(events.length(), 1)
+  assert_true(events[0] is @core.ResponseBodyEvent::Dropped)
+}
+
+///|
+// ⑤ drop() 语义零变化：纯状态标记，dispose 不改变既有 drop 行为
+async test "P05-D⑤ drop 语义零变化" {
+  let (events, on_event) = event_collector()
+  let mr = @io.MemoryReader() <| w => { w.write(b"drop-only") }
+  let body = @core.ResponseBody::stream(mr, on_event~)
+  let _ = body.read_some()
+  body.drop()
+  body.drop()
+  assert_true(body.dropped())
+  assert_eq(events.length(), 1, msg="drop 幂等：Dropped 恰一次")
+  assert_true(events[0] is @core.ResponseBodyEvent::Dropped)
+  // 仅 drop 不 dispose ⇒ 纯标记、无其他副作用（调用方责任，文档口径）
+  assert_false(body.consumed())
+}
+
+///|
+// ⑥ 幂等与收尾唯一性：收尾整体至多一次；已收尾再 dispose ⇒ no-op；
+// 先 drop() 再 dispose() ⇒ Dropped 不重发、on_dispose 补执行恰一次；
+// dispose 后 drop 亦 no-op
+async test "P05-D⑥ 幂等与收尾唯一性" {
+  // 6a：double dispose ⇒ on_dispose 恰一次
+  {
+    let calls : Array[Int32] = []
+    let mr = @io.MemoryReader() <| w => { w.write(b"idem") }
+    let body = @core.ResponseBody::stream(mr, on_dispose=async fn() {
+      @async.pause()
+      calls.push(1)
+    })
+    // 读一段（生产者协程收尾；dispose 语义不要求读完）
+    let _ = body.read_some()
+    body.dispose()
+    body.dispose()
+    assert_eq(calls.length(), 1, msg="收尾动作整体至多一次有效")
+  }
+  // 6b：先 drop() 再 dispose() ⇒ Dropped 不重发、on_dispose 补执行一次
+  {
+    let (events, on_event) = event_collector()
+    let calls : Array[Int32] = []
+    let mr = @io.MemoryReader() <| w => { w.write(b"drop-then-dispose") }
+    let body = @core.ResponseBody::stream(mr, on_event~, on_dispose=async fn() {
+      @async.pause()
+      calls.push(1)
+    })
+    let _ = body.read_some()
+    body.drop()
+    body.dispose()
+    assert_eq(
+      events.filter(e => e is @core.ResponseBodyEvent::Dropped).length(),
+      1,
+      msg="Dropped 先到者赢、不重发",
+    )
+    assert_eq(
+      calls.length(),
+      1,
+      msg="drop 不阻断收尾：on_dispose 仍补执行",
+    )
+  }
+  // 6c：dispose 后 drop 亦 no-op
+  let (events, on_event) = event_collector()
+  let mr = @io.MemoryReader() <| w => { w.write(b"dispose-then-drop") }
+  let body = @core.ResponseBody::stream(mr, on_event~, on_dispose=async fn() {
+    @async.pause()
+    ()
+  })
+  let _ = body.read_some()
+  body.dispose()
+  body.drop()
+  assert_eq(
+    events.length(),
+    1,
+    msg="dispose 后 drop 静默（无二次 Dropped）",
+  )
+  assert_true(events[0] is @core.ResponseBodyEvent::Dropped)
+}

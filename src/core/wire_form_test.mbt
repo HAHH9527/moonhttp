@@ -182,7 +182,10 @@ async test "T009b 线上：Stream 体 Transfer-Encoding: chunked 与块编码" {
   // holder 模式（request_test.mbt:307-336 同口径）：同步回调只取走 Writer，
   // 真实异步写入由 wire_capture 在回调返回后经该 Writer 完成
   let holder : Array[&@io.Writer] = []
-  let body = @core.RequestBody::stream(writer => holder.push(writer))
+  let body = @core.RequestBody::stream(async fn(writer) {
+    @async.pause()
+    holder.push(writer)
+  })
   let req = @core.RequestBuilder::new(
       @core.HttpUrl::parse("http://127.0.0.1:1/"),
     )

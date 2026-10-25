@@ -33,7 +33,7 @@ pub fn HttpUrlError::to_repr(Self) -> @debug.Repr
 // Types and methods
 pub(all) enum BodySource {
   Bytes(Bytes)
-  Stream((&@io.Writer) -> Unit)
+  Stream(async (&@io.Writer) -> Unit)
 }
 pub fn BodySource::to_repr(Self) -> @debug.Repr
 pub impl @debug.Debug for BodySource
@@ -123,7 +123,7 @@ pub struct RequestBody {
   source : BodySource
 }
 pub fn RequestBody::bytes(Bytes, Int64, content_type? : String?) -> Self raise HttpMessageError
-pub fn RequestBody::stream((&@io.Writer) -> Unit, content_length? : Int64?, content_type? : String?) -> Self
+pub fn RequestBody::stream(async (&@io.Writer) -> Unit, content_type? : String?, content_length? : Int64?) -> Self
 pub fn RequestBody::to_repr(Self) -> @debug.Repr
 pub fn RequestBody::with_progress(Self, (Int64) -> Unit) -> Self
 pub impl @debug.Debug for RequestBody
@@ -167,10 +167,11 @@ pub struct ResponseBody {
 pub fn ResponseBody::buffered(Bytes) -> Self
 pub async fn ResponseBody::bytes(Self) -> Bytes
 pub fn ResponseBody::consumed(Self) -> Bool
+pub async fn ResponseBody::dispose(Self) -> Unit
 pub fn ResponseBody::drop(Self) -> Unit
 pub fn ResponseBody::dropped(Self) -> Bool
 pub async fn ResponseBody::read_some(Self, max_len? : Int) -> Bytes?
-pub fn ResponseBody::stream(&@io.Reader, on_event? : (ResponseBodyEvent) -> Unit) -> Self
+pub fn ResponseBody::stream(&@io.Reader, on_event? : (ResponseBodyEvent) -> Unit, on_dispose? : async () -> Unit) -> Self
 pub async fn ResponseBody::text(Self) -> String
 pub fn ResponseBody::to_repr(Self) -> @debug.Repr
 pub impl @debug.Debug for ResponseBody

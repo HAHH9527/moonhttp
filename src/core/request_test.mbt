@@ -308,7 +308,10 @@ async test "T015② Stream 进度：计数 Writer 累计与写量一致" {
   @async.with_task_group() <| _root => {
     let holder : Array[&@io.Writer] = []
     let events : Array[Int64] = []
-    let body = @core.RequestBody::stream(w => holder.push(w))
+    let body = @core.RequestBody::stream(async fn(w) {
+      @async.pause()
+      holder.push(w)
+    })
     let wrapped = body.with_progress(total => events.push(total))
     let (pipe_reader, pipe_writer) = @io.pipe()
     // 读侧排空（管道写侧必须有并发读者）；写端关闭后 EOF 结束
@@ -350,7 +353,10 @@ async test "T015① FR-009 累计不变式：单调递增、终值 = content_len
     let holder : Array[&@io.Writer] = []
     let events : Array[Int64] = []
     let body = @core.RequestBody::stream(
-      w => holder.push(w),
+      async fn(w) {
+        @async.pause()
+        holder.push(w)
+      },
       content_length=Some(1048576L),
     )
     let wrapped = body.with_progress(total => events.push(total))
@@ -429,7 +435,10 @@ test "T015③ 组合不变式：包装前后转换输出逐字节相同" {
 async test "T015④ 失败路径：错误可判别传播、on_bytes 不再回调" {
   let holder : Array[&@io.Writer] = []
   let events : Array[Int64] = []
-  let body = @core.RequestBody::stream(w => holder.push(w))
+  let body = @core.RequestBody::stream(async fn(w) {
+    @async.pause()
+    holder.push(w)
+  })
   let wrapped = body.with_progress(total => events.push(total))
   let counting : &@io.Writer = match wrapped.source {
     @core.BodySource::Stream(f) => {

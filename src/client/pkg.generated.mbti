@@ -1,10 +1,20 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "hahh9527/moonhttp/client"
 
+import {
+  "hahh9527/moonhttp/core",
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn placeholder() -> Bool
 
 // Errors
+pub suberror CallCancelled derive(@debug.Debug)
+pub fn CallCancelled::to_repr(Self) -> @debug.Repr
+
+pub suberror CallStateError derive(@debug.Debug)
+pub fn CallStateError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct Address {
@@ -19,6 +29,13 @@ pub fn Address::not_equal(Self, Self) -> Bool
 pub fn Address::port(Self) -> Int
 pub fn Address::scheme(Self) -> String
 
+pub struct Call {
+  // private fields
+}
+pub fn Call::cancel(Self) -> Unit
+pub async fn Call::execute(Self) -> @core.Response
+pub fn Call::is_cancelled(Self) -> Bool
+
 pub struct ConnectionPool {
   // private fields
 }
@@ -28,6 +45,12 @@ pub fn ConnectionPool::evict_expired(Self) -> Unit
 pub fn ConnectionPool::new(max_idle? : Int, keep_alive_ms? : Int) -> Self
 pub fn ConnectionPool::per_host_total(Self, Address) -> Int
 pub fn ConnectionPool::stale_evictions(Self) -> Int
+
+pub struct HttpClient {
+  // private fields
+}
+pub fn HttpClient::new(ConnectionPool) -> Self
+pub fn HttpClient::new_call(Self, @core.Request) -> Call
 
 pub struct Lease {
   // private fields

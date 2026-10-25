@@ -57,6 +57,8 @@ pub struct ResponseBody {
   priv mut dropped : Bool
   priv mut content_type : String?
   priv on_event : (ResponseBodyEvent) -> Unit
+  priv mut disposed : Bool // dispose 收尾唯一性标记（contracts §2 条款 6）
+  priv on_dispose : (async () -> Unit)?
 }
 
 ///|
@@ -93,15 +95,21 @@ pub fn ResponseBody::buffered(data : Bytes) -> ResponseBody {
     dropped: false,
     content_type: None,
     on_event: ResponseBody::noop_event,
+    disposed: false,
+    on_dispose: None,
   }
 }
 
 ///|
 /// stream 态构造：持有 `&@io.Reader` 与事件回调（缺省 no-op——FR-006
-/// 默认行为；真实归池/毒化接归 P04/P05）。
+/// 默认行为；真实归池/毒化接归 P04/P05）。`on_dispose?`（FR-015 裁决面，
+/// contracts §2）：显式异步收尾钩子——`dispose()` 在置 dropped/触发
+/// `Dropped` 后 await 它（注入方负责毒化在 raise 前完成）；缺省时
+/// dispose 等价 `drop()` 纯状态标记。
 pub fn ResponseBody::stream(
   reader : &@io.Reader,
   on_event? : (ResponseBodyEvent) -> Unit,
+  on_dispose? : async () -> Unit,
 ) -> ResponseBody {
   let cb = match on_event {
     Some(f) => f
@@ -114,6 +122,8 @@ pub fn ResponseBody::stream(
     dropped: false,
     content_type: None,
     on_event: cb,
+    disposed: false,
+    on_dispose,
   }
 }
 
@@ -250,6 +260,33 @@ pub fn ResponseBody::consumed(self : ResponseBody) -> Bool {
 /// 状态查询：是否已显式释放（`Dropped` 已触发）。
 pub fn ResponseBody::dropped(self : ResponseBody) -> Bool {
   self.dropped
+}
+
+///|
+/// 显式异步收尾（FR-015 裁决面，contracts/call-api.md §2；OkHttp
+/// body.close() 的异步对应物）。契约逐条：
+/// ① `consumed()` ⇒ no-op（处置已由 Consumed 通道完成）；
+/// ② 否则未 dropped 则置 dropped/触发 `Dropped`（与 `drop()` 同一互斥
+///    时序，先到者赢），随后 `await on_dispose()`；
+/// ③ `on_dispose` 缺省 ⇒ 等价 `drop()` 纯状态标记（core 独立可用性）；
+/// ④ `on_dispose` raise ⇒ 错误透传（毒化由注入方在 raise 前完成）；
+/// ⑤ `drop()` 语义零变化——仅 drop 不 dispose ⇒ 租约滞留，调用方责任；
+/// ⑥ 幂等与收尾唯一性：收尾动作（Dropped 触发 + await on_dispose）整体
+///    至多一次有效；已收尾再 dispose ⇒ no-op；先 drop() 再 dispose() ⇒
+///    Dropped 不重发、on_dispose 仍补执行一次；dispose 后 drop 亦 no-op。
+pub async fn ResponseBody::dispose(self : ResponseBody) -> Unit {
+  if self.consumed || self.disposed {
+    return
+  }
+  // 先置收尾标记再推进（await 期间二次 dispose 即 no-op——收尾唯一性）
+  self.disposed = true
+  // 与 drop() 同一互斥时序：未 dropped 才置位/触发（drop-then-dispose 时
+  // Dropped 先到者赢、此处静默不重发）
+  self.drop()
+  match self.on_dispose {
+    Some(f) => f()
+    None => ()
+  }
 }
 
 ///|

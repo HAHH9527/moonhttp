@@ -98,7 +98,9 @@ test "T007③ Content-Length：Bytes 含、Stream(None) 不含" {
     Some("7"),
   )
   // Stream 体（content_length=None）
-  let stream_body = @core.RequestBody::stream(_writer => ())
+  let stream_body = @core.RequestBody::stream(async fn(_writer) {
+    @async.pause()
+  })
   let stream_req = @core.RequestBuilder::new(sample_url())
     .method(@core.Method::Post)
     .body(stream_body)
@@ -110,7 +112,7 @@ test "T007③ Content-Length：Bytes 含、Stream(None) 不含" {
   )
   // Stream 体显式 Some(n) → 注入定长 Content-Length
   let fixed_stream = @core.RequestBody::stream(
-    _writer => (),
+    async fn(_writer) { @async.pause() },
     content_length=Some(12L),
   )
   let fixed_req = @core.RequestBuilder::new(sample_url())
@@ -189,7 +191,7 @@ test "T007④ 补：Content-Length 覆盖/删除/透传三态" {
   let deleted = @core.RequestBuilder::new(sample_url())
     .method(@core.Method::Post)
     .headers(hb2.build())
-    .body(@core.RequestBody::stream(_writer => ()))
+    .body(@core.RequestBody::stream(async fn(_writer) { @async.pause() }))
     .build()
   assert_eq(
     deleted.to_http_request().headers.get(

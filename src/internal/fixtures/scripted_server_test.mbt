@@ -847,3 +847,68 @@ async test "P04-FIX③ mount_sequence：同路由次序编排、末位驻留" {
     )
   }
 }
+
+///|
+// P05-FIX①（F-8 最小扩展，归因 FR-010）：单请求内 1xx→200 组合响应能力。
+// 判据：mount_interim 先裸写 1xx 状态线（interim）、随后按最终脚本应答；
+// 上游 @http end_request 的 1xx 跳过集（100 | 102..<200，client.mbt:243）
+// 消费 interim 后返回最终 200 响应。
+async test "P05-FIX① 1xx-then-200 组合响应：interim 透传后返回最终 200" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount_interim("GET", "/1xx", 100, {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"final"),
+      head_delay_ms: 0,
+      close_after_response: true,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=3000))
+    let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    client.request(Get, "/1xx")
+    let resp = client.end_request()
+    let body = client.read_all().text()
+    client.close()
+    serving.wait()
+    server.close()
+    assert_eq(resp.code, 200, msg="1xx 应被上游跳过，返回最终响应")
+    assert_eq(body, "final", msg="最终响应体应完整可读")
+  }
+}
+
+///|
+// P05-FIX②（体阶段断连注入，归因 FR-011/FR-005）：mount_truncated 下发
+// 完整响应头（CL=6）后不发体、关连接——上游 end_request 正常返回（头完整），
+// 体读以连接级错误收场。
+async test "P05-FIX② 断连注入：头完整、体读报错" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount_truncated("GET", "/cut", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"abcdef"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=3000))
+    let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    client.request(Get, "/cut")
+    let resp = client.end_request()
+    assert_eq(resp.code, 200, msg="响应头应完整下发")
+    let read_failed = try {
+      let _ = client.read_all().text()
+      false
+    } catch {
+      _ => true
+    }
+    client.close()
+    serving.wait()
+    server.close()
+    assert_true(
+      read_failed,
+      msg="体未发完即断 ⇒ 体读必须报错（FR-011 注入缝）",
+    )
+  }
+}

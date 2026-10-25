@@ -1,6 +1,9 @@
 import {
   "moonbitlang/async",
   "moonbitlang/async/http",
+  "moonbitlang/async/io",
+  "moonbitlang/core/debug",
+  "hahh9527/moonhttp/core",
   "hahh9527/moonhttp/internal/fixtures",
   "moonbitlang/core/test",
 }
@@ -18,6 +21,12 @@ import {
 // 结构须自带读写点，不再整包抑制；unused_package 保留（作用域实证
 // 理由见上：@fixtures/@test 仅测试引用所致，运行时依赖方向不变：
 // client → async/http）。
+//
+// P05（2026-10-25）增补 -reserved_keyword：`method` 是 P01 Method 与
+// fixtures RequestLineExpect 的冻结字段名（contracts/request.md、
+// fixtures-api.md），同时是 MoonBit 保留字——构造字面量处触发 [0035]
+// （core 包同名先例：src/core/moon.pkg T020 口径）。按包级配置精确
+// 关闭该警告，其余警告不受影响。
 
 options(
   warnings: "-unused_package",

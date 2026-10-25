@@ -50,6 +50,14 @@ pub(all) enum Framing {
 pub(all) enum RouteScript {
   Single(ResponseScript)
   Sequence(Array[ResponseScript])
+  // F-8 最小扩展（P05 T002，归因 FR-010）：单请求内 1xx→200 组合响应——
+  // 应答最终脚本前先裸写一条 1xx 状态线（interim_status ∈ 1xx 跳过集）。
+  InterimThen(Int32, ResponseScript)
+  // P05 T005/T010 体阶段断连注入（归因 FR-011/FR-005——US5③ skip 失败与
+  // US5④ 非取消错误毒化的注入缝；P03 无「头完整+体截断」程序化形态）：
+  // 按脚本声明下发完整响应头（含 CL/Connection: close）后**不发体、不
+  // end_response**、立即关连接——客户端体读/skip 必然失败。
+  Truncated(ResponseScript)
 }
 
 ///|
@@ -190,6 +198,39 @@ pub fn ScriptedServer::mount(
 }
 
 ///|
+/// interim 组合响应挂载（F-8 最小扩展，P05 T002，归因 FR-010）：同路由
+/// 先裸写一条 1xx 状态线再按脚本应答最终响应；与 mount 同为覆盖式声明。
+pub fn ScriptedServer::mount_interim(
+  self : ScriptedServer,
+  meth : String,
+  path : String,
+  interim_status : Int32,
+  script : ResponseScript,
+) -> Unit {
+  if self.closed {
+    return
+  }
+  self.routes[(meth, path)] = InterimThen(interim_status, script)
+  self.route_hits[(meth, path)] = 0
+}
+
+///|
+/// 断连注入挂载（P05 T005/T010，归因 FR-011/FR-005）：按脚本下发完整
+/// 响应头后不发体、立即关连接；与 mount 同为覆盖式声明。
+pub fn ScriptedServer::mount_truncated(
+  self : ScriptedServer,
+  meth : String,
+  path : String,
+  script : ResponseScript,
+) -> Unit {
+  if self.closed {
+    return
+  }
+  self.routes[(meth, path)] = Truncated(script)
+  self.route_hits[(meth, path)] = 0
+}
+
+///|
 /// 次序脚本挂载（F-7，P04 T002）：同路由第 i 次命中取 scripts[min(i,
 /// len-1)]（末位驻留）；与 mount 同为覆盖式声明，命中序随重声明复位。
 pub fn ScriptedServer::mount_sequence(
@@ -269,7 +310,7 @@ async fn ScriptedServer::serve_connection(
     self.conn_request_counts[conn_index] = self.conn_request_counts[conn_index] +
       1
     let key = (method_name(req.meth), req.path)
-    let script = match self.routes.get(key) {
+    let script_opt : ResponseScript? = match self.routes.get(key) {
       // F-7：Sequence 按命中序取 min(i, len-1)（末位驻留）；Single 原样
       Some(Sequence(scripts)) => {
         let i = self.route_hits.get(key).unwrap_or(0)
@@ -278,9 +319,29 @@ async fn ScriptedServer::serve_connection(
         Some(scripts[if i < last { i } else { last }])
       }
       Some(Single(script)) => Some(script)
+      Some(InterimThen(interim, script)) => {
+        // F-8（归因 FR-010）：最终应答前先发一条 1xx interim（经公开 API
+        // send_response+end_response；1xx 无体，end_response 仅 flush 状态线
+        // ——上游 utils_for_test.mbt:90 同款形态）。上游 end_request 按跳过
+        // 集（100 | 102..<200）消费后继续读最终响应。
+        conn.send_response(interim, "Continue")
+        conn.end_response()
+        Some(script)
+      }
+      Some(Truncated(script)) => {
+        // 体阶段断连注入（归因 FR-011/FR-005）：完整头（含 CL/Connection:
+        // close）→ 不发体、不 end_response → 立即关连接。客户端体读/skip
+        // 必然以连接级错误收场。
+        ScriptedServer::send_truncated_head(conn, script)
+        None
+      }
       None => None
     }
-    let keep = match script {
+    // Truncated 已在本 arm 内自管收尾（关连接、不续循环）
+    if self.routes.get(key) is Some(Truncated(_)) {
+      break
+    }
+    let keep = match script_opt {
       Some(script) => {
         let served = self.serve_script(conn, req, script)
         if served && script.close_after_response {
@@ -302,6 +363,42 @@ async fn ScriptedServer::serve_connection(
       break
     }
   }
+}
+
+///|
+// 断连注入的「完整头」下发（P05 T005/T010，归因 FR-011/FR-005）：按脚本
+// 组头（Fixed 补 CL；Echo/Drip 声明大 CL 制造「体未发完即断」）、恒派生
+// Connection: close，send_response 后不发体、不 end_response、关连接。
+async fn ScriptedServer::send_truncated_head(
+  conn : @http.ServerConnection,
+  script : ResponseScript,
+) -> Unit {
+  let extra = extra_headers_of(script.headers)
+  match script.body {
+    Static(bytes) =>
+      if script.framing is Fixed {
+        extra[@http.CaseInsensitiveString("Content-Length")] = "\{bytes.length()}"
+      }
+    // Echo/Drip 声明量未知：声明大 CL 制造「体未发完即断」
+    Drip(_, blocks, _) =>
+      if script.framing is Fixed {
+        extra[@http.CaseInsensitiveString("Content-Length")] = "\{blocks * 1024}"
+      }
+    Echo =>
+      if script.framing is Fixed {
+        extra[@http.CaseInsensitiveString("Content-Length")] = "1024"
+      }
+  }
+  extra[@http.CaseInsensitiveString("Connection")] = "close"
+  conn.send_response(
+    script.status,
+    reason_of(script.status),
+    extra_headers=extra,
+  )
+  // 头部经 Sender 缓冲——close 前必须 flush 保真上线（否则客户端在头段
+  // 即见 EOF，注入语义退化为头截断）
+  conn.flush()
+  conn.close()
 }
 
 ///|
@@ -561,4 +658,15 @@ pub fn ScriptedServer::close(self : ScriptedServer) -> Unit {
   }
   self.closed = true
   self.server.close()
+}
+
+///|
+// P05 测试缝（US-1⑥/US-1④ 捕获断言用）：构造 RequestLineExpect。`method`
+// 是 MoonBit 保留字（[0035]），客户端包未抑制该警告无法写字面量——本包
+// 已有包级抑制（T003 口径），经此 helper 收口。
+pub fn expect_request_line(
+  meth~ : String,
+  target~ : String,
+) -> RequestLineExpect {
+  { method: meth, target, }
 }

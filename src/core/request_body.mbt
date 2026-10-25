@@ -5,9 +5,14 @@
 // 设计（data-model §2；research R3/R4/R10）：
 //   - BodySource::Bytes(Bytes)：可重放——Bytes 为不可变引用值，克隆 O(1)、
 //     重放 N 次内容逐字节一致（SC-003）；构造期 O(1) 校验长度恒等（C3）。
-//   - BodySource::Stream((&@io.Writer) -> Unit)：一次性回调消费、不可重放；
-//     Writer 为 @http.Client 公开实现的底座 @io.Writer（C1 裁决——本包
-//     不自立 Writer trait、不暴露 @http.Client 具体类型）。
+//   - BodySource::Stream(async (&@io.Writer) -> Unit)：一次性回调消费、
+//     不可重放；Writer 为 @http.Client 公开实现的底座 @io.Writer（C1 裁决
+//     ——本包不自立 Writer trait、不暴露 @http.Client 具体类型）。
+//     【P05 T006 修订 2026-10-25】回调形态由同步 async 化：底座写入面
+//     （@io.Writer::write 等）为 async，同步回调在语言规则 [4149] 下不可
+//     能执行任何写入（P02 T015 仅以「捕获 Writer」形态测试，未暴露该缝）；
+//     async 化后既有同步闭包经 sync→async 子型继续可用（转换层/进度回调
+//     测试零改动），真实流式发送（P05 US-1④）从此可表达。
 //   - content_length : Int64?：None = 未知 → chunked（FR-004）；Some(n) =
 //     定长帧（转换层注入 Content-Length 触发上游 SendingFixed，research R3）。
 //   - 判等/哈希不承诺（R10：Stream 持函数，判等无语义；池键由 P01
@@ -18,7 +23,7 @@
 //     开关归 M3 F13/F12）。
 pub(all) enum BodySource {
   Bytes(Bytes)
-  Stream((&@io.Writer) -> Unit)
+  Stream(async (&@io.Writer) -> Unit)
 }
 
 ///|
@@ -99,9 +104,9 @@ pub fn RequestBody::bytes(
 /// （→ chunked），显式 Some(n) 走定长帧、写超/欠写由发送期上游
 /// `IncorrectBodyLength` 报错（P05 映射，research R3）。
 pub fn RequestBody::stream(
-  f : (&@io.Writer) -> Unit,
-  content_length~ : Int64? = None,
+  f : async (&@io.Writer) -> Unit,
   content_type~ : String? = None,
+  content_length~ : Int64? = None,
 ) -> RequestBody {
   { content_type, content_length, source: BodySource::Stream(f), }
 }
@@ -147,7 +152,7 @@ pub fn RequestBody::with_progress(
   match self.source {
     Bytes(_) => self
     Stream(f) => {
-      let source : BodySource = Stream(writer => {
+      let source : BodySource = BodySource::Stream(async fn(writer) {
         let counting : CountingWriter = { inner: writer, total: 0L, on_bytes, }
         f(counting)
       })
