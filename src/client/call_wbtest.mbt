@@ -332,6 +332,12 @@ async test "P05-WB⑦ on_dispose 注入三分支" {
       call_b.lease is None,
       msg="skip 失败 ⇒ lease 置 None（I-3，7b）",
     )
+    // 【护栏/落笔即绿判据，显式标注】Dropped 先到者赢：dispose 失败路径
+    // 不得再触发 Abandoned（T018 判据的互斥面）
+    assert_false(
+      call_b.abandoned_fired,
+      msg="dispose 路径 Dropped 已触发 ⇒ Abandoned 不触发（T018）",
+    )
     pool.evict_all()
     server.close()
     s2.wait() catch {
@@ -422,6 +428,12 @@ async test "P05-WB⑨ 迟到 cancel 竞争：归池连接不受影响" {
       pool.per_host_total(addr),
       1,
       msg="迟到 cancel 不得触发新建（不 double-close、复用如常，FR-012）",
+    )
+    // 【护栏/落笔即绿判据，显式标注】Consumed 先到者赢：迟到 cancel 不得
+    // 触发 Abandoned（T018 判据的反向面——毒化收尾仅对未消费体触发）
+    assert_false(
+      call.abandoned_fired,
+      msg="已消费体迟到 cancel 不得触发 Abandoned（T018）",
     )
     pool.evict_all()
     server.close()
@@ -541,7 +553,7 @@ async test "P05-WB⑪ 状态机直驱：Executing/Done 拒绝 execute" {
 // WB⑫（FR-005 第二轮 clarify/P02 owner 义务，T010）：读错误毒化路径上
 // Abandoned 查询面——consumed()/dropped() 双 false 中间态可查（本包据此
 // 在毒化收尾触发 Abandoned 处置；data-model §4）。
-async test "P05-WB⑫ 毒化路径 Abandoned 查询面" {
+async test "P05-WB⑫ 毒化路径 Abandoned 已触发" {
   @async.with_task_group() <| group => {
     let server = @fixtures.ScriptedServer::start()
     server.mount_truncated("GET", "/abandoned", {
@@ -577,6 +589,10 @@ async test "P05-WB⑫ 毒化路径 Abandoned 查询面" {
       msg="未 Dropped（毒化收尾按查询触发 Abandoned）",
     )
     assert_true(call.lease is None, msg="毒化收尾已完成（I-3）")
+    assert_true(
+      call.abandoned_fired,
+      msg="读错误毒化路径上 Abandoned 已触发（T010 原判据，T018 恢复）",
+    )
     pool.evict_all()
     server.close()
     s1.wait() catch {

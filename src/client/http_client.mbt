@@ -54,6 +54,10 @@ pub struct Call {
   priv mut lease : Lease? // 当前租约；处置完成即置 None（I-3 时序支点）
   priv mut folded : Map[@http.CaseInsensitiveString, String]? // L3 折叠缓存（I-2）
   priv mut fold_count : Int32 // 折叠计数（US-4 白盒断言面）
+  priv mut body_delivered : Bool // 响应已交付调用方（Abandoned 判据前态，T018）
+  priv mut body_consumed : Bool // Consumed 事件已见（on_event 通道，T018）
+  priv mut body_dropped : Bool // Dropped 事件已见（T018）
+  priv mut abandoned_fired : Bool // Abandoned 触发标记（T018 白盒断言面）
 }
 
 ///|
@@ -68,6 +72,10 @@ pub fn HttpClient::new_call(self : HttpClient, request : @core.Request) -> Call 
     lease: None,
     folded: None,
     fold_count: 0,
+    body_delivered: false,
+    body_consumed: false,
+    body_dropped: false,
+    abandoned_fired: false,
   }
 }
 
@@ -106,6 +114,11 @@ pub fn Call::cancel(self : Call) -> Unit {
 // CallStateError；cancelled → CallCancelled 零网络，FR-002a）→ 组内 spawn
 // 单轮 exchange → wait → handle_cancellation 把取消 None 映射为
 // CallCancelled（FR-003）。成功/失败/取消三路终态均置 Done（图 1，I-1）。
+//
+// FR-013 并发语义（C4 文档义务，T019 挂接本 API——P09 之前无 Dispatcher
+// 闸门）：本方法不做任何并发限制——同一 HttpClient 上并发 Call 各自独立
+// 租借连接、互不串响应；并发上限/排队闸门归 P09 Dispatcher（未在场），
+// 调用方自行控制并发度。
 pub async fn Call::execute(self : Call) -> @core.Response {
   // I-1 一次性：Pending 才可 execute；单线程模型 Pending→Executing 同步
   // 置位，无重入窗口
@@ -143,7 +156,12 @@ pub async fn Call::execute(self : Call) -> @core.Response {
   self.state = Done
   self.task = None
   match outcome {
-    Delivered(resp) => resp
+    Delivered(resp) => {
+      // Abandoned 判据前态（T018）：以「交付调用方」为体在场的起点——
+      // 组内构建但未及交付（取消/失败）无消费方可弃，不进入判据
+      self.body_delivered = true
+      resp
+    }
     Cancelled => {
       // FR-003 映射；I-6：随后收尾仅同步操作（poison/release/close）
       self.poison_release()
@@ -161,9 +179,3 @@ priv enum ExchangeOutcome {
   Cancelled
   Failed(Error)
 }
-
-///|
-// FR-013 并发语义文档（C4 文档义务，P09 之前无 Dispatcher 闸门）：
-// 本方法不做任何并发限制——同一 HttpClient 上并发 Call 各自独立租借
-// 连接、互不串响应；并发上限/排队闸门归 P09 Dispatcher（未在场）。
-// 调用方自行控制并发度。

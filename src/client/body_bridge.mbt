@@ -25,7 +25,12 @@ priv struct BodyBridge {
 ///|
 // 处置单点：poison+release + lease 置 None（同一步，杜绝双写错位——I-3）。
 // lease 已 None（cancel/前序处置已完成）⇒ no-op（FR-012 迟到竞争安全）。
+// 毒化收尾同步触发 Abandoned（T018，data-model §4）：dispose 失败路径
+// body_dropped 已 true ⇒ 不触发（Dropped 先到者赢）；读到底回池走
+// release_lease 不经此处 ⇒ 迟到 cancel 不误触发（WB⑨ 护栏）；
+// 读错误毒化路径 ⇒ 触发（WB⑫ 原判据）。
 fn Call::poison_release(self : Call) -> Unit {
+  self.fire_abandoned_if_orphaned()
   match self.lease {
     Some(lease) => {
       lease.poison()
@@ -33,6 +38,22 @@ fn Call::poison_release(self : Call) -> Unit {
       self.lease = None
     }
     None => ()
+  }
+}
+
+///|
+// Abandoned 触发判据（T018，data-model §4；P02 契约授予 owner 的收尾权）：
+// 体已交付调用方、且未 Consumed 且未 Dropped ⇒ 经 on_event 通道触发
+// Abandoned（幂等：abandoned_fired 拦截重入）。体未交付（execute 未
+// Delivered——取消/失败在途、预取消；或白盒直调 exchange_once 的桩路径）
+// ⇒ 无消费方可弃，不触发。
+fn Call::fire_abandoned_if_orphaned(self : Call) -> Unit {
+  let orphaned = self.body_delivered &&
+    !self.body_consumed &&
+    !self.body_dropped &&
+    !self.abandoned_fired
+  if orphaned {
+    self.on_body_event(@core.ResponseBodyEvent::Abandoned)
   }
 }
 
@@ -49,14 +70,20 @@ fn Call::release_lease(self : Call) -> Unit {
 }
 
 ///|
-// Consumed 事件处置（同步；P02 契约 data-model §4）：读到底 → 回池。
+// Consumed/Dropped/Abandoned 事件处置（同步；P02 契约 data-model §4，
+// T018 三态标记落位）：
+//   - Consumed：读到底 ⇒ 回池（FR-005）；
+//   - Dropped：仅状态（真实处置在 dispose 的 on_dispose 异步步，contracts
+//     §2 条款 2；先到者赢）；
+//   - Abandoned：触发标记置位（触发点在毒化收尾，data-model §4）。
 fn Call::on_body_event(self : Call, event : @core.ResponseBodyEvent) -> Unit {
-  if event is @core.ResponseBodyEvent::Consumed {
-    self.release_lease()
-  } else {
-    // Dropped：仅状态（真实处置在 dispose 的 on_dispose 异步步，
-    // contracts §2 条款 2）；Abandoned 由毒化收尾按查询触发（T010）。
-    ()
+  match event {
+    @core.ResponseBodyEvent::Consumed => {
+      self.body_consumed = true
+      self.release_lease()
+    }
+    @core.ResponseBodyEvent::Dropped => self.body_dropped = true
+    @core.ResponseBodyEvent::Abandoned => self.abandoned_fired = true
   }
 }
 

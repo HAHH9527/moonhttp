@@ -445,3 +445,47 @@ Call 内强制重放 N 次 + P03 捕获对端字节比对，不经 P06/P07
 - **[P] 语义**：不同文件、无未完成依赖；[Story] 标签对应 spec 用户故事
 - 每个 Checkpoint 处停机验证（TDD 纪律，宪法 IV）；js 与 wasm-gc 不入门
   禁（宪法 V，T016 口径）
+
+---
+
+## Phase 9: Convergence
+
+> 2026-10-25 converge 追加（append-only，不改既有任务）。意图清单＝
+> FR-001～015、SC-001～007、US-1～5 全部验收场景与 5 条边界、plan 决策
+> （R1–R9、contracts §1/§2、不变量 I-1～I-7）、宪法 I～VII；全部 17 条
+> 既有任务按当前代码行为复核（勾选态不作为证据）。实测证据：`moon clean`
+> 后 native/wasm `moon test --deny-warn` 双绿 **231/231**、
+> `moon fmt --check` 绿、`moon info` 工作树零 diff、js 检查失败与欠账
+> 登记一致（archive §4）。核对项中已在案登记、不另立任务者：在途读跨协程
+> 关连悬挂（R9 偏差 3＋archive §8-1 上游欠账）、js 编译失败（P03 既有，
+> archive §8-2）、Stream 回调 async 化（R9 偏差 1＋archive §1）、夹具三处
+> 扩展（R9 逐处归因）、US3②/WB⑩ 写停摆取消形态（R9 偏差 3）。剩余两项
+> actionable 缺口如下。
+
+- [X] T018 Abandoned 触发闭环（先红后绿）：毒化收尾路径（读失败
+  errdefer / dispose skip 失败 / 取消关连）按「未 Consumed 且未
+  Dropped」判据经既有 on_event 通道触发 `ResponseBodyEvent::Abandoned`，
+  Call 增 priv 触发标记供白盒断言；将 P05-WB⑫ 从「查询面双 false」
+  恢复为 T010 原判据「读错误毒化路径上 Abandoned 已触发」（先红）——
+  现状：src 内无任何 Abandoned 触发代码（core 冻结面无触发 API、client
+  无触发调用），body_bridge.mbt「Abandoned 由毒化收尾按查询触发」与
+  call_wbtest.mbt 注释声称已触发但与代码不符；若评估忠实落地必须 core
+  增面，先按治理流程回改 spec/contracts 归因后再实现，不得手改 tasks
+  绕开；同步修正上述两处注释与 archive.md §5「FR-001～015 无缺项」的
+  失实表述 per FR-005（2026-10-24 第二轮 clarify MUST）与 T010、
+  data-model §4（partial）
+  **产出（2026-10-25）**：`fire_abandoned_if_orphaned`（已交付 ∧ 未
+  Consumed ∧ 未 Dropped ⇒ 经 on_event 触发，幂等）挂接
+  `poison_release`；core/client 公开面零变化（`.mbti` 零 diff，未走
+  core 增面分支）；WB⑫ 更名「毒化路径 Abandoned 已触发」并恢复原判据
+  （先红实测：12 tests 11 过 1 败 → 接线后 12/12）；WB⑨/WB⑦ 补互斥
+  护栏（Consumed/Dropped 先到者赢不触发，落笔即绿已标注）；
+  archive.md §5 补记修正；修正后 native/wasm 全量 231/231 双绿、
+  `moon fmt --check` 绿
+- [X] T019 FR-013 API 文档落位（护栏/落笔即绿，显式标注）：将
+  `http_client.mbt` 文件末尾悬空的 FR-013 并发语义注释块（165～169 行，
+  「本方法」无指代对象）挂接到 `Call::execute` 的文档注释位，使 C4
+  「并发语义 MUST 在 API 文档显式声明」真实锚定公开 API——冒烟断言
+  P05-US1⑦ 已在场，无红绿对 per FR-013/T013（partial）
+  **产出（2026-10-25）**：注释块并入 `Call::execute` 文档注释（EOF 悬空
+  块删除），护栏判据显式标注

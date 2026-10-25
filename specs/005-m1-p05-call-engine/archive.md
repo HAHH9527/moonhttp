@@ -53,6 +53,16 @@ FR-001～015、SC-001～007 逐条对映 tasks.md 映射表全部在场并双 ta
 不变量 I-1～I-7 对映 T011/T006+T012/T005+T008+T009/T010/T004+T008/T007+T009
 /T014 全部落位。
 
+> **2026-10-25 converge 补记（修正本节原表述）**：本节归档时 FR-005 的
+> Abandoned 触发实际缺实现（WB⑫ 判据被降格为「查询面」断言，与「无缺项」
+> 结论不符）。已由 tasks.md Phase 9 / T018 闭环：毒化收尾
+> （`Call::poison_release`）按「已交付 ∧ 未 Consumed ∧ 未 Dropped」判据经
+> on_event 通道触发 Abandoned（`fire_abandoned_if_orphaned`，幂等），
+> WB⑫ 恢复 T010 原判据「读错误毒化路径上 Abandoned 已触发」，另在 WB⑨
+> （Consumed 先到者赢不触发）与 WB⑦⑦b（Dropped 先到者赢不触发）补互斥
+> 护栏；core 冻结面零变化（`.mbti` 零 diff）。本节「无缺项」结论自 T018
+> 起成立。
+
 ## 6. 宪法自查（随 PR 记录）
 
 - **I 非侵入底座**：全程仅 `@async`/`@http` 公开 API；零 fork/vendor；上游
