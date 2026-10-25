@@ -105,8 +105,8 @@ pub fn RequestBody::bytes(
 /// `IncorrectBodyLength` 报错（P05 映射，research R3）。
 pub fn RequestBody::stream(
   f : async (&@io.Writer) -> Unit,
-  content_type~ : String? = None,
   content_length~ : Int64? = None,
+  content_type~ : String? = None,
 ) -> RequestBody {
   { content_type, content_length, source: BodySource::Stream(f), }
 }

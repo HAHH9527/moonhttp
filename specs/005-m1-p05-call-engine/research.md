@@ -168,3 +168,41 @@ js 后端接入（`src/js_async/pkg.generated.mbti:18-32`；01 §测试方案）
 状态机/竞争），`-p` 全包名 + `Total tests` 非 0 假验证警示沿 004（quickstart
 §0）。断言优先 `assert_eq`/`assert_true(pattern is …)`；错误判别一律
 `err is CallCancelled` / `err is CallStateError`（FR-003）。
+
+## R9（T014/T017 归档）implement 期偏差与 `.mbti` 对账结论（2026-10-25）
+
+### `.mbti` 三面对账（FR-014/SC-007/I-7）
+
+- **client = contracts §1 恰等**：placeholder 保留；HttpClient::new/new_call；
+  Call::execute/cancel/is_cancelled；CallCancelled/CallStateError。
+  计划外项仅两组 `to_repr`——`pub extend … with @debug.Debug::{to_repr}`
+  为 [0079] implicit_impl_as_method 消除的配套写法（P01 HeadersError
+  先例、core mbti 既有同款），登记为沿惯例面。
+- **core = §2 且仅此 + 一处已登记偏差**（下）：stream 增 `on_dispose?` +
+  `dispose` 恰为 §2；P01 既有面零 diff。
+- **fixtures 非零 diff，逐处归因**：①`RouteScript::InterimThen` +
+  `mount_interim`（F-8，归因 FR-010）；②`RouteScript::Truncated` +
+  `mount_truncated`（体阶段断连注入——US5③ skip 失败与 US5④ 非取消错误
+  毒化的注入缝，P03 无「头完整+体截断」程序化形态，归因 FR-011/FR-005）；
+  ③`expect_request_line`（RequestLineExpect 构造缝——字段名 `method` 为
+  MoonBit 保留字 [0035]，client 包未抑制该警告，经本包已抑制处收口；
+  client 包同步增 `-unused_package` 既有口径不变）。
+
+### 偏差登记（宪法 VI 简洁纪律的显式例外，均最小化）
+
+1. **BodySource::Stream 回调 async 化**（core）：同步回调在语言规则 [4149]
+   下不可能执行任何底层写入（@io.Writer 全 async；P02 T015 仅以「捕获
+   Writer」形态测试未暴露该缝）——真实流式发送（US-1④）不可表达。async 化
+   后 `RequestBody::stream` 参数形态同步变更（标记参数次序不变）。
+2. **R1 修订**：`Task::cancel` 后 `task.wait()` 以
+   `WaitedTaskAlreadyCancelled` 呈现（非 handle_cancellation→None 通道），
+   execute 的取消映射显式 catching 该错误（http_client.mbt 注释块）。
+3. **上游缺口（欠账，宪法 I：不改上游）**：在途读阻塞中由另一协程关闭
+   socket，读协程在 native/wasm 双 target 悬挂（不醒来也不报错）——
+   US3③/WB⑩ 据此改用「读边界标记检查」与「写停摆取消」形态验收；在途读
+   取消的直驱形态待上游澄清后回补（登记欠账）。
+
+### SC-006 核查（T015 同轮）
+
+grep 测试文件目标地址：全部测试仅 `127.0.0.1` / `localhost` /
+夹具 `port()`——零外网端点。

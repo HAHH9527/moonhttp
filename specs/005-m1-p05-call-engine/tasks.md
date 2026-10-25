@@ -193,7 +193,7 @@ native+wasm 双绿，可独立验证后暂停
 native|wasm -f "P05-US3*"`（黑盒）+ `-f "P05-WB*"`（竞争/收尾白盒）——
 P03 慢速/滴流夹具 + 池计数断言；禁 sleep 串联，以夹具节奏与读边界推进
 
-- [ ] T008 [US3] cancel 三通道接线（先红后绿）：`src/client/
+- [X] T008 [US3] cancel 三通道接线（先红后绿）：`src/client/
   call_test.mbt` 写 P05-US3①～④（红；池计数断言等价式：毒化 ⇒
   `per_host_total(addr)` 不变 + 下次 execute 夹具 `accepted_total` +1，
   「再现次数 0」级断言走 P05-WB 白盒直读——analyze B2）——①预取消后 execute：立即
@@ -209,7 +209,7 @@ P03 慢速/滴流夹具 + 池计数断言；禁 sleep 串联，以夹具节奏�
   安全的支点：处置完成即置 None，迟到 cancel 只见 None**）；
   `src/client/body_bridge.mbt` 读边界接标记通道（T005⑥ 的 cancelled
   判定改读真实标记）
-- [ ] T009 [US3] 迟到 cancel 竞争与同步收尾白盒（先红后绿/护栏）：
+- [X] T009 [US3] 迟到 cancel 竞争与同步收尾白盒（先红后绿/护栏）：
   `src/client/call_wbtest.mbt` 写 P05-WB⑨⑩——⑨I-3/FR-012 竞争：读到底
   →release 回池→迟到 cancel→无错、不 double-close、已归池连接不受影响
   （下个 execute 复用且新建连接不增）；⑩I-6 收尾仅同步：
@@ -237,7 +237,7 @@ native|wasm -f "P05-US5*"`（黑盒）——P03 夹具（echo/残数据/断连�
 池计数断言；回池路径以「复用 + 夹具下个请求读到干净流」双证据断言
 （SC-005）
 
-- [ ] T010 [US5] 归还闭环三路径（先红后绿）：`src/client/call_test.mbt`
+- [X] T010 [US5] 归还闭环三路径（先红后绿）：`src/client/call_test.mbt`
   写 P05-US5①～⑤（红）——①流式 body 读到最后一块：连接回池（下次
   execute 复用、新建连接计数不增，US-5-1）；②读一半即弃→`dispose()`：
   skip 清理回池 + 夹具侧下个请求读到干净流无残帧（US-5-2 双证据，端到端
@@ -270,7 +270,7 @@ I-1）
 native|wasm -f "P05-US2*"`（黑盒）+ `-f "P05-WB*"`（状态机白盒）——纯
 Call 状态断言为主，失败前态需一次网络动作
 
-- [ ] T011 [US2] 一次性语义穷尽 + 状态机直驱（先红后绿）：
+- [X] T011 [US2] 一次性语义穷尽 + 状态机直驱（先红后绿）：
   `src/client/call_test.mbt` 写 P05-US2①～③（红）——①已完成（成功交付
   Response 后）、②已失败（网络错误透传后）、③已取消（CallCancelled 后）
   三种前态下二次 execute 均 `err is CallStateError`（FR-001）；`src/
@@ -293,7 +293,7 @@ Call 状态断言为主，失败前态需一次网络动作
 native|wasm -f "P05-US4*"`（白盒，按测试名跨文件收集）——桩接缝在同一
 Call 内强制重放 N 次 + P03 捕获对端字节比对，不经 P06/P07
 
-- [ ] T012 [US4] 重放零折叠白盒（先红后绿）：`src/client/
+- [X] T012 [US4] 重放零折叠白盒（先红后绿）：`src/client/
   call_wbtest.mbt` 写 P05-US4①（红；**盒型注记**：fold_count/folded 为
   包内私有，黑盒不可读（E4091，004 R9 先例），故 US-4 落白盒——
   quickstart §2「US-4（白盒）」口径一致）——带多条头与 Bytes 体（可
@@ -313,14 +313,14 @@ Call 内强制重放 N 次 + P03 捕获对端字节比对，不经 P06/P07
 
 **Purpose**: 并发语义文档化、冻结审视、门禁收口、对账与归档
 
-- [ ] T013 [P] FR-013 并发语义文档 + 冒烟（先红后绿）：`src/client/
+- [X] T013 [P] FR-013 并发语义文档 + 冒烟（先红后绿）：`src/client/
   call_test.mbt` 写 P05-US1⑦（红）——同一 HttpClient 并发 N≥8 个 Call
   （对齐 004 K=8 先例）：各自租借不同连接、互不串响应
   （`peak_concurrent==N` 断言，池并发租借
   前提）→ `src/client/http_client.mbt` API 文档注释显式声明：P09 之前
   无 Dispatcher 闸门、并发 Call 各自独立租借（C4 文档义务）；文档部分
   为护栏判据（非红绿），显式标注
-- [ ] T014 `.mbti` 冻结面对账（FR-014/SC-007/I-7）：`moon info` 后逐条
+- [X] T014 `.mbti` 冻结面对账（FR-014/SC-007/I-7）：`moon info` 后逐条
   对照 `contracts/call-api.md`——`src/client/pkg.generated.mbti` 恰为
   §1（placeholder 保留 + HttpClient::new/new_call + Call::execute/
   cancel/is_cancelled + CallCancelled/CallStateError；**无** enqueue/
@@ -328,7 +328,7 @@ Call 内强制重放 N 次 + P03 捕获对端字节比对，不经 P06/P07
   回调参数）；`src/core/pkg.generated.mbti` 恰为 §2 且仅此；
   `src/internal/fixtures` 零 diff（F-8 例外逐处归因 FR-010）；命名全
   snake_case
-- [ ] T015 收口六门（最终轮先 `moon clean` 再全量）：quickstart §1 逐条
+- [X] T015 收口六门（最终轮先 `moon clean` 再全量）：quickstart §1 逐条
   ——`moon check --target native/wasm --deny-warn`、`moon test --target
   native/wasm --deny-warn`（`-p` 只认全包名 `hahh9527/moonhttp/client`，
   执行后核对 `Total tests:` = 运行时基线 191 + 新增数且非 0，换算见
@@ -337,10 +337,10 @@ Call 内强制重放 N 次 + P03 捕获对端字节比对，不经 P06/P07
   `127.0.0.1`/`localhost` + 夹具 `port()`（无外网端点，analyze C3）；
   随后按映射表（下）对账 FR-001～015、SC-001～007
   覆盖无缺项
-- [ ] T016 js 非门禁（D14/F9）：`moon check --target js` 编译验证（零
+- [X] T016 js 非门禁（D14/F9）：`moon check --target js` 编译验证（零
   `#cfg(js)` 分支，R7）；可行时 node 冒烟（execute+cancel 直通路径），
   失败不阻塞合入、登记欠账（归池/毒化语义不适用 js，随 M5 收口）
-- [ ] T017 收尾归档（plan 收尾事项 1～4）：`.mbti` 三面对账结论归档本
+- [X] T017 收尾归档（plan 收尾事项 1～4）：`.mbti` 三面对账结论归档本
   特性目录、F-8 核实结论归档（T002 产出）、`placeholder` 保留确认（P6
   延续，删除评估留后续收口片）、宪法自查（I/III/IV/V/VI/VII）随 PR
   记录（含持续盯防两处：取消收尾无 async 操作、body 阶段 cancel 的

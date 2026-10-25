@@ -6,3 +6,7 @@ target/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 本地测试调试输出（moon test stdout 重定向）
+*.log
+*.out

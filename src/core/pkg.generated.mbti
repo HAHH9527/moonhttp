@@ -123,7 +123,7 @@ pub struct RequestBody {
   source : BodySource
 }
 pub fn RequestBody::bytes(Bytes, Int64, content_type? : String?) -> Self raise HttpMessageError
-pub fn RequestBody::stream(async (&@io.Writer) -> Unit, content_type? : String?, content_length? : Int64?) -> Self
+pub fn RequestBody::stream(async (&@io.Writer) -> Unit, content_length? : Int64?, content_type? : String?) -> Self
 pub fn RequestBody::to_repr(Self) -> @debug.Repr
 pub fn RequestBody::with_progress(Self, (Int64) -> Unit) -> Self
 pub impl @debug.Debug for RequestBody

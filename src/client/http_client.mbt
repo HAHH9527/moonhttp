@@ -114,6 +114,9 @@ pub async fn Call::execute(self : Call) -> @core.Response {
     Executing | Done => raise CallStateError
   }
   if self.cancelled {
+    // 预取消首检（FR-002a 零网络）：前态定格为 Done（图 1 取消终态），
+    // 使「已取消」二次 execute 得 CallStateError（T011③ 穷尽面）
+    self.state = Done
     raise CallCancelled
   }
   self.state = Executing
@@ -126,7 +129,14 @@ pub async fn Call::execute(self : Call) -> @core.Response {
         None => Cancelled
       }
     } catch {
-      err => Failed(err)
+      err =>
+        // R1 修订（implement 实证）：Task::cancel 后 task.wait 以
+        // WaitedTaskAlreadyCancelled 呈现（非 None 通道）——同样映射取消
+        if err is @async.WaitedTaskAlreadyCancelled {
+          Cancelled
+        } else {
+          Failed(err)
+        }
     }
   }
   // 终态置位（图 1：成功/失败/取消三路均 Done）
