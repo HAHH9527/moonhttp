@@ -22,11 +22,17 @@ import {
 // 理由见上：@fixtures/@test 仅测试引用所致，运行时依赖方向不变：
 // client → async/http）。
 //
-// P05（2026-10-25）增补 -reserved_keyword：`method` 是 P01 Method 与
-// fixtures RequestLineExpect 的冻结字段名（contracts/request.md、
-// fixtures-api.md），同时是 MoonBit 保留字——构造字面量处触发 [0035]
-// （core 包同名先例：src/core/moon.pkg T020 口径）。按包级配置精确
-// 关闭该警告，其余警告不受影响。
+// P05（2026-10-25 收敛 T026）import 增补归因（基线 309e890~1 仅 4 个
+// import：async/async/http/fixtures/core——git 已核实；P05 新增三个，满足
+// tasks 原「moon.pkg 零改动预期」的逐处汇报义务）：
+//   - "moonbitlang/async/io"（@io）：T005 BodyBridge 实现 @io.Reader
+//     （体读取适配，FR-005/US-5 消费面）；
+//   - "hahh9527/moonhttp/core"（@core）：T004 Call 持 Request/Response、
+//     T006 ResponseBody::stream（FR-015 裁决面）；
+//   - "moonbitlang/core/debug"（@debug）：T004 错误变体 derive(@debug.Debug)
+//     （FR-003 判别面）。
+// 复核结论（T026）：本包无 `method` 字面量构造点，--deny-warn 双 target
+// 现绿，无需 -reserved_keyword（core 包 src/core/moon.pkg 口径不适用本包）。
 
 options(
   warnings: "-unused_package",
