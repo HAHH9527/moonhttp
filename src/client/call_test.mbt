@@ -859,6 +859,76 @@ async test "P05-US5⑤ 空 body 即刻消费完成且回池" {
 }
 
 ///|
+// P05-US5⑥（FR-011/宪法 IV，T023 补判据）：execute 段非取消错误验收——
+// 夹具 PeerProgram::AcceptClose（accept 后立即关连，收头前失败，零夹具
+// 扩展）。断言：错误原样透传（非 CallCancelled 且非 CallStateError）+
+// 毒化不回池（后续 execute 新建 +1；夹具侧证据＝第二次 run 重新 accept
+// 到新连接且按 AcceptClose 语义 early-broken——ScriptedPeer 无
+// accepted_total 计数，run 返回即 accept 发生的凭证）。
+// 【补判据：落笔即绿，显式标注】exchange.mbt 的 errdefer poison_release
+// 实现已在场（既有实现无测试的判据缺口），本用例补齐验收判据、首跑即绿
+// （非红绿对；错误透传路径已由 T021 组外兜底落实）。
+async test "P05-US5⑥ execute 段断连：错误透传 + 毒化不回池" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(AcceptClose)
+    let running1 = group.spawn(() => peer.run(timeout_ms=3000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let call = get_call_to(client, peer.port(), "/cut-early")
+    let failed = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => !(err is @client.CallCancelled) && !(err is @client.CallStateError)
+    }
+    assert_true(
+      failed,
+      msg="execute 段非取消错误必须原样透传（FR-011，T023）",
+    )
+    // 夹具侧收尾：AcceptClose 的 run 正常返回（early-broken 捕获）
+    let capture1 = running1.wait()
+    assert_false(
+      capture1.complete,
+      msg="夹具语义确认：accept 后立即关连（AcceptClose）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="毒化路径不新建（计数守恒）",
+    )
+    // 毒化不回池证据：后续 execute 必须新建（夹具第二次 accept）
+    peer.mount(AcceptClose)
+    let running2 = group.spawn(() => peer.run(timeout_ms=3000))
+    let next = get_call_to(client, peer.port(), "/cut-early")
+    let second_failed = try {
+      let _ = next.execute()
+      false
+    } catch {
+      _ => true
+    }
+    assert_true(second_failed, msg="第二条连接同按 AcceptClose 失败")
+    let capture2 = running2.wait()
+    assert_false(
+      capture2.complete,
+      msg="夹具侧第二次 accept 到新建连接（毒化不回池的夹具证据）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="execute 段毒化 ⇒ 不回池，后续 execute 新建 +1（T023）",
+    )
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
 // ===== US-2：Call 一次性语义（Phase 6，T011 黑盒穷尽面）=====
 
 ///|

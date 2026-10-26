@@ -795,3 +795,36 @@ async test "P05-WB⑮ 失败路径终态：Done + task None" {
     )
   }
 }
+
+///|
+// P05-WB⑯（T023 补判据，FR-011）：execute 段非取消错误（AcceptClose 收头
+// 前关连）——白盒直读 `call.lease is None`（毒化收尾已完成，I-3；黑盒池
+// 计数证据见 P05-US5⑥）。
+// 【补判据：落笔即绿，显式标注】毒化收尾实现在场、首跑即绿（非红绿对）。
+async test "P05-WB⑯ execute 段断连：lease 已清（毒化收尾）" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(AcceptClose)
+    let running = group.spawn(() => peer.run(timeout_ms=3000))
+    let pool = ConnectionPool::new()
+    let client = HttpClient::new(pool)
+    let call = get_call_wb(client, peer.port(), "/cut-early")
+    let failed = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => !(err is CallCancelled) && !(err is CallStateError)
+    }
+    assert_true(
+      failed,
+      msg="execute 段非取消错误原样透传（FR-011，T023）",
+    )
+    assert_true(
+      call.lease is None,
+      msg="execute 段错误 ⇒ errdefer 毒化收尾 + lease 置 None（I-3，T023）",
+    )
+    let _ = running.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
