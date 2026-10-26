@@ -110,9 +110,18 @@ async fn Call::exchange_with_lease(
   // 不进本包公开面；101 原样返回归 M5，本包零特判，R2 锚点）
   let http_resp = lease.conn.end_request()
   // FR-007：响应声明 Connection: close ⇒ 旧连接不回池——先毒化标记，
-  // 其后体处置的 release 走关闭分支（对端已关/将关，回池必得死连接）
+  // 其后体处置的 release 走关闭分支（对端已关/将关，回池必得死连接）。
+  // T022（FR-007/SC-002）：@http 头值不归一、重复头以 "," 拼接——精确
+  // 小写比较漏判 `Close`（大小写）与 `keep-alive, close`（多值）两形态；
+  // 改 token 解析：split(',') 后逐段 trim + 小写比较，任一命中即毒化。
   match http_resp.headers.get(@http.CaseInsensitiveString("Connection")) {
-    Some(v) => if v == "close" { lease.poison() }
+    Some(v) =>
+      for token in v.split(",") {
+        if token.trim().to_lower() == "close" {
+          lease.poison()
+          break
+        }
+      }
     None => ()
   }
   let bridge_struct : BodyBridge = { call: self, inner: lease.conn, }

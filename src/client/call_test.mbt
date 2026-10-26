@@ -279,6 +279,103 @@ async test "P05-US1⑥ GET 冒烟：请求行 GET、零请求体" {
 }
 
 ///|
+// P05-US1⑧（FR-007/SC-002，T022 先红）：Connection: Close（大小写形态）
+// ——读完不回池：再次 execute 新建连接 +1（池侧计数 + 夹具 accepted_total
+// 双证据，仿 US1③）。现状精确小写比较漏判 ⇒ 红。
+async test "P05-US1⑧ Connection:Close（大小写）读完不回池、新建 +1" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/closing-upper", {
+      status: 200,
+      headers: [("Connection", "Close")],
+      framing: Fixed,
+      body: Static(b"first"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(2, timeout_ms=5000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let first = get_call_to(client, server.port(), "/closing-upper")
+    let resp1 = first.execute()
+    assert_eq(resp1.code(), 200, msg="大小写形态响应应正常收头")
+    assert_eq(resp1.body().unwrap().text(), "first")
+    let second = get_call_to(client, server.port(), "/closing-upper")
+    let resp2 = second.execute()
+    assert_eq(resp2.code(), 200)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="Connection: Close 大小写必须毒化不回池，第二次 execute 新建（FR-007/T022）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait()
+    assert_eq(
+      server.accepted_total(),
+      2,
+      msg="夹具侧应恰好接受 2 条连接（FR-007 双证据，T022）",
+    )
+  }
+}
+
+///|
+// P05-US1⑨（FR-007/SC-002，T022 先红）：Connection: keep-alive, close
+// （多值形态，重复头以 "," 拼接同款）——token 解析任一命中即毒化。
+async test "P05-US1⑨ Connection 多值 close 读完不回池、新建 +1" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/closing-multi", {
+      status: 200,
+      headers: [("Connection", "keep-alive, close")],
+      framing: Fixed,
+      body: Static(b"first"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(2, timeout_ms=5000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let first = get_call_to(client, server.port(), "/closing-multi")
+    let resp1 = first.execute()
+    assert_eq(resp1.code(), 200, msg="多值形态响应应正常收头")
+    assert_eq(resp1.body().unwrap().text(), "first")
+    let second = get_call_to(client, server.port(), "/closing-multi")
+    let resp2 = second.execute()
+    assert_eq(resp2.code(), 200)
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="keep-alive, close 多值必须 token 毒化不回池，新建 +1（FR-007/T022）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait()
+    assert_eq(
+      server.accepted_total(),
+      2,
+      msg="夹具侧应恰好接受 2 条连接（FR-007 双证据，T022）",
+    )
+  }
+}
+
+///|
 // ===== US-3：cancel 三阶段（Phase 4，T008/T009 黑盒面）=====
 
 ///|
