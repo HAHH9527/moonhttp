@@ -489,3 +489,107 @@ Call 内强制重放 N 次 + P03 捕获对端字节比对，不经 P06/P07
   P05-US1⑦ 已在场，无红绿对 per FR-013/T013（partial）
   **产出（2026-10-25）**：注释块并入 `Call::execute` 文档注释（EOF 悬空
   块删除），护栏判据显式标注
+
+---
+
+## Phase 10: Convergence
+
+> 2026-10-25 第二轮 converge 追加（append-only；不改既有任务与勾选态）。意图
+> 清单＝FR-001～015、SC-001～007、US-1～5 全部验收场景（13）与边界（5）、plan
+> 决策（R1–R9、contracts §1/§2、不变量 I-1～I-7）、宪法 I～VII；19 条既有任务
+> 按当前代码行为复核（勾选态不作为证据）。实测（本轮）：`moon clean` 后
+> native/wasm `moon test --deny-warn` 双绿 **231/231**、`moon check` 双 target
+> 绿、`moon fmt --check` 绿、`moon info` 工作树零 diff。承上轮 triage 已在案、
+> 不另立任务者：在途读跨协程关连悬挂（R9 偏差 3／archive §8-1；SC-003
+> 「0 挂死」在 in-flight 读形态下未成立，属上游能力降级——建议 owner 后续在
+> spec 措辞层收敛）、US3②/WB⑩ 写停摆形态（R9 偏差 3）、`BodySource::Stream`
+> async 化（R9 偏差 1；可选参次序已核实未变）、js 编译失败（P03 既有）、
+> fixtures 三处扩展（R9 逐处归因）。剩余 7 项 actionable 缺口如下。
+
+- [X] T020 读错误路径取消映射（先红后绿）per FR-002a/US-3-3（partial）：
+  `src/client/body_bridge.mbt:116-134` 的 `read_checked` 仅在读**边界**两次
+  检查 `cancelled`；`self.inner.read_some` 抛错时 `errdefer` 只做
+  `poison_release` 后原样外泄网络错误，注释 `:6-7` 声称的「cancelled ⇒ 映射
+  裸 CallCancelled」在错误路径不成立——2026-10-24 第二轮 clarify 裁决
+  「`cancelled==true` 时读路径任何失败一律映射 `CallCancelled`」未落地。
+  改法：以 try/catch 取代 errdefer（毒化仍先于映射；未取消 ⇒ 原样透传不
+  包装），把映射抽成可白盒直驱的单一判定（或等价形态）并补确定性用例：
+  置 `call.cancelled` 后直驱错误映射 ⇒ `err is CallCancelled`；未取消对照
+  ⇒ 原错误，不误映射；跑双 target 与 `-f "P05-WB*"`
+  **产出（2026-10-26）**：`Call::map_read_error` 单点判定 + `read_checked`
+  errdefer 改 try/catch（毒化先于映射，读前边界检查在 try 外、读后成功
+  路径取消检查随其后语义零变化）；WB⑬⑭ 直驱实测（先红＝编译红
+  map_read_error 不存在 → 绿＝双 target 全过），commit 84f6c44
+- [X] T021 失败路径终态置位与死分支清理（先红后绿）per I-1/data-model §3
+  图 1（partial）：`src/client/http_client.mbt:136-172` 的
+  `@async.with_task_group` 在子任务失败时于组退出重抛（上游
+  `task_group.mbt:258-274` `Fail(err) => raise err`），故 `:155-171` 的
+  `state = Done`/`task = None`/`match outcome` 在**失败路径不可达**（源码
+  推定，须以 T021 白盒用例实测确认）——预期语义为 `state` 停留 `Executing`、
+  `task` 残留 `Some`、`ExchangeOutcome::Failed`（`:177-181`）为死分支；
+  `P05-US2②` 之所以绿是靠 `Executing` 也抛
+  `CallStateError`（FR-001 偶然满足，图 1「失败──▶ Done」未落实）。将终态
+  置位移到组外兜底（catch 失败 ⇒ `Done`+清 task 后再透传），补白盒断言
+  「失败后 `state is Done` 且 `task is None`」，并删除或启用 `Failed` 分支；
+  保持取消/成功两路行为与既有用例零回归
+  **产出（2026-10-26）**：WB⑮ 实测确认组退出重抛推定（先红 1 败：state
+  停留 Executing）；终态置位兜底移组外 errdefer 形态（初版 try/catch 触发
+  上游 [0092] fragile_catch_all 门，按其建议改 errdefer——清理不涉 err、
+  语义等价且取消安全：失败 ⇒ state=Done + 清 task 后原样透传）；
+  `ExchangeOutcome::Failed` 死分支与变体删除；US2①③/US3 全系/WB⑨⑩ 零
+  回归，commit 5a123f4
+- [X] T022 `Connection: close` 判定 token 化（先红后绿）per FR-007/SC-002
+  （partial）：`src/client/exchange.mbt:114-117` 用 `v == "close"` 精确
+  小写比较；@http 头值不归一（`parser.mbt:266-282`），重复头以 `","` 拼接，
+  故 `Connection: Close`、`keep-alive, close` 均漏判 ⇒ 本应关闭的连接按
+  poison 未置位回池（死连接）。改按 token 解析（`split(',')` +
+  `trim().to_lower() == "close"`）；补大小写与多值头用例（夹具
+  `extra_headers` 可直发原值，逐处归因 FR-007），断言「读完不回池、下次
+  新建 +1」双证据
+  **产出（2026-10-26）**：token 解析落位 exchange.mbt（任一命中即
+  poison）；US1⑧⑨ 大小写/多值双证据（先红＝US1 套件 2 败——两形态均
+  漏判死连接回池 → 绿＝US1 9/9 双 target），夹具零扩展，commit 3be0ec7
+- [X] T023 execute 段非取消错误验收补齐（先红后绿）per FR-011/宪法 IV
+  （partial）：现有注入全部落在体阶段（`call_test.mbt:616-719` 的
+  `mount_truncated`、`call_wbtest.mbt:268-347`），请求发送/`end_request`
+  阶段的非取消错误无判据（`exchange.mbt:78-86` 的 `errdefer
+  poison_release` 有实现、无测试）。以既有 `PeerProgram::AcceptClose`
+  （或 `PartialResponse(CutPoint::Nothing, true)`）在收头前关连，断言：
+  错误原样透传（`!(err is CallCancelled)` 且非 `CallStateError`）、
+  `call.lease is None`、后续 execute 新建计数 +1（毒化不回池）；夹具零扩展
+  优先，若确需扩展逐处归因 FR-011
+  **产出（2026-10-26）**：US5⑥ 黑盒（AcceptClose 错误透传 +
+  per_host_total +1，夹具侧证据以 ScriptedPeer 第二次 run 重新 accept 的
+  complete==false 凭证替代 accepted_total——该夹具无此计数器）+ WB⑯
+  白盒 `lease is None`；【补判据：落笔即绿，显式标注】errdefer 毒化收尾
+  实现在场、缺口为判据非行为，首跑即绿（非红绿对），commit 0f297e4
+- [X] T024 FR-013 并发语义改文档注释（护栏/落笔即绿，显式标注）per
+  FR-013/C4（partial）：`src/client/http_client.mbt:112-121` 的
+  「P09 之前无 Dispatcher 闸门」为 `//` 行注释（全文件 `///` 文档注释计数
+  为 0），`moon doc` 不可见——T019「并入 `Call::execute` 文档注释」的
+  声称不成立。改为 `///` 文档注释并挂到 `pub async fn Call::execute`
+  （含并发语义与调用方自控并发度），冒烟断言 `P05-US1⑦` 已在场、无红绿对
+  **产出（2026-10-26）**：execute 注释块（含 FR-013 段）改 `///` 文档注释
+  （全文件 `///` 计数 0→28，moon doc 可见、内容不缩水）；护栏/落笔即绿
+  显式标注，US1⑦ 冒烟确认在场，commit 8138359
+- [X] T025 `body_bridge.mbt` 头注与实现对齐 per 宪法 VI（contradicts）：
+  `:12-19` 声称「不委托上游弃用面 `_get_internal_buffer`/`_direct_read`」
+  「内部缓冲给空桩」，实际 `:110-112` 经 trait 面**委托内层缓冲**、
+  `:146-160` 的 `_direct_read` 是完整实现（且内部缓冲直通绕过读边界取消/
+  错误检查，仅因消费路径只走 `read_some` 而未暴露）。改正头注为零失真描述，
+  或使缓冲访问与 `read_checked` 同源（至少显式注明绕过语义与适用范围）；
+  不改公开面（I-7）
+  **产出（2026-10-26）**：头注与 `_get_internal_buffer` impl 注释零失真
+  对齐（三入口委托拓扑如实陈述：read_some/_direct_read ⇒ read_checked；
+  缓冲直通绕过读边界取消/错误检查的适用范围显式注明）；零代码改动、公开
+  面零变化（同 commit 8138359）
+- [X] T026 `src/client/moon.pkg` 注释与配置对齐 + import 归因 per 宪法 VI
+  （contradicts）：`:25-29` 声称「增补 `-reserved_keyword`」，`options`
+  （`:31-33`）仅 `"-unused_package"`——删除该段或真正加入并与 core
+  `moon.pkg`（`:5-7`）口径对齐；同轮补登 P05 对 `moon.pkg` 的 import 增补
+  （`@io`/`@core`/`@debug`）归因（tasks 原「零改动预期」的逐处汇报义务），
+  落点为本特性 research/archive 或文件内注释；`--deny-warn` 双 target 复核
+  **产出（2026-10-26）**：删除失实 `-reserved_keyword` 增补段（复核本包
+  无 `method` 字面量构造、--deny-warn 双 target 现绿未触发 [0035]，core
+  口径不适用）；同位补登 P05 import 归因三项 @io/@core/@debug（git 核实
+  基线 309e890~1 仅 4 import），commit 1a50bd8
