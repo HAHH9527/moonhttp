@@ -133,6 +133,15 @@ pub async fn Call::execute(self : Call) -> @core.Response {
     raise CallCancelled
   }
   self.state = Executing
+  // T021（I-1/图 1）：上游 with_task_group 在子任务失败时于组退出重抛
+  // （task_group.mbt worker catch 先置组态 Fail，body 内 catch 不改组态），
+  // 故组后终态置位在失败路径不可达——兜底置位移到组外（errdefer 形态，
+  // [0092] 建议；失败 ⇒ state=Done + 清 task 后错误原样透传，图 1
+  // 「失败──▶ Done」落实）。取消/成功两路终态置位见组后常规路径
+  errdefer {
+    self.state = Done
+    self.task = None
+  }
   let outcome : ExchangeOutcome = @async.with_task_group() <| group => {
     let task = group.spawn(() => self.exchange_once())
     self.task = Some(task)
@@ -144,15 +153,18 @@ pub async fn Call::execute(self : Call) -> @core.Response {
     } catch {
       err =>
         // R1 修订（implement 实证）：Task::cancel 后 task.wait 以
-        // WaitedTaskAlreadyCancelled 呈现（非 None 通道）——同样映射取消
+        // WaitedTaskAlreadyCancelled 呈现（非 None 通道）——同样映射取消；
+        // 其余错误直接 rethrow（T021：失败沿组退出重抛走组外兜底，
+        // Failed 中转变体已删）
         if err is @async.WaitedTaskAlreadyCancelled {
           Cancelled
         } else {
-          Failed(err)
+          raise err
         }
     }
   }
-  // 终态置位（图 1：成功/失败/取消三路均 Done）
+  // 终态置位（图 1：成功/取消两路均 Done；失败路已由组外 errdefer 兜底
+  // 置位）
   self.state = Done
   self.task = None
   match outcome {
@@ -167,15 +179,15 @@ pub async fn Call::execute(self : Call) -> @core.Response {
       self.poison_release()
       raise CallCancelled
     }
-    Failed(err) => raise err
   }
 }
 
 ///|
-// execute 子任务结果三分支（Delivered 正常交付 / Cancelled 正常取消 /
-// Failed 其他错误——handle_cancellation 语义，research R1）。
+// execute 子任务结果两分支（Delivered 正常交付 / Cancelled 正常取消——
+// handle_cancellation 语义，research R1）。T021 死分支清理：失败沿「组退出
+// 重抛 → 组外兜底置位」直达 execute 异常通道，原 Failed 中转变体已删
+// （源码推定+WB⑮ 实测一致：组态 Fail 下组后代码不可达）。
 priv enum ExchangeOutcome {
   Delivered(@core.Response)
   Cancelled
-  Failed(Error)
 }

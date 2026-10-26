@@ -762,3 +762,36 @@ async test "P05-WB⑭ 读错误映射：未取消 ⇒ 原错误不误映射" {
     }
   }
 }
+
+///|
+// P05-WB⑮（T021 先红，I-1/data-model §3 图 1）：失败路径终态置位——
+// execute 失败（建连拒绝，US2② 同款注入）后白盒直读 state/task：
+// 预期 `state is Done` 且 `task is None`（图 1「失败──▶ Done」）。现状
+// 推定：上游 with_task_group 在子任务失败时组退出重抛（task_group.mbt
+// worker catch 处 state=Fail），组后终态置位不可达 ⇒ state 停留 Executing、
+// task 残留 Some——本用例先实测确认该推定（红），再以组外兜底转绿。
+async test "P05-WB⑮ 失败路径终态：Done + task None" {
+  @async.with_task_group() <| _group => {
+    let pool = ConnectionPool::new()
+    let client = HttpClient::new(pool)
+    let call = get_call_wb(client, 1, "/x")
+    let failed = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => !(err is CallCancelled) && !(err is CallStateError)
+    }
+    assert_true(
+      failed,
+      msg="建连失败应原样透传（网络错误不在此二层）",
+    )
+    assert_true(
+      call.state is Done,
+      msg="失败路径终态必须置 Done（图 1 失败──▶ Done，I-1/T021）",
+    )
+    assert_true(
+      call.task is None,
+      msg="失败路径必须清空子任务句柄（T021）",
+    )
+  }
+}
