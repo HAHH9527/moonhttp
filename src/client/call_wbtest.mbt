@@ -655,3 +655,110 @@ async test "P05-US4① 重放零折叠：fold 恰一次 + 线上字节逐字节�
     peer.close()
   }
 }
+
+///|
+// ===== P05-WB⑬⑭（T020，FR-002a/US-3-3 收敛）：读错误路径取消映射单点
+// `Call::map_read_error` 白盒直驱——cancelled ⇒ 裸 CallCancelled；未取消 ⇒
+// 原错误透传不误映射。错误源取自 WB⑤ 同款夹具注入形态（mount_truncated
+// 断连读失败的真实 Error），确定性、零 sleep（在途读跨协程关连悬挂为上游
+// 能力限制（R9 偏差 3），故不取集成形态）。
+
+///|
+// P05-WB⑬（T020 先红）：cancelled==true 时直驱错误映射 ⇒ `is CallCancelled`
+// ——读路径任何失败在取消态一律以裸 CallCancelled 呈现（FR-002a/US-3-3）。
+async test "P05-WB⑬ 读错误映射：cancelled ⇒ CallCancelled" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount_truncated("GET", "/map-cut", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"abcdef"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let s1 = group.spawn(
+      () => server.serve_once(timeout_ms=3000),
+      allow_failure=true,
+    )
+    let pool = ConnectionPool::new()
+    let client = HttpClient::new(pool)
+    let call = get_call_wb(client, server.port(), "/map-cut")
+    let resp = call.execute()
+    // WB⑤ 同款注入形态：取真实读错误（非构造值，保证映射判据成立前提）
+    let real_err : Error = try {
+      let _ = resp.body().unwrap().bytes()
+      abort("夹具应注入读错误")
+    } catch {
+      err => err
+    }
+    assert_true(
+      !(real_err is CallCancelled),
+      msg="前态确认：注入错误本身非 CallCancelled（对照基准）",
+    )
+    // 白盒直驱：置取消标记后映射
+    call.cancelled = true
+    let mapped = try {
+      raise call.map_read_error(real_err)
+      false
+    } catch {
+      err => err is CallCancelled
+    }
+    assert_true(
+      mapped,
+      msg="cancelled ⇒ 读错误映射裸 CallCancelled（FR-002a/US-3-3，T020）",
+    )
+    pool.evict_all()
+    server.close()
+    s1.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// P05-WB⑭（T020 先红）：cancelled==false 对照 ⇒ 原错误透传不误映射
+// （FR-011 不包装——防映射函数单向过度）。
+async test "P05-WB⑭ 读错误映射：未取消 ⇒ 原错误不误映射" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount_truncated("GET", "/map-passthru", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"abcdef"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let s1 = group.spawn(
+      () => server.serve_once(timeout_ms=3000),
+      allow_failure=true,
+    )
+    let pool = ConnectionPool::new()
+    let client = HttpClient::new(pool)
+    let call = get_call_wb(client, server.port(), "/map-passthru")
+    let resp = call.execute()
+    let real_err : Error = try {
+      let _ = resp.body().unwrap().bytes()
+      abort("夹具应注入读错误")
+    } catch {
+      err => err
+    }
+    assert_false(call.cancelled, msg="前态确认：未取消")
+    let not_mapped = try {
+      raise call.map_read_error(real_err)
+      false
+    } catch {
+      err => !(err is CallCancelled)
+    }
+    assert_true(
+      not_mapped,
+      msg="未取消 ⇒ 原错误透传不包装（FR-011，T020 对照面）",
+    )
+    pool.evict_all()
+    server.close()
+    s1.wait() catch {
+      _ => ()
+    }
+  }
+}

@@ -112,21 +112,40 @@ impl @io.Reader for BodyBridge with fn _get_internal_buffer(self) {
 }
 
 ///|
+// 读错误映射单点（T020，FR-002a/US-3-3 收敛裁决）：读路径任何失败在
+// cancelled 态一律映射裸 CallCancelled（「cancelled==true 时读路径任何失败
+// 一律映射 CallCancelled」2026-10-24 二轮 clarify 裁决的落地点）；未取消 ⇒
+// 原错误透传不包装（FR-011）。单一判定函数，白盒可直驱（P05-WB⑬⑭）。
+fn Call::map_read_error(self : Call, err : Error) -> Error {
+  if self.cancelled {
+    CallCancelled
+  } else {
+    err
+  }
+}
+
+///|
 // 读路径检查+委托（私有单点，read_some 与 _direct_read 共用）。
 async fn BodyBridge::read_checked(
   self : BodyBridge,
   max_len : Int32?,
 ) -> Bytes? {
   // 读边界发现 cancelled（cancel 已毒化+关连，这里只负责错误呈现，
-  // FR-002a/US-3-3）
+  // FR-002a/US-3-3）——读前边界检查保持在错误处置段之外（T020）
   if self.call.cancelled {
     raise CallCancelled
   }
-  // 读中网络错误：毒化不回池（FR-011/图 2，errdefer 收尾+透传）；随后按
-  // 取消态映射错误形态（未取消 ⇒ 原样透传不包装；cancelled ⇒ 裸
-  // CallCancelled，FR-002a）
-  errdefer self.call.poison_release()
-  let chunk = self.inner.read_some(max_len?)
+  // 读中网络错误（T020：errdefer 改 try/catch）：毒化先于映射——catch 内
+  // 先 poison_release（FR-011/图 2 收尾不回池）再经 map_read_error 按
+  // 取消态映射错误形态（cancelled ⇒ 裸 CallCancelled；未取消 ⇒ 原样透传，
+  // FR-002a/FR-011）
+  let chunk = self.inner.read_some(max_len?) catch {
+    err => {
+      self.call.poison_release()
+      raise self.call.map_read_error(err)
+    }
+  }
+  // 读后成功路径的取消边界检查（语义零变化：仅成功路径触达，T020）
   if self.call.cancelled {
     raise CallCancelled
   }
