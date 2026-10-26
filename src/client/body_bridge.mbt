@@ -9,14 +9,20 @@
 //     poison+release，US-3-3）。
 // 所有权（data-model 实体 4，2026-10-25 analyze C1）：处置动作统一经
 // Call.lease 单点生效（bridge 持 Call 引用触发处置，不自持租约副本）。
-// 宪法 I：仅包装 @http.Client 公开 Reader 面（read_some/等经 _direct_read
-// 单点委托）。
+// 宪法 I：仅包装 @http.Client 公开 Reader 面（T025 零失真对齐：委托方向
+// 为 read_some/_direct_read ⇒ read_checked ⇒ 内层 read_some；不点名/不
+// 引用上游弃用面，--deny-warn 门核查项）。
 
 ///|
 // 读适配器：包装 @http.Client（内持），读边界检查取消标记。
-// 注：不委托上游弃用面 `_get_internal_buffer`/`_direct_read`（--deny-warn
-// 门零弃用引用）——读语义经公开 `read_some` 委托单点收口，内部缓冲给
-// 空桩（ResponseBody 读取路径只走 read_some，桩不被消费路径触达）。
+// 注（T025 零失真对齐，三入口委托拓扑如实陈述）：
+//   - `read_some`（消费主面）与 `_direct_read` 均经私有 `read_checked`
+//     单点收口（读边界取消检查 + 读中错误映射，FR-002a/FR-011）；
+//   - `_get_internal_buffer` 直通内层缓冲——该直通**绕过** read_checked
+//     的读边界取消/错误检查，显式注明适用范围：当前消费路径只走
+//     read_some，此面不被触达，仅为 trait 完整性保留；
+//   - `_direct_read` 为本包完整实现（经 read_checked），不委托内层同名
+//     面，保默认 read/read_exactly 语义一致性。
 priv struct BodyBridge {
   call : Call
   inner : @http.Client
@@ -106,7 +112,9 @@ async fn Call::dispose_skip(self : Call, bridge : BodyBridge) -> Unit {
 ///|
 // Reader 委托：内部缓冲直通内层（经 trait 面 `@io.Reader::_get_internal_
 // buffer` 访问，规避弃用的隐式提升方法调用；返回类型不写、由内层推断，
-// 不点名内部 ReaderBuffer 类型）。
+// 不点名内部 ReaderBuffer 类型）。T025 对齐：该直通绕过 read_checked 的
+// 读边界取消/错误检查（显式注明适用范围——当前消费路径只走 read_some，
+// 此面不被触达）。
 impl @io.Reader for BodyBridge with fn _get_internal_buffer(self) {
   @io.Reader::_get_internal_buffer(self.inner)
 }

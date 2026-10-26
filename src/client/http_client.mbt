@@ -110,15 +110,19 @@ pub fn Call::cancel(self : Call) -> Unit {
 // protect_from_cancel 零使用（T009⑩ 结构审判据）。
 
 ///|
-// execute（FR-001/002/006/009；contracts §3）：Pending 首检（非 Pending →
-// CallStateError；cancelled → CallCancelled 零网络，FR-002a）→ 组内 spawn
-// 单轮 exchange → wait → handle_cancellation 把取消 None 映射为
-// CallCancelled（FR-003）。成功/失败/取消三路终态均置 Done（图 1，I-1）。
-//
-// FR-013 并发语义（C4 文档义务，T019 挂接本 API——P09 之前无 Dispatcher
-// 闸门）：本方法不做任何并发限制——同一 HttpClient 上并发 Call 各自独立
-// 租借连接、互不串响应；并发上限/排队闸门归 P09 Dispatcher（未在场），
-// 调用方自行控制并发度。
+/// execute（FR-001/002/006/009；contracts §3）：Pending 首检（非 Pending →
+/// CallStateError；cancelled → CallCancelled 零网络，FR-002a）→ 组内 spawn
+/// 单轮 exchange → wait → handle_cancellation 把取消 None 映射为
+/// CallCancelled（FR-003）。成功/失败/取消三路终态均置 Done（图 1，I-1）。
+///
+/// FR-013 并发语义（C4 文档义务，T019/T024 挂接本 API——P09 之前无
+/// Dispatcher 闸门）：本方法不做任何并发限制——同一 HttpClient 上并发 Call
+/// 各自独立租借连接、互不串响应；并发上限/排队闸门归 P09 Dispatcher
+/// （未在场），调用方自行控制并发度。
+///
+/// 【护栏/落笔即绿，T024 显式标注】本段由 `//` 行注释改为 `///` 文档注释
+/// （moon doc 可见；内容不缩水）。冒烟判据 P05-US1⑦（并发 8 Call 互不串
+/// 响应）已在场，无红绿对。
 pub async fn Call::execute(self : Call) -> @core.Response {
   // I-1 一次性：Pending 才可 execute；单线程模型 Pending→Executing 同步
   // 置位，无重入窗口
