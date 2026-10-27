@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "last_run": "2026-10-27T02:00:00.936Z",
+    "root": "E:\\Project\\moonhttp",
+    "include_patterns": [
+      "moon.mod",
+      "src/**/*.mbt",
+      "src/**/moon.pkg",
+      "bench/**/*.mbt",
+      "bench/**/moon.pkg"
+    ],
+    "exclude_patterns": [
+      "**/*_test.mbt",
+      "**/*_wbtest.mbt",
+      "**/*.mbti"
+    ],
+    "exceptions": []
+  },
+  "file_hashes": {
+    "bench/diag_crashctl/main.mbt": "8da18a3a990ef8d506253ae787ac2fb3",
+    "bench/diag_crashctl/moon.pkg": "d1de5e318ccc11ee2257fb0e691a2ca8",
+    "bench/diag_ovf/main.mbt": "6356c2b1295b491fd67d4150cfeaabc4",
+    "bench/diag_ovf/moon.pkg": "b429b0e8895d1593075d590dfa2e06f1",
+    "bench/diag_probe/main.mbt": "7279ee45c9af0b8aabf5607a0c8518cd",
+    "bench/diag_probe/moon.pkg": "7eb08a40e5c183f801d54891c5ff543e",
+    "bench/p02-t009-perf-probe/main.mbt": "53a6d7d474ea5bcfcfeee68cbe78831a",
+    "bench/p02-t009-perf-probe/moon.pkg": "6ee9f4e067857cff293644c0defdecc2",
+    "moon.mod": "88c5fd27d83992feef8e81790b514fcf",
+    "src/client/body_bridge.mbt": "c5cca2fc28dba61381e5b13c5127df2a",
+    "src/client/client.mbt": "b9dd46aad362a1b3503941b17c2e080f",
+    "src/client/exchange.mbt": "031ba02165cfd2b1224f659fd6771eeb",
+    "src/client/http_client.mbt": "66152b3afb103ae944d620f1a1ad5a87",
+    "src/client/moon.pkg": "f2be19116e9e727ba4676785b6ba0e96",
+    "src/core/conversion.mbt": "dfe63c5b027c4bd9d1d8865e4c1d3342",
+    "src/core/error.mbt": "8af26d1d774bb33ae79cb9f158c5ddb5",
+    "src/core/headers.mbt": "08f69a12fc5d74b3f4da37847b7bf993",
+    "src/core/http_url.mbt": "0f0d6892fd790fc64e98e6af28c7c1b8",
+    "src/core/message_error.mbt": "2ec85a28d3011ae1a60d5d424cd1efd6",
+    "src/core/method.mbt": "b3f509e58e64962727d9676bd23317c7",
+    "src/core/moon.pkg": "664eb6e6ffcfc4963be4c3e1b506a636",
+    "src/core/percent.mbt": "44aa7ffc58b84c36d609f928a23b0cfd",
+    "src/core/request.mbt": "353ce6a57a9586eebc64d5f16146ce93",
+    "src/core/request_body.mbt": "23e732316a56e7e84b02d67e5e8b8da0",
+    "src/core/resolve.mbt": "3a3d88092cbd56653c2a8f3846de9e99",
+    "src/core/response.mbt": "42910092eda0f0642b712953443cd232",
+    "src/core/response_body.mbt": "77289419be27c2fc22227d2faf1bc6c0",
+    "src/internal/fixtures/frames.mbt": "6bd999b1a0c4efbf5684e4c5d53acf65",
+    "src/internal/fixtures/moon.pkg": "281a0e05f825347e07fabc24ab040cc5",
+    "src/internal/fixtures/raw_peer.mbt": "af1c5d7e2c281de23d6dd8b0c8170767",
+    "src/internal/fixtures/scripted_server.mbt": "3e721b1c2f2b74064c46e5d235385c27"
+  },
+  "folder_hashes": {
+    ".": "813550cda5e35a9df398da29de1a7230",
+    "bench": "fe325ec79fc9de81ed0bd9779fbc91b0",
+    "bench/diag_crashctl": "c23577aae686e517aa205f16d54a9668",
+    "bench/diag_ovf": "71969bbce66d02472fe933f3fe1fbb74",
+    "bench/diag_probe": "d2297da0660acc6350dd4161879cad47",
+    "bench/p02-t009-perf-probe": "1593e828a8293f8fb88fd059918a893c",
+    "src": "6c5b81045d9c9f333e72dcf9c2995dee",
+    "src/client": "6163d50d4fc603c5f60c38e55f9448d8",
+    "src/core": "c47e6ac520cc5f3a3adc2bd557324121",
+    "src/internal": "4a5abd1679c2eb97c1983c867a6ee809",
+    "src/internal/fixtures": "4a5abd1679c2eb97c1983c867a6ee809"
+  }
+}
