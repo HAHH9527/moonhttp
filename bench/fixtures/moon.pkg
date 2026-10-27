@@ -1,0 +1,14 @@
+// T009 探针夹具快照（冻结副本）：逐字复制自主模块迁移提交 327ff7e 的
+// 父版本 src/fixtures/{raw_peer,frames}.mbt——即探针归档（2026-10-16）
+// 时的最后运行形态。主模块 fixtures 此后迁入 internal/ 并演进为
+// ScriptedPeer（RawPeer 已移除），跨模块又禁 import internal 包，
+// bench 独立模块无法直接依赖，故就地冻结本快照以保探针可复跑。
+// 禁止在本目录原地演进：改动应发生于 src/internal/fixtures，必要时重拷。
+// 宪法 I：仅经 moonbitlang/async 公开 API；宪法 IV：仅监听 127.0.0.1。
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/socket",
+}
+
+pkgtype(kind: "library")

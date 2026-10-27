@@ -23,6 +23,6 @@ abort，其后输出不出现。
 ## Integration
 
 - 依赖：无（moon.pkg 零 import），不触碰 src/client、src/core 任何 API。
-- 运行：bench/ 不参与构建；复跑时将本目录临时复制回 `src/diag_crashctl/`，
-  执行 `moon fmt && moon run src/diag_crashctl --target native`，跑完移回。
+- 运行：`cd bench && moon run diag_crashctl --target native`（bench 为独立
+  模块，仓库根构建/门禁不感知）。
 - 约束：无 *_test.mbt（不进 `moon test` 基线）；一次性探针。

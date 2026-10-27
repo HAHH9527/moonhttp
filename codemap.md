@@ -22,7 +22,7 @@
 | `src/client/` | 用户客户端层：`HttpClient` 门面、`Call` 状态机、`ConnectionPool`（Address 分桶 LIFO + keep-alive）、`exchange_once` 管线、`BodyBridge` 体桥接与租约处置 | [View Map](src/client/codemap.md) |
 | `src/internal/` | 内部支撑包命名空间，不对外发布为公共 API | [View Map](src/internal/codemap.md) |
 | `src/internal/fixtures/` | 回环测试夹具：`ScriptedServer` 声明式编排服务端、`ScriptedPeer` 裸 TCP 程序化对端、私有 `FrameScanner` 帧边界判定 | [View Map](src/internal/fixtures/codemap.md) |
-| `bench/` | T009 独立复核用一次性诊断/性能探针归档（`source="src"` 之外，不参与构建/门禁） | [View Map](bench/codemap.md) |
+| `bench/` | T009 独立复核用一次性诊断/性能探针归档（独立 moon 模块：`bench/moon.mod`+`bench/moon.work`；根构建/门禁不感知） | [View Map](bench/codemap.md) |
 
 ## Architecture at a Glance
 
@@ -40,7 +40,7 @@ moonbitlang/async 公开 API（@http / @io / @async.Mutex / task group / cancell
 ```
 
 - 依赖方向唯一：`client → core`；测试域经 `src/internal/fixtures` 回环夹具驱动。
-- `bench/` 各探针独立成包、互不依赖，仅复跑时临时移回 `src/` 构建。
+- `bench/` 各探针独立成包、互不依赖，`cd bench && moon run <探针> --target native` 独立运行（夹具用 bench/fixtures 冻结快照）；根构建/门禁不感知。
 
 ## Codemap Scope
 

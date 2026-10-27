@@ -27,7 +27,7 @@ complete/chunked/body_len/raw_len/note/head 保留情况。末行 `done`
 ## Integration
 
 - 依赖（moon.pkg）：`moonbitlang/async`、`moonbitlang/async/socket`、
-  `hahh9527/moonhttp/fixtures`（RawPeer 捕获夹具）。
-- 运行：复制回 `src/diag_ovf/` 后 `moon fmt && moon run src/diag_ovf --target native`，
-  跑完移回 bench/。
+  `hahh9527/moonhttp-bench/fixtures`（RawPeer 捕获夹具，本地冻结快照）。
+- 运行：`cd bench && moon run diag_ovf --target native`（bench 为独立模块，
+  仓库根构建/门禁不感知）。
 - 约束：仅连 127.0.0.1（宪法 IV）；无 *_test.mbt。

@@ -2,11 +2,12 @@
 
 ## Responsibility
 
-T009 独立复核（owner 2026-10-16 授权工单）用后归档的一次性探针包。
-`moon.mod` 的 `source = "src"` 使本目录不参与构建：`moon check/test`
-不扫描、不影响测试基线；各子目录均为独立可执行探针（各自 `main`），
-无 *_test.mbt。复跑：临时复制回 `src/<原名>/`，执行
-`moon fmt && moon run src/<原名> --target native`，跑完移回。
+T009 独立复核（owner 2026-10-16 授权工单）用后归档的一次性探针包，
+现为**独立 moon 模块**（`bench/moon.mod` + `bench/moon.work`）：仓库根
+构建/门禁不感知（`moon.work` 不向上泄漏，根模块 `source = "src"` 亦不
+扫描本目录）；本地依赖经 workspace 成员 `..` 解析到主模块源码。
+各子目录均为独立可执行探针（各自 `main`），无 *_test.mbt。
+复跑：`cd bench && moon run <目录名> --target native`。
 全部探针仅连 127.0.0.1（宪法 IV）、代码自建（D8）。
 
 ## Design
@@ -26,7 +27,8 @@ T009 独立复核（owner 2026-10-16 授权工单）用后归档的一次性探�
 
 ## Integration
 
-- 依赖面：`hahh9527/moonhttp/core`（公开转换层）、
-  `hahh9527/moonhttp/fixtures`（捕获夹具）、`moonbitlang/async` 及其
-  `http`/`socket` 子包；仅经公开 API 使用（宪法 I）。
+- 依赖面：`hahh9527/moonhttp/core`（公开转换层，经 moon.work 本地解析）、
+  `hahh9527/moonhttp-bench/fixtures`（RawPeer 捕获夹具，冻结快照
+  bench/fixtures/ ← 迁移提交 327ff7e 父版本的 src/fixtures）、
+  `moonbitlang/async` 及其 `http`/`socket` 子包；仅经公开 API 使用（宪法 I）。
 - 产物归档：各探针输出复制进 T009 复核报告；本目录不进任何门禁。

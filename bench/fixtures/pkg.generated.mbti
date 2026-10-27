@@ -1,0 +1,30 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "hahh9527/moonhttp-bench/fixtures"
+
+// Values
+
+// Errors
+
+// Types and methods
+pub(all) struct CapturedRequest {
+  head : Bytes
+  body : Bytes
+  raw : Bytes
+  chunked : Bool
+  complete : Bool
+  note : String?
+}
+pub fn CapturedRequest::head_text(Self) -> String
+pub fn CapturedRequest::raw_text(Self) -> String
+
+pub struct RawPeer {
+  // private fields
+}
+pub async fn RawPeer::capture_one(Self, timeout_ms? : Int32) -> CapturedRequest
+pub fn RawPeer::close(Self) -> Unit
+pub fn RawPeer::port(Self) -> Int32
+pub async fn RawPeer::start() -> Self
+
+// Type aliases
+
+// Traits

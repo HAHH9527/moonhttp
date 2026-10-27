@@ -26,7 +26,8 @@ T009 独立复核性能探针（B3，指示性 microbenchmark，非 P10 正式�
 ## Integration
 
 - 依赖（moon.pkg）：`moonbitlang/async`、`moonbitlang/async/http`、
-  `hahh9527/moonhttp/core`、`hahh9527/moonhttp/fixtures`。
-- 运行：复制回 `src/p02-t009-perf-probe/` 后
-  `moon fmt && moon run src/p02-t009-perf-probe --target native`。
+  `hahh9527/moonhttp/core`（经 moon.work 本地解析）、
+  `hahh9527/moonhttp-bench/fixtures`（本地冻结快照）。
+- 运行：`cd bench && moon run p02-t009-perf-probe --target native`
+  （bench 为独立模块，仓库根构建/门禁不感知）。
 - 约束：仅 127.0.0.1（宪法 IV）；代码自建（D8）；无 *_test.mbt。

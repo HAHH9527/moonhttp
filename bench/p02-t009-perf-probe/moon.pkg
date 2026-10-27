@@ -16,7 +16,7 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/http",
   "hahh9527/moonhttp/core",
-  "hahh9527/moonhttp/fixtures",
+  "hahh9527/moonhttp-bench/fixtures",
 }
 
 pkgtype(kind: "executable")

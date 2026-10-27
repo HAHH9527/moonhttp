@@ -33,7 +33,9 @@ T009 复核追加诊断探针（约 850 行，跑完归档）：
 ## Integration
 
 - 依赖（moon.pkg）：`moonbitlang/async`、`moonbitlang/async/http`、
-  `moonbitlang/async/socket`、`hahh9527/moonhttp/core`（转换层）、
-  `hahh9527/moonhttp/fixtures`（RawPeer/CapturedRequest）。
-- 运行：复制回 `src/diag_probe/` 后 `moon fmt && moon run src/diag_probe --target native`。
+  `moonbitlang/async/socket`、`hahh9527/moonhttp/core`（转换层，经
+  moon.work 本地解析）、`hahh9527/moonhttp-bench/fixtures`
+  （RawPeer/CapturedRequest，本地冻结快照）。
+- 运行：`cd bench && moon run diag_probe --target native`（bench 为独立
+  模块，仓库根构建/门禁不感知）。
 - 约束：仅 127.0.0.1（宪法 IV）；无 *_test.mbt。
