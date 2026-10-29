@@ -44,7 +44,7 @@ pub struct HeadersV {
 pub fn HeadersV::builder(Self) -> HeadersVBuilder
 pub fn HeadersV::equal(Self, Self) -> Bool
 pub fn HeadersV::get(Self, String) -> String?
-pub fn HeadersV::hash(Self) -> Int
+pub fn HeadersV::hash(Self) -> Int32
 pub fn HeadersV::hash_combine(Self, Hasher) -> Unit
 pub fn HeadersV::not_equal(Self, Self) -> Bool
 pub fn HeadersV::to_http_map(Self) -> Map[@http.CaseInsensitiveString, String]
@@ -57,7 +57,7 @@ pub struct HeadersVBuilder {
 pub fn HeadersVBuilder::add(Self, String, String) -> Unit raise HeadersError
 pub fn HeadersVBuilder::build(Self) -> HeadersV
 pub fn HeadersVBuilder::equal(Self, Self) -> Bool
-pub fn HeadersVBuilder::hash(Self) -> Int
+pub fn HeadersVBuilder::hash(Self) -> Int32
 pub fn HeadersVBuilder::hash_combine(Self, Hasher) -> Unit
 pub fn HeadersVBuilder::new() -> Self
 pub fn HeadersVBuilder::not_equal(Self, Self) -> Bool
@@ -68,20 +68,20 @@ pub fn HeadersVBuilder::to_repr(Self) -> @debug.Repr
 pub struct HttpUrl {
   scheme : @http.Protocol
   host : String
-  port : Int
+  port : Int32
   path_segments : Array[String]
   query : String?
   fragment : String?
 } derive(Eq, Hash, @debug.Debug)
 pub fn HttpUrl::equal(Self, Self) -> Bool
 pub fn HttpUrl::fragment(Self) -> String?
-pub fn HttpUrl::hash(Self) -> Int
+pub fn HttpUrl::hash(Self) -> Int32
 pub fn HttpUrl::hash_combine(Self, Hasher) -> Unit
 pub fn HttpUrl::host(Self) -> String
 pub fn HttpUrl::not_equal(Self, Self) -> Bool
 pub fn HttpUrl::parse(String) -> Self raise HttpUrlError
 pub fn HttpUrl::path_segments(Self) -> Array[String]
-pub fn HttpUrl::port(Self) -> Int
+pub fn HttpUrl::port(Self) -> Int32
 pub fn HttpUrl::query(Self) -> String?
 pub fn HttpUrl::resolve(Self, String) -> Self raise HttpUrlError
 pub fn HttpUrl::scheme(Self) -> @http.Protocol
@@ -101,7 +101,7 @@ pub(all) enum Method {
 } derive(Eq, Hash, @debug.Debug)
 pub fn Method::equal(Self, Self) -> Bool
 pub fn Method::from_request_method(@http.RequestMethod) -> Self
-pub fn Method::hash(Self) -> Int
+pub fn Method::hash(Self) -> Int32
 pub fn Method::hash_combine(Self, Hasher) -> Unit
 pub fn Method::not_equal(Self, Self) -> Bool
 pub fn Method::to_repr(Self) -> @debug.Repr
@@ -145,7 +145,7 @@ pub fn RequestBuilder::tag(Self, Unit?) -> Self
 pub fn RequestBuilder::to_repr(Self) -> @debug.Repr
 
 pub struct Response {
-  code : Int
+  code : Int32
   reason : String
   headers : HeadersV
   cookies : Array[@http.Cookie]
@@ -153,9 +153,9 @@ pub struct Response {
   prior : Response?
 } derive(@debug.Debug)
 pub fn Response::body(Self) -> ResponseBody?
-pub fn Response::code(Self) -> Int
+pub fn Response::code(Self) -> Int32
 pub fn Response::cookies(Self) -> Array[@http.Cookie]
-pub fn Response::from_http(Int, String, Map[@http.CaseInsensitiveString, String], Array[@http.Cookie], body? : ResponseBody?, prior? : Self?) -> Self
+pub fn Response::from_http(Int32, String, Map[@http.CaseInsensitiveString, String], Array[@http.Cookie], body? : ResponseBody?, prior? : Self?) -> Self
 pub fn Response::headers(Self) -> HeadersV
 pub fn Response::prior(Self) -> Self?
 pub fn Response::reason(Self) -> String
@@ -170,7 +170,7 @@ pub fn ResponseBody::consumed(Self) -> Bool
 pub async fn ResponseBody::dispose(Self) -> Unit
 pub fn ResponseBody::drop(Self) -> Unit
 pub fn ResponseBody::dropped(Self) -> Bool
-pub async fn ResponseBody::read_some(Self, max_len? : Int) -> Bytes?
+pub async fn ResponseBody::read_some(Self, max_len? : Int32) -> Bytes?
 pub fn ResponseBody::stream(&@io.Reader, on_event? : (ResponseBodyEvent) -> Unit, on_dispose? : async () -> Unit) -> Self
 pub async fn ResponseBody::text(Self) -> String
 pub fn ResponseBody::to_repr(Self) -> @debug.Repr

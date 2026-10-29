@@ -363,7 +363,7 @@ async test "P05-WB⑧ exchange_once 接缝：Address 推导 + 折叠恰一次" {
       .build()
     let call = client.new_call(request)
     assert_eq(call.fold_count, 0, msg="初态未折叠")
-    let resp1 = call.exchange_once()
+    let resp1 = call.exchange_once(request)
     assert_eq(
       resp1.code(),
       200,
@@ -375,7 +375,7 @@ async test "P05-WB⑧ exchange_once 接缝：Address 推导 + 折叠恰一次" {
     peer.mount(Capture)
     let running2 = group.spawn(() => peer.run(timeout_ms=3000))
     call.poison_release()
-    let resp2 = call.exchange_once()
+    let resp2 = call.exchange_once(request)
     assert_eq(resp2.code(), 200)
     assert_eq(call.fold_count, 1, msg="重放不重复折叠（I-2）")
     assert_true(
@@ -630,7 +630,7 @@ async test "P05-US4① 重放零折叠：fold 恰一次 + 线上字节逐字节�
     let captures : Array[@fixtures.CapturedRequest] = []
     for _i in 0..<3 {
       let running = group.spawn(() => peer.run(timeout_ms=3000))
-      let resp = call.exchange_once()
+      let resp = call.exchange_once(request)
       assert_eq(resp.code(), 200)
       call.poison_release()
       captures.push(running.wait())

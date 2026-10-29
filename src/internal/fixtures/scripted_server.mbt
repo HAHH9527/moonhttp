@@ -55,9 +55,10 @@ pub(all) enum RouteScript {
   InterimThen(Int32, ResponseScript)
   // P05 T005/T010 体阶段断连注入（归因 FR-011/FR-005——US5③ skip 失败与
   // US5④ 非取消错误毒化的注入缝；P03 无「头完整+体截断」程序化形态）：
-  // 按脚本声明下发完整响应头（含 CL/Connection: close）后**不发体、不
+  // 按脚本声明下发完整响应头（含 CL；Connection: close 由第二字段声明——
+  // review 修复批 FR-002 毒化判别需剥离 close-token 混淆）后**不发体、不
   // end_response**、立即关连接——客户端体读/skip 必然失败。
-  Truncated(ResponseScript)
+  Truncated(ResponseScript, Bool)
 }
 
 ///|
@@ -85,6 +86,7 @@ pub struct ScriptedServer {
   priv mut peak_conns : Int32 // 在途高水位（≥2 即证并发处理）
   priv mut accepted_total : Int32 // F-5：累计接受连接数（accept 成功点 +1）
   priv conn_request_counts : Array[Int32] // F-6：按 accept 序号的每连接请求数
+  priv captured_heads : Array[String] // T019：按请求到达序的「请求行+头」文本
 }
 
 ///|
@@ -165,6 +167,7 @@ pub async fn ScriptedServer::start() -> ScriptedServer {
         peak_conns: 0,
         accepted_total: 0,
         conn_request_counts: [],
+        captured_heads: [],
       }
     } catch {
       err => last_error = Some(err)
@@ -217,16 +220,21 @@ pub fn ScriptedServer::mount_interim(
 ///|
 /// 断连注入挂载（P05 T005/T010，归因 FR-011/FR-005）：按脚本下发完整
 /// 响应头后不发体、立即关连接；与 mount 同为覆盖式声明。
+/// `derive_close~`（review 修复批，contracts §3 登记例外）：是否派生
+/// `Connection: close` 头——缺省 true 保持既有语义；false 用于 FR-002
+/// 排干失败毒化的单点判别（US6 补③：无 close-token，毒化只能来自
+/// skip 失败路径）。
 pub fn ScriptedServer::mount_truncated(
   self : ScriptedServer,
   meth : String,
   path : String,
   script : ResponseScript,
+  derive_close~ : Bool = true,
 ) -> Unit {
   if self.closed {
     return
   }
-  self.routes[(meth, path)] = Truncated(script)
+  self.routes[(meth, path)] = Truncated(script, derive_close)
   self.route_hits[(meth, path)] = 0
 }
 
@@ -309,6 +317,17 @@ async fn ScriptedServer::serve_connection(
     // F-6：本连接每完成一次请求 +1（read_request 成功即一次完整请求）
     self.conn_request_counts[conn_index] = self.conn_request_counts[conn_index] +
       1
+    // T019（converge F1，owner 裁决① 2026-10-28）：与 F-6 计数同点捕获
+    // 「请求行+头」渲染文本，按到达序 push——SC-004「同 host follow-up
+    // 捕获字节完整保留 Authorization/Cookie」的黑盒观测面（原夹具丢弃头，
+    // 无请求头观测能力）。最小扩展：一字段一捕获一访问器（tasks Path
+    // Conventions「先红后绿最小扩展并逐处归因」授权口径）；头名以
+    // CaseInsensitiveString::to_string 原样字符串化，不做归一化承诺。
+    let mut head_text = "\{method_name(req.meth)} \{req.path}\r\n"
+    for k, v in req.headers {
+      head_text = head_text + "\{k.to_string()}: \{v}\r\n"
+    }
+    self.captured_heads.push(head_text)
     let key = (method_name(req.meth), req.path)
     let script_opt : ResponseScript? = match self.routes.get(key) {
       // F-7：Sequence 按命中序取 min(i, len-1)（末位驻留）；Single 原样
@@ -328,17 +347,17 @@ async fn ScriptedServer::serve_connection(
         conn.end_response()
         Some(script)
       }
-      Some(Truncated(script)) => {
-        // 体阶段断连注入（归因 FR-011/FR-005）：完整头（含 CL/Connection:
-        // close）→ 不发体、不 end_response → 立即关连接。客户端体读/skip
-        // 必然以连接级错误收场。
-        ScriptedServer::send_truncated_head(conn, script)
+      Some(Truncated(script, derive_close)) => {
+        // 体阶段断连注入（归因 FR-011/FR-005）：完整头（含 CL；close 头
+        // 按 derive_close 声明）→ 不发体、不 end_response → 立即关连接。
+        // 客户端体读/skip 必然以连接级错误收场。
+        ScriptedServer::send_truncated_head(conn, script, derive_close~)
         None
       }
       None => None
     }
     // Truncated 已在本 arm 内自管收尾（关连接、不续循环）
-    if self.routes.get(key) is Some(Truncated(_)) {
+    if self.routes.get(key) is Some(Truncated(_, _)) {
       break
     }
     let keep = match script_opt {
@@ -367,11 +386,14 @@ async fn ScriptedServer::serve_connection(
 
 ///|
 // 断连注入的「完整头」下发（P05 T005/T010，归因 FR-011/FR-005）：按脚本
-// 组头（Fixed 补 CL；Echo/Drip 声明大 CL 制造「体未发完即断」）、恒派生
-// Connection: close，send_response 后不发体、不 end_response、关连接。
+// 组头（Fixed 补 CL；Echo/Drip 声明大 CL 制造「体未发完即断」）、按
+// derive_close 决定是否派生 Connection: close（review 修复批：false 供
+// FR-002 毒化判别剥离 close-token 混淆），send_response 后不发体、不
+// end_response、关连接。
 async fn ScriptedServer::send_truncated_head(
   conn : @http.ServerConnection,
   script : ResponseScript,
+  derive_close~ : Bool = true,
 ) -> Unit {
   let extra = extra_headers_of(script.headers)
   match script.body {
@@ -389,7 +411,9 @@ async fn ScriptedServer::send_truncated_head(
         extra[@http.CaseInsensitiveString("Content-Length")] = "1024"
       }
   }
-  extra[@http.CaseInsensitiveString("Connection")] = "close"
+  if derive_close {
+    extra[@http.CaseInsensitiveString("Connection")] = "close"
+  }
   conn.send_response(
     script.status,
     reason_of(script.status),
@@ -646,6 +670,24 @@ pub fn ScriptedServer::conn_request_counts(
   let out : Array[Int32] = []
   for count in self.conn_request_counts {
     out.push(count)
+  }
+  out
+}
+
+///|
+/// 按请求到达序排列的「请求行+头文本」拷贝（T019/converge F1，owner 裁决①
+/// 2026-10-28）：SC-004「同 host follow-up 捕获字节完整保留 Authorization/
+/// Cookie」的黑盒观测面——原夹具无请求头观测能力（R7 口径），本访问器是
+/// 夹具观测面、非库行为面。每条目首行为 `"<METHOD> <path>"`，其后逐头一行
+/// `"<头名>: <值>"`；头名以 CaseInsensitiveString::to_string 原样字符串化，
+/// 不做大小写归一化承诺。拷贝语义——改写返回值不影响夹具内部状态
+/// （conn_request_counts 同款）。
+pub fn ScriptedServer::captured_request_heads(
+  self : ScriptedServer,
+) -> Array[String] {
+  let out : Array[String] = []
+  for text in self.captured_heads {
+    out.push(text)
   }
   out
 }

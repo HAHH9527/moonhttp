@@ -16,17 +16,20 @@ pub fn CallCancelled::to_repr(Self) -> @debug.Repr
 pub suberror CallStateError derive(@debug.Debug)
 pub fn CallStateError::to_repr(Self) -> @debug.Repr
 
+pub suberror TooManyFollowUps derive(@debug.Debug)
+pub fn TooManyFollowUps::to_repr(Self) -> @debug.Repr
+
 // Types and methods
 pub struct Address {
   // private fields
 } derive(Eq, Hash)
 pub fn Address::equal(Self, Self) -> Bool
-pub fn Address::hash(Self) -> Int
+pub fn Address::hash(Self) -> Int32
 pub fn Address::hash_combine(Self, Hasher) -> Unit
 pub fn Address::host(Self) -> String
-pub fn Address::new(scheme~ : String, host~ : String, port~ : Int) -> Self
+pub fn Address::new(scheme~ : String, host~ : String, port~ : Int32) -> Self
 pub fn Address::not_equal(Self, Self) -> Bool
-pub fn Address::port(Self) -> Int
+pub fn Address::port(Self) -> Int32
 pub fn Address::scheme(Self) -> String
 
 pub struct Call {
@@ -42,9 +45,9 @@ pub struct ConnectionPool {
 pub async fn ConnectionPool::acquire(Self, Address) -> Lease
 pub fn ConnectionPool::evict_all(Self) -> Unit
 pub fn ConnectionPool::evict_expired(Self) -> Unit
-pub fn ConnectionPool::new(max_idle? : Int, keep_alive_ms? : Int) -> Self
-pub fn ConnectionPool::per_host_total(Self, Address) -> Int
-pub fn ConnectionPool::stale_evictions(Self) -> Int
+pub fn ConnectionPool::new(max_idle? : Int32, keep_alive_ms? : Int32) -> Self
+pub fn ConnectionPool::per_host_total(Self, Address) -> Int32
+pub fn ConnectionPool::stale_evictions(Self) -> Int32
 
 pub struct HttpClient {
   // private fields

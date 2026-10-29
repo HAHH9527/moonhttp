@@ -10,7 +10,7 @@ pub fn expect_request_line(meth~ : String, target~ : String) -> RequestLineExpec
 pub(all) enum BodyPlan {
   Static(Bytes)
   Echo
-  Drip(Int, Int, Int)
+  Drip(Int32, Int32, Int32)
 }
 
 pub(all) struct CapturedRequest {
@@ -27,9 +27,9 @@ pub fn CapturedRequest::raw_text(Self) -> String
 
 pub(all) enum CutPoint {
   Nothing
-  MidStatusLine(Int)
+  MidStatusLine(Int32)
   AfterStatusLine
-  MidHeaderLine(Int)
+  MidHeaderLine(Int32)
 }
 
 pub(all) enum Framing {
@@ -41,7 +41,7 @@ pub(all) enum PeerProgram {
   AcceptClose
   CloseObservation
   PartialResponse(CutPoint, Bool)
-  SlowReceive(Int, Int)
+  SlowReceive(Int32, Int32)
   Capture
 }
 
@@ -51,19 +51,19 @@ pub(all) struct RequestLineExpect {
 }
 
 pub(all) struct ResponseScript {
-  status : Int
+  status : Int32
   headers : Array[(String, String)]
   framing : Framing
   body : BodyPlan
-  head_delay_ms : Int
+  head_delay_ms : Int32
   close_after_response : Bool
 }
 
 pub(all) enum RouteScript {
   Single(ResponseScript)
   Sequence(Array[ResponseScript])
-  InterimThen(Int, ResponseScript)
-  Truncated(ResponseScript)
+  InterimThen(Int32, ResponseScript)
+  Truncated(ResponseScript, Bool)
 }
 
 pub struct ScriptedPeer {
@@ -71,24 +71,25 @@ pub struct ScriptedPeer {
 }
 pub fn ScriptedPeer::close(Self) -> Unit
 pub fn ScriptedPeer::mount(Self, PeerProgram) -> Unit
-pub fn ScriptedPeer::port(Self) -> Int
-pub async fn ScriptedPeer::run(Self, timeout_ms? : Int) -> CapturedRequest
+pub fn ScriptedPeer::port(Self) -> Int32
+pub async fn ScriptedPeer::run(Self, timeout_ms? : Int32) -> CapturedRequest
 pub async fn ScriptedPeer::start() -> Self
 
 pub struct ScriptedServer {
   // private fields
 }
-pub fn ScriptedServer::accepted_total(Self) -> Int
+pub fn ScriptedServer::accepted_total(Self) -> Int32
+pub fn ScriptedServer::captured_request_heads(Self) -> Array[String]
 pub fn ScriptedServer::close(Self) -> Unit
-pub fn ScriptedServer::conn_request_counts(Self) -> Array[Int]
+pub fn ScriptedServer::conn_request_counts(Self) -> Array[Int32]
 pub fn ScriptedServer::mount(Self, String, String, ResponseScript) -> Unit
-pub fn ScriptedServer::mount_interim(Self, String, String, Int, ResponseScript) -> Unit
+pub fn ScriptedServer::mount_interim(Self, String, String, Int32, ResponseScript) -> Unit
 pub fn ScriptedServer::mount_sequence(Self, String, String, Array[ResponseScript]) -> Unit
-pub fn ScriptedServer::mount_truncated(Self, String, String, ResponseScript) -> Unit
-pub fn ScriptedServer::peak_concurrent(Self) -> Int
-pub fn ScriptedServer::port(Self) -> Int
-pub async fn ScriptedServer::serve_n(Self, Int, timeout_ms? : Int) -> Unit
-pub async fn ScriptedServer::serve_once(Self, timeout_ms? : Int) -> Unit
+pub fn ScriptedServer::mount_truncated(Self, String, String, ResponseScript, derive_close? : Bool) -> Unit
+pub fn ScriptedServer::peak_concurrent(Self) -> Int32
+pub fn ScriptedServer::port(Self) -> Int32
+pub async fn ScriptedServer::serve_n(Self, Int32, timeout_ms? : Int32) -> Unit
+pub async fn ScriptedServer::serve_once(Self, timeout_ms? : Int32) -> Unit
 pub async fn ScriptedServer::start() -> Self
 
 // Type aliases

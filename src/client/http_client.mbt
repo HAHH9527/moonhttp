@@ -15,6 +15,12 @@ pub suberror CallCancelled derive(@debug.Debug)
 pub suberror CallStateError derive(@debug.Debug)
 
 ///|
+// FR-005（P06）：follow-up 跳数超限——收到第 21 个仍需跟随的响应即抛
+// （至多实际发出 20 个 follow-up、总请求数 21；对齐 5.5.0
+// MAX_FOLLOW_UPS=20 的 ProtocolException，显式变体替代消息判别——R9）。
+pub suberror TooManyFollowUps derive(@debug.Debug)
+
+///|
 // 门面（data-model 实体 1）：唯一必需状态＝P04 池实例。P08/P09 配置位
 // 字段不建（YAGNI，plan 宪法核查 VI）。直连形态唯一构造（FR-008）。
 pub struct HttpClient {
@@ -27,6 +33,9 @@ pub extend CallCancelled with @debug.Debug::{to_repr}
 
 ///|
 pub extend CallStateError with @debug.Debug::{to_repr}
+
+///|
+pub extend TooManyFollowUps with @debug.Debug::{to_repr}
 
 ///|
 // 直连构造（FR-008）：持池引用、零网络动作、无 builder。
@@ -53,6 +62,9 @@ pub struct Call {
   priv mut task : @async.Task[@core.Response]? // 子任务句柄（FR-002b）
   priv mut lease : Lease? // 当前租约；处置完成即置 None（I-3 时序支点）
   priv mut folded : Map[@http.CaseInsensitiveString, String]? // L3 折叠缓存（I-2）
+  priv mut folded_gen : Int32 // 折叠缓存所属代次（P06 C4/INV-3）
+  priv mut gen : Int32 // 当前请求代次（P06：0 = 用户原请求，仅决定跟随后 +1）
+  priv mut conn_close_seen : Bool // 本轮响应已见 Connection: close（P06 INV-7）
   priv mut fold_count : Int32 // 折叠计数（US-4 白盒断言面）
   priv mut body_delivered : Bool // 响应已交付调用方（Abandoned 判据前态，T018）
   priv mut body_consumed : Bool // Consumed 事件已见（on_event 通道，T018）
@@ -71,12 +83,22 @@ pub fn HttpClient::new_call(self : HttpClient, request : @core.Request) -> Call 
     task: None,
     lease: None,
     folded: None,
+    folded_gen: 0,
+    gen: 0,
+    conn_close_seen: false,
     fold_count: 0,
     body_delivered: false,
     body_consumed: false,
     body_dropped: false,
     abandoned_fired: false,
   }
+}
+
+///|
+// 换代步进（P06 C4/实体 2；包内私有）：仅在循环决定跟随后调用（T004
+// exchange_loop advance 消费）；白盒 WB② 经同一直调点驱动换代。单调 +1。
+fn Call::advance_generation(self : Call) -> Unit {
+  self.gen = self.gen + 1
 }
 
 ///|
@@ -147,7 +169,7 @@ pub async fn Call::execute(self : Call) -> @core.Response {
     self.task = None
   }
   let outcome : ExchangeOutcome = @async.with_task_group() <| group => {
-    let task = group.spawn(() => self.exchange_once())
+    let task = group.spawn(() => self.exchange_loop())
     self.task = Some(task)
     try {
       match @async.handle_cancellation(() => task.wait()) {
