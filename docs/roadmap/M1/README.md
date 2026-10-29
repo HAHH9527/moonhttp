@@ -70,7 +70,7 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
 逐条登记如下（原文不回改）。其中牵扯后续里程碑的条目另提取为跨里程碑跟踪：
 总入口 [`../deferred-items.md`](../deferred-items.md)，M1 明细
 [`../deferred-items/deferred-items-m1.md`](../deferred-items/deferred-items-m1.md)
-（F1–F18，M2–M5 拆分必读）：
+（F1–F20，M2–M5 拆分必读）：
 
 | # | 差异 | 原文出处 | 理由与处理 |
 | --- | --- | --- | --- |
@@ -90,6 +90,7 @@ P01 | P03 → P02 → P04 → P05 → P06 → P07 → P08 → P10
 | D14 | **js 承诺口径**（2026-10-19）：原报告侧「P04 在 js 仅要求编译通过」不可由质量门兑现——六门从不跑 js，「编译通过」无法验证 | 03 §8（P04 测试方案）、M1 README D9 | P04 种子已按 D9 口径改写：js 标注**未验证（挂 F9，随 M5 收口）**；js/wasm-gc 收口口径同 D9 |
 | D15 | **驱逐驱动形态降级为惰性 + 显式**（2026-10-19 owner 裁决）：原报告 03 §3.3 的常驻 evictor（Timer 周期扫描，挂 HttpClient 的 TaskGroup、client 析构时取消，README.md:94）在 M1 不可实现——① M1 无 HttpClient（builder 归 P08），Timer 无处挂载；② MoonBit 无析构钩子，「析构时取消」无承载点；③ `spawn_bg` 只能在 `with_task_group` 组作用域内调用（task_group.mbt:129-130，出组即 abort），池自养常驻 evictor 无宿主。实证否决：常驻 evictor 每轮 await Timer 使 event loop 的 `timers` 恒非空，`get_next_timeout` 在 timers 非空时返回 ≥0（event_loop.mbt:301-311），deadlock 检查前置条件 `timeout < 0 && blocked_tasks == 0`（event_loop.mbt:353）永不触发——测试/进程静默挂住，只能靠 CI 外层超时兜底。采纳的替代口径：池只暴露同步 `evict_expired()`/`evict_all()`，超期判定为 `now` 的纯函数（`idle_since` 与 keep_alive 比较），`acquire`/`release` 顺手剔除超期者，周期扫描由调用方（P05/P09/P10）在各自 task group 里 `spawn_bg(no_wait=true)` 驱动 | 03 §3.3（README.md:94，P04 来源） | P04 种子已按裁决回写（范围驱逐条目、FR-005、关键设计要点、C2 四处落点；功能描述、US-3 场景 1、边界用例两行连带）；显式承担的代价：P10 的 RSS 曲线在空闲期不会自然回落，需 harness 在阶段边界显式调用 `evict_expired()`/`evict_all()` |
 | D16 | **Mutex 保护范围择定（2026-10-20 owner 裁决）**：03 原报告自身歧义——结构体行 `inner : Mutex[PoolInner]`（`03-connection-pool/README.md:53`，形态即全状态锁）与散文「池的 Mutex 只保护 idle 栈的取放」（`03-connection-pool/README.md:89`，窄口径）互相矛盾。择定**全状态锁**：PoolInner 六字段（idle/borrowed/closed/per_host_total/stale_evictions/next_conn_id）全部在锁内。理由：① 不变量 5 守恒恒等式（借出+空闲+已关＝累计新建）要求多张表一次原子更新；② R3「同步路径 try_acquire 恒成功」的前提是任何临界区都不让出——若按 :89 字面把 borrowed/closed 记账放锁外，两条论证同时失效 | 03 §3.2（README.md:53 结构行、:89 散文，P04 来源） | P04 种子 ：138-139 已按本行回写（Mutex 保护 PoolInner 全部状态，非仅 idle 栈取放）；specs/004 data-model 不变量 4 已补注记；P05/P07/P09/P10 后续 specify 必读本行 |
+| D17 | **P06 follow-up 性能量化场景补入 P10**（2026-10-28，specs/006-m1-p06-redirects converge F2 → T020 登记）：原文 14 §5 场景矩阵仅「连接形态 × 请求形态 × gzip」，无重定向/follow-up 场景——P06 交付的循环路径（中间体排干、同 host 租约保持、跨 host 换租、prior 链装配）的性能量化在 P10 种子中无落地对象，宪法 II「性能相关改动必须附带基准数据」的量化义务悬空（行为正确性已由 specs/006 SC-003/SC-006 断言，性能数据未量化） | 14 §5（P10 来源）；specs/006-m1-p06-redirects/plan.md「Performance Goals」、spec 映射表「量化归 P10」 | P10 种子场景矩阵补 follow-up 场景行（见 P10 文档场景矩阵，D17/F20 标注）；欠账 F20 入 deferred-items 总/分结构（回补位置 M1/P10）；P06 交付状态不进 roadmap（2026-10-18 裁决） |
 
 补充口径说明（非差异，仅为落地澄清）：
 

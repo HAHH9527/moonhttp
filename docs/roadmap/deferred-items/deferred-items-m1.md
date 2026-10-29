@@ -2,7 +2,7 @@
 
 > 用途：M1 工作包拆分（`docs/roadmap/M1/`）中**显式降级或裁剪、需后续里程碑回补**
 > 的条目明细。总入口与跨里程碑汇总见 [`../deferred-items.md`](../deferred-items.md)；
-> 差异源头与理由详表见 `docs/roadmap/M1/README.md` 第 3 节（D1–D15）。
+> 差异源头与理由详表见 `docs/roadmap/M1/README.md` 第 3 节（D1–D17）。
 > 后续里程碑（M2–M5）做 roadmap 拆分时必读：逐条核对，将到期条目纳入对应工作包。
 
 ## 使用约定
@@ -36,11 +36,16 @@
 | F17 | @http 客户端错误面无法区分响应截断点（2026-10-18，specs/003 澄清 D3） | `src/io/reader.mbt:217-224` 使 read_until 在 EOF 且缓冲非空时返回 Some(残余串)，`src/http/parser.mbt:401-403` 因此对半截状态行也拿到 Some，错误下移为 BadRequest 或在 :146/:167/:259 抛 ReaderClosed；@http 不暴露部分解析信号（`specs/003-m1-p03-test-fixtures/spec.md` 澄清 D3/证据 E4） | 未排期（需求驱动；若要真区分需上游暴露解析进度信号——**需人工批准候选**，侵入点编号＝新增候选·待分配） | 影响：P07 判据按**错误类型分流**——`ReaderClosed`（EOF 路径，parser.mbt:401-403）可重试、`BadRequest`（协议错误族，parser.mbt:404/:410-413）不可重试但毒化；钉死集合 {BadRequest, ReaderClosed} 仅是**可观测集合、不等同可重试集合**，不得以「客户端能观测到状态行已解析」为判据（P07 种子已按此改写，对齐 OkHttp RetryAndFollowUpInterceptor.kt:171-173/:197）；上游暴露解析进度信号后再评估精细判定。**P03 已交付部分（2026-10-18）**：E4/D3 推演的残余串下移路径获首次实测实证——drain 后 MidHeaderLine(8) 截断点客户端错误实测落 BadRequest（parser.mbt:404），Nothing/MidStatusLine(15)/AfterStatusLine 落 ReaderClosed（B-11 竞态自证 10/10 零翻转，t004-record.md 账目），钉死集合口径未动 | 待回补 |
 | F18 | `TcpServer::accept` 并发调用不安全（2026-10-18，specs/003 T008 实测） | 同一监听句柄并发挂 2 个 accept：**native 直接 PanicError 崩溃（exit 0xc0000409）、wasm/moonrun 悬挂不醒（>120s 无结局）**——双 target 探针实测（裸 `TcpServer::accept` ×2 + 2 客户端 connect，零夹具代码复现）；机制锚点 `network_windows.mbt:194-213` accept_windows 经 `handle.wait_read_result` 在同一句柄挂等待；上游唯一自证可行形态即 `run_forever`（tcp.mbt:141-172）循环内串行 accept（三分支 tcp.mbt:223/:231/:239）+ 连接经任务组 spawn_bg 并发处理。P03 夹具已按 owner 裁决 A 以 `serve_n` 收口 accept 循环（`specs/003-m1-p03-test-fixtures/data-model.md` 实体 2 注记：原「不设 serve_n」前提被 T008 实测推翻），测试代码保持零 accept 循环（FR-012）；B-04 行为判据不弱化（客户端侧真实并发 N=8 + 交错自证断言） | 未排期（**需人工批准候选**：向 moonbitlang/async 提 issue 确认并发 accept 语义/修复或文档显式声明串行约束，属宪法 I 上游改动，须事先人工批准；侵入点编号＝新增候选·待分配） | 上游若支持/修复并发 accept，再评估放开 P03 `serve_n` 的串行 accept；此前 P07+ 多连接并发场景的服务端形态一律走 `serve_n`（或逐条 serve_once） | 待回补 |
 | F19 | IPv6 字面量建连 URI 缺方括号（Host 头非 RFC 3986/7230 权威形态；2026-10-21 code-review 430423f6..HEAD 发现·MEDIUM，agent 独立核实锚点） | `acquire` 组装 `\{scheme}://\{host}:\{port}`（`src/client/client.mbt:241`；specs/004 contracts/pool-api.md §2 步骤 3 同款登记）；`Address::new` 按 FR-014 剥括号存储（client.mbt:33）⇒ IPv6 字面量拼出 `http://::1:8080`——上游 `resolve_host` 贪婪正则碰巧切对（request.mbt:55-72：`.*` 贪婪回溯后 host=`::1`、port=8080，TCP 可达），但 Host 头构造期固化为无括号形态（上游 client.mbt:58，R1 C-10），严格源站可拒；P04 无 IPv6 端到端用例（E④ 仅键语义）。属契约级潜在缺陷（代码与契约一致，非实现走样），故按 roadmap 纪律登记而非在已收敛的 P04 内热修 | **M1 / P05**（执行管线接线——acquire 建连路径的首个真实消费方） | 组装时对含 `:` 的 host 重新包裹 `[]`（与 P01 `HttpUrl::to_string` 行为对齐）；同步修订 contracts/pool-api.md §2 的 uri 形态登记（走 spec 变更流程回改 FR-008/D13 口径）；补 IPv6 loopback 端到端回归用例（夹具 listen 形态若仅 IPv4 需先扩，随 P05 评估） | 待回补 |
+| F20 | P06 follow-up/重定向性能量化场景缺失（2026-10-28，specs/006-m1-p06-redirects converge F2 → T020；M1 README D17） | P06 交付的 follow-up 循环路径（中间体排干 O(body)、同 host 租约保持消除归还-重取、代次重折叠每代次恰一次、prior 链每请求一次装配重建）无基准场景承载：P10 种子场景矩阵（14 §5）仅「连接形态×请求形态×gzip」，全文无重定向/follow-up；宪法 II「性能相关改动必须附带基准数据」的量化义务悬空（行为正确性已由 specs/006 SC-003/SC-006 断言，性能数据未量化） | **M1 / P10**（基准套件与性能门禁；P10 种子场景矩阵已按 D17 补 follow-up 场景行） | P10 specify 时将 follow-up 场景纳入基准实现与报告：单跳降级、多跳同 host（租约保持）vs 逐跳重建连接对照、跨 host 换租；含 prior 链每请求一次装配重建的开销观测（specs/006 converge 非任务观察：attach_prior 对每次 execute 重建终态 Response，量化落地 P10 后即暴露）；量化结果入 P10 基线归档（docs/benchmarks/），与 round1–3 口径对照 | 待回补 |
+| F21 | followRedirects/followSslRedirects 关闭跟随开关缺失（2026-10-28，specs/006-m1-p06-redirects review 修复批登记；P08 范围补登） | P06 spec 非目标（spec.md:214-216）与 OkHttp 映射表（:371）把 followRedirects/followSslRedirects 关闭跟随开关钦定归 P08 builder 配置位，但 P08 工作包全文零提及、deferred-items 零登记——里程碑拆分时静默丢失。M1 行为面＝恒跟随、恒允许 scheme 变更（＝OkHttp 两开关默认 true）；开关关闭后 3xx 一律终态透传 | **M1 / P08**（四类超时与 per-call 配置；builder 配置位随 new_builder 派生面一并交付） | P08 specify 时把两开关纳入 builder 配置面与验收场景（关闭 followRedirects ⇒ 3xx 终态透传、prior 链不累积；followSslRedirects 关闭 ⇒ 跨 scheme 降级跳终态），行为对齐 OkHttp followRedirects(action) 语义；P06 交付状态不回改 | 待回补 |
 
 ## 与里程碑的对应速查
 
 - **M1 内 P05**：F19（IPv6 URI 方括号修正 + 契约 §2 回改 + IPv6 回归用例，
   随执行管线接线一并落地）。
+- **M1 内 P10**：F20（follow-up/重定向场景入基准矩阵 + 量化归档，
+  M1 README D17）。
+- **M1 内 P08**：F21（followRedirects/followSslRedirects 开关）。
 - **M2**：F1（拦截器链）、F2（代理）、F3（DNS 缓存）、F4（File 体）、F5（便捷方法）、
   F6（认证）——共 6 条，M2 拆分时逐条核对。
 - **M3**：F4 之外另注意 D3 的 `trust` 指纹字段（07-tls-security 的自定义信任/证书固定

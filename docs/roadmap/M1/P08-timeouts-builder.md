@@ -30,6 +30,10 @@ dispatcher，仅覆盖标量）与 `Request::new_builder()`（OkHttp newBuilder 
 - `HttpClient::new_builder()`：浅拷贝共享 pool（引用语义）+ 覆盖 timeouts 等
   标量；`Request::new_builder()`：headers/tag 保留，可换 url/method/body/timeouts
   覆盖。
+- `followRedirects`/`followSslRedirects` 关闭跟随开关（builder 配置位；
+  P06 spec 非目标与映射表钦定归入本包——M1 恒跟随＝OkHttp 默认 true
+  行为面；开关关闭后 3xx 一律终态透传。2026-10-28 review 修复批补登，
+  deferred-items F21 同源）。
 
 非目标（显式排除）：
 
