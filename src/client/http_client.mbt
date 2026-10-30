@@ -21,15 +21,73 @@ pub suberror CallStateError derive(@debug.Debug)
 pub suberror TooManyFollowUps derive(@debug.Debug)
 
 ///|
-// 门面（data-model 实体 1）：唯一必需状态＝P04 池实例。P08/P09 配置位
-// 字段不建（YAGNI，plan 宪法核查 VI）。直连形态唯一构造（FR-008）。
-// P07：retry_on_connection_failure 为构造期不可变开关（FR-010，缺省
+// P08 FR-005：超时错误四变体（contracts/timeout-api.md §1 冻结面①）。
+// 变体对应四级伞——Connect=连接伞（建连段，FR-007 含 DNS）/
+// Write=写窗（每次写调用）/Read=读窗（收头调用+每次体读）/
+// Call=call 伞（execute 全程）。判别面＝`err is`；透传无包装
+// （FR-005）。call 伞变体经看门者标记位选定（research R1——上游
+// with_timeout 包 execute 的形态会确定性吞变体，故不走该形态）。
+pub suberror HttpTimeout {
+  Connect
+  Write
+  Read
+  Call
+} derive(@debug.Debug)
+
+///|
+// 消除 implicit_impl_as_method [0079] 的配套写法（007 现行三变体
+// 同款先例，http_client.mbt:37）。
+pub extend HttpTimeout with @debug.Debug::{to_repr}
+
+///|
+// P08 FR-001：四类超时配置标量（contracts/timeout-api.md §1 冻结面②；
+// data-model 实体 1）。缺省 connect/write/read = 10s、call = 0（不限，
+// OkHttp 对齐）；值 0 ＝不限时且 MUST NOT 建立该级计时窗（非「立即
+// 到期」）；负值在 build() 单点构建期快速失败（C5/004 abort 先例）。
+// 字段类型钉 Int（对齐 with_timeout(time : Int, ...) 形参——qod-2 S11）。
+// 纯值对象无方法（契约）。字段 pub(all)＝调用方可字面量构造
+// （builder .timeouts(Timeouts) 派生面的构造原料）；「四字段带缺省」
+// 由 HttpClient::new / new_builder / builder() 构造点以全缺省字面量
+// 落地（Timeouts::DEFAULT 形态）——本工具链不支持 struct 字段缺省值
+// 语法（moon 0.1.20261023 实测），缺省单点收口于此（与 004
+// DEFAULT_MAX_IDLE 常量先例同形）。构建期不可变，HttpClient 持有、
+// Call 经 `self.client.timeouts` 同包直读（P07 开关同形态）。
+pub(all) struct Timeouts {
+  connect_ms : Int // 连接伞（建连段，含 DNS——FR-007）；缺省 10_000
+  write_ms : Int // 写窗（每次写调用——research R3）；缺省 10_000
+  read_ms : Int // 读窗（收头调用/每次体读——research R4）；缺省 10_000
+  call_ms : Int // call 伞（execute 全程；0=不建窗——INV-T1）；缺省 0
+} derive(@debug.Debug)
+
+///|
+// 消除 implicit_impl_as_method [0079] 的配套写法（本包错误变体两件式
+// 同款先例）——判别/调试展示面，非行为方法（「无方法」指无业务行为，
+// Debug 展示沿 core Request/RequestBuilder 先例保留）。
+pub extend Timeouts with @debug.Debug::{to_repr}
+
+///|
+// Timeouts 全缺省字面量（FR-001 缺省单点）：connect/write/read =
+// 10s、call = 0（不限）。包内构造点（HttpClient::new/new_builder/
+// builder() 直派）与白盒断言共用此单点，杜绝缺省值漂移。
+fn Timeouts::default() -> Timeouts {
+  { connect_ms: 10_000, write_ms: 10_000, read_ms: 10_000, call_ms: 0 }
+}
+
+///|
+// 门面（data-model 实体 1）：唯一必需状态＝P04 池实例。P09 并发闸门
+// 字段不建（YAGNI）。直连形态唯一构造（FR-008）。P07：
+// retry_on_connection_failure 为构造期不可变开关（FR-010，缺省
 // true＝OkHttp 默认行为面；builder 化归 P08/C4）——priv 字段不进公开面
 // （FR-011 冻结面：公开增量恰为 new 的可选参数一项）；开关值不复制进
-// Call，判定处经 client 同包 priv 直读（qod-2 点 4-5）。
+// Call，判定处经 client 同包 priv 直读（qod-2 点 4-5）。P08：超时与
+// 跟随开关为构造期不可变标量（FR-001/FR-010，data-model 实体 3——
+// priv 不进公开面，派生面归 HttpClientBuilder，FR-009）。
 pub struct HttpClient {
   priv pool : ConnectionPool
   priv retry_on_connection_failure : Bool
+  priv timeouts : Timeouts
+  priv follow_redirects : Bool
+  priv follow_ssl_redirects : Bool
 }
 
 ///|
@@ -45,12 +103,20 @@ pub extend TooManyFollowUps with @debug.Debug::{to_repr}
 ///|
 // 直连构造（FR-008）：持池引用、零网络动作、无 builder。P07 增尾随可选
 // 参 retry_on_connection_failure~（缺省 true，FR-010/C4）——本参数为本包
-// 公开面唯一增量（FR-011 冻结面，contracts §1 对账）。
+// 公开面唯一增量（FR-011 冻结面，contracts §1 对账）。P08：HttpClient
+// 签名冻结不变（FR-012 底线）——新增 priv 标量以字面量补缺省
+// （Timeouts{} 全缺省 10s/10s/10s/0、两开关 true＝P06 行为面）。
 pub fn HttpClient::new(
   pool : ConnectionPool,
   retry_on_connection_failure~ : Bool = true,
 ) -> HttpClient {
-  { pool, retry_on_connection_failure, }
+  {
+    pool,
+    retry_on_connection_failure,
+    timeouts: Timeouts::default(),
+    follow_redirects: true,
+    follow_ssl_redirects: true,
+  }
 }
 
 ///|
@@ -87,6 +153,11 @@ pub struct Call {
   // P07：filler 已被调用（保守封锁口径 R3——调用即置位，每 attempt 复位）；
   // decide 的体可重放门消费（FR-003）。
   priv mut stream_body_entered : Bool
+  // P08 call 伞看门者标记（data-model 实体 4，research R1）：看门者
+  // sleep(call_ms) 到期先置位再 task.cancel()——execute 取消收尾分支
+  // 按标记选终态变体（真 ⇒ HttpTimeout::Call，假 ⇒ 裸 CallCancelled）。
+  // 置位先于取消（时序纪律）；一次性无复位（I-1 单 execute 生命周期）。
+  priv mut call_timeout_fired : Bool
 }
 
 ///|
@@ -110,6 +181,7 @@ pub fn HttpClient::new_call(self : HttpClient, request : @core.Request) -> Call 
     abandoned_fired: false,
     last_stage: Connect,
     stream_body_entered: false,
+    call_timeout_fired: false,
   }
 }
 
@@ -178,6 +250,10 @@ pub async fn Call::execute(self : Call) -> @core.Response {
     raise CallCancelled
   }
   self.state = Executing
+  // P08 call 伞标记入态清零（I-1 一次性语义的防御性入态复位——
+  // new_call 已置 false，此处钉死「入 Executing 即 false」不变量，
+  // 使标记读取只可能目睹本 execute 生命周期内看门者的置位）。
+  self.call_timeout_fired = false
   // T021（I-1/图 1）：上游 with_task_group 在子任务失败时于组退出重抛
   // （task_group.mbt worker catch 先置组态 Fail，body 内 catch 不改组态），
   // 故组后终态置位在失败路径不可达——兜底置位移到组外（errdefer 形态，
@@ -220,9 +296,17 @@ pub async fn Call::execute(self : Call) -> @core.Response {
       resp
     }
     Cancelled => {
-      // FR-003 映射；I-6：随后收尾仅同步操作（poison/release/close）
+      // FR-003 映射；I-6：随后收尾仅同步操作（poison/release/close）。
+      // P08 call 伞变体选择（data-model 实体 4，R1）：标记真 ⇒
+      // HttpTimeout::Call（看门者到期取消）、假 ⇒ 裸 CallCancelled
+      // （用户取消路径现状逐位不变——反向隔离）。T002 骨架期看门者
+      // 未派生、标记恒 false ⇒ 行为与现状逐位一致；派生接线归 T013。
       self.poison_release()
-      raise CallCancelled
+      if self.call_timeout_fired {
+        raise HttpTimeout::Call
+      } else {
+        raise CallCancelled
+      }
     }
   }
 }

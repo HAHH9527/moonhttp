@@ -433,3 +433,40 @@ async test "P03-B13⑬ FR-008 端到端：双 CL 捕获 complete=false、note �
     )
   }
 }
+
+///|
+// P08-FIX②（T005，US-1-3 载体自证）：SilentReader 存活期内连接不关——
+// 客户端发小体 POST（socket 缓冲可吸收，写立即完成）后静候：600ms 内
+// 读到的是**超时**（None）而非 EOF（Some(0)）——EOF 即对端关连，判据
+// 破坏。收尾：client.close() ⇒ SilentReader 读到 EOF 如实回报（本程序
+// 自身零关连的注记入 note），run 快速返回（兜底超时未触达）。
+async test "P08-FIX② SilentReader：极慢读、存活期内连接不关" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(SilentReader(50))
+    let running = group.spawn(() => peer.run(timeout_ms=3000))
+    let conn = connect_peer(peer.port())
+    conn.write(
+      b"POST /silent HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 64\r\n\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    )
+    // 写完成即可证首段未被对端关闭卡死；此后静候——对端只慢读不回写
+    let buf : FixedArray[Byte] = FixedArray::make(8, b'\x00')
+    let r = @async.with_timeout_opt(600) <| () => {
+      conn.read(buf, max_len=8)
+    }
+    assert_true(
+      r is None,
+      msg="600ms 内应读超时（None）而非 EOF（Some(0)）——对端存活期内不关连（US-1-3 语义）",
+    )
+    conn.close()
+    let cap = running.wait()
+    peer.close()
+    // 客户端先行关闭 ⇒ SilentReader 如实回报（零关连注记），无响应帧
+    assert_eq(cap.complete, false, msg="SilentReader 不应答——无完整响应帧")
+    match cap.note {
+      Some(n) =>
+        assert_true(n.contains("对端已关闭"), msg="note 应如实回报收尾：\{n}")
+      None => fail("SilentReader 必须给出收尾 note")
+    }
+  }
+}

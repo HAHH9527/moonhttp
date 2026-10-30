@@ -16,6 +16,14 @@ pub fn CallCancelled::to_repr(Self) -> @debug.Repr
 pub suberror CallStateError derive(@debug.Debug)
 pub fn CallStateError::to_repr(Self) -> @debug.Repr
 
+pub suberror HttpTimeout {
+  Connect
+  Write
+  Read
+  Call
+} derive(@debug.Debug)
+pub fn HttpTimeout::to_repr(Self) -> @debug.Repr
+
 pub suberror TooManyFollowUps derive(@debug.Debug)
 pub fn TooManyFollowUps::to_repr(Self) -> @debug.Repr
 
@@ -60,6 +68,14 @@ pub struct Lease {
 }
 pub fn Lease::poison(Self) -> Unit
 pub fn Lease::release(Self) -> Unit
+
+pub(all) struct Timeouts {
+  connect_ms : Int32
+  write_ms : Int32
+  read_ms : Int32
+  call_ms : Int32
+} derive(@debug.Debug)
+pub fn Timeouts::to_repr(Self) -> @debug.Repr
 
 // Type aliases
 

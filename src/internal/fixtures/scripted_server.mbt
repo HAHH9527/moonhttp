@@ -64,10 +64,15 @@ pub(all) enum RouteScript {
 ///|
 /// 体计划：Static 定长静态体；Echo（B-04）体 = "<id>:<请求体原样>"（FR-013）；
 /// Drip（B-02）按块滴流，块间 sleep(interval_ms)。
+/// DripHang（P08 T005，US-2-2 载体）：按 Drip 节奏滴 blocks 块后保持
+/// 连接（零字节下发、不关连）——「滴 K 块后静默」的线上形态。Fixed
+/// 帧承诺 blocks+1 块（实滴 blocks 块：对端等第 K+1 块至静默）；Chunked
+/// 滴 blocks 块后不发终止块。
 pub(all) enum BodyPlan {
   Static(Bytes)
   Echo
   Drip(Int32, Int32, Int32) // block_bytes, blocks, interval_ms
+  DripHang(Int32, Int32, Int32) // block_bytes, blocks(实滴), interval_ms
 }
 
 ///|
@@ -406,6 +411,11 @@ async fn ScriptedServer::send_truncated_head(
       if script.framing is Fixed {
         extra[@http.CaseInsensitiveString("Content-Length")] = "\{blocks * 1024}"
       }
+    DripHang(_, blocks, _) =>
+      if script.framing is Fixed {
+        // 与 serve_script 同一承诺口径（blocks+1 块——实滴 blocks）
+        extra[@http.CaseInsensitiveString("Content-Length")] = "\{blocks * 1024 + 1024}"
+      }
     Echo =>
       if script.framing is Fixed {
         extra[@http.CaseInsensitiveString("Content-Length")] = "1024"
@@ -605,6 +615,50 @@ async fn ScriptedServer::serve_script(
       }
       conn.end_response()
       true
+    }
+    // P08 DripHang（T005，US-2-2 载体「滴 K 块后静默」）：滴流段与
+    // Drip 同款（块间 sleep），滴满 blocks 块后**保持连接、零字节
+    // 下发、不关连**——静默语义本体。
+    //
+    // 承诺口径：Fixed 帧承诺 blocks+1 块（实滴 blocks 块）——客户端
+    // 等第 K+1 块至静默；Chunked 滴 blocks 块后不发终止块（对端等
+    // 后续块/终止块）。两者皆使客户端体读停在「已收 K 块、未收完」
+    // 状态，静默一个读窗后触发（US-2-2 判据）。
+    //
+    // 保持形态（R8/S8 权衡落点）：阻塞等待下一请求/EOF——读窗到期
+    // 客户端毒化关连 ⇒ read_request 以 ReaderClosed 收尾 ⇒ 本连接
+    // 处理自然退出（夹具兜底 with_timeout_opt 仅极端兜底）。
+    // 「sleep 保持」形态会令 serving.wait() 拖到兜底到期（每场景
+    // +秒级睡眠，违背睡眠预算纪律）；行为判据不变：滴后连接保持、
+    // 零字节下发、程序存活期内不关连。
+    DripHang(block_bytes, blocks, interval_ms) => {
+      let _ = req
+      match script.framing {
+        // 承诺 blocks+1 块（多承诺一块制造「未发完即静默」线上形态）
+        Fixed =>
+          extra[@http.CaseInsensitiveString("Content-Length")] = "\{block_bytes * (blocks + 1)}"
+        Chunked => ()
+      }
+      conn.send_response(
+        script.status,
+        reason_of(script.status),
+        extra_headers=extra,
+      )
+      let block = drip_block(block_bytes)
+      for i in 0..<blocks {
+        conn.write(block)
+        conn.flush()
+        if i < blocks - 1 {
+          @async.sleep(interval_ms)
+        }
+      }
+      // 保持段：等待客户端下一步（下一请求或关闭）；对端关闭以
+      // ReaderClosed 如实收尾（parser.mbt:343-348 同源锚点）。
+      // catch 吞掉的只有「对端关闭」这一正常收尾——不应答即静默。
+      let _next = conn.read_request() catch {
+        _ => return false
+      }
+      false
     }
     // B-04 echo 唯一 id（T008，FR-013）：体 = "<单调id>:<请求体原样>"。
     // 字节保真路径：id 段恒 ASCII，请求体字节原样拼接，多字节 UTF-8 不经

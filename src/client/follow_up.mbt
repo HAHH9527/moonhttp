@@ -23,12 +23,20 @@ priv enum FollowUp {
 ///|
 // 决策表（纯函数无 IO；FR-003 五行 + FR-008 Location 门）。Location
 // 读取走 raw_headers 原始头 Map（H1 保真，WB⑧）；不跟随集合（304/305/
-// 306/401/407/408 及其余非 3xx）+ 3xx 无 Location ⇒ Terminal。
+// 306/401/407/408 及其余非 3xx）+ 3xx 无 Location ⇒ Terminal。P08：
+// 增两开关透传参（FR-010，缺省 true＝P06 行为面逐位不变——INV-T5）；
+// 两门实体化归 T024（R7 门序对拍 5.5.0），骨架期直通不判定。
 fn follow_up_request(
   response : @core.Response,
   request : @core.Request,
   raw_headers : @http.Headers,
+  follow_redirects~ : Bool = true,
+  follow_ssl_redirects~ : Bool = true,
 ) -> FollowUp raise {
+  // T002 骨架直通（FR-010 缺省 true＝P06 行为面逐位不变——INV-T5）：
+  // 两门实体化归 T024（R7 门序对拍 5.5.0），骨架期仅钉住参数面。
+  let _ = follow_redirects
+  let _ = follow_ssl_redirects
   let code = response.code()
   // FR-003 行 4/5：304/305/306 及其余一切非跟随码（200/401/407/408 等）
   // 一律终态。跟随集合为精确码集 {300,301,302,303,307,308}（5.5.0 RFU
@@ -321,7 +329,15 @@ async fn Call::exchange_loop(self : Call) -> @core.Response {
     let lease = self.lease.unwrap()
     // raw_headers = 原始 @http.Headers（H1 保真）：Location 直读不走
     // from_http 拆分产物（WB⑧）
-    match follow_up_request(response, request, raw_headers) {
+    // P08：两开关从 self.client 直读透传（FR-010；缺省 true＝P06 行为
+    // 面逐位不变——INV-T5；门实体化归 T024，R7 门序）。
+    match follow_up_request(
+      response,
+      request,
+      raw_headers,
+      follow_redirects=self.client.follow_redirects,
+      follow_ssl_redirects=self.client.follow_ssl_redirects,
+    ) {
       // 终态返回：活体透传 + prior 挂链（FR-006）
       Terminal => return attach_prior(response, prior)
       Next(followup) => {

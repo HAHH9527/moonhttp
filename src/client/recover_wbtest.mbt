@@ -285,3 +285,80 @@ test "P07-WB⑭ 开关参数传递链：缺省 true、显式 false 落字段" {
     msg="显式 false 如实落字段（FR-010）",
   )
 }
+
+///|
+// P08-WB①（P08 FR-008 判定器族落点矩阵·可达格，T003 红；S6 收敛口径）：
+// HttpTimeout 四变体 × 可达段——变体与注入伞一一对应（data-model 实体 2）：
+//   - Connect 变体 ∧ stage=Connect（连接伞注入点）→ ConnectFailure
+//     （建连失败族，可重试——走既有 (Connect, ConnectFailure) => Retry 格）；
+//   - Write 变体 ∧ stage=Send（写窗注入点）→ Other（decide 既有
+//     family is Other → Fail 透传格，零 decide 改动）；
+//   - Read 变体 ∧ stage=ReadHead（读窗注入点）→ Other（同上）；
+//   - Call 变体 × 任意段 → Other（call 伞取消不经 catch——R4 结构保证，
+//     结构上不可能作为错误进入判定器；族层如实归 Other 钉死防御格）。
+// 预期红：error_family 无 HttpTimeout 分支 ⇒ Connect∧Connect 格落
+// Other，红恰 1 格（T004 转绿）。
+test "P08-WB① 判定器族落点矩阵·可达格：Connect→建连族、余→Other" {
+  // 可达格 1：连接伞注入点（红因格——无分支时落 Other）
+  assert_true(
+    error_family(Connect, HttpTimeout::Connect) is ConnectFailure,
+    msg="Connect∧HttpTimeout::Connect → ConnectFailure（建连失败族可重试，FR-008/C3）",
+  )
+  // 可达格 2：写窗注入点 → Other（不可重试透传）
+  assert_true(
+    error_family(Send, HttpTimeout::Write) is Other,
+    msg="Send∧HttpTimeout::Write → Other（Write 不可重试，FR-008）",
+  )
+  // 可达格 3：读窗注入点 → Other（不可重试透传）
+  assert_true(
+    error_family(ReadHead, HttpTimeout::Read) is Other,
+    msg="ReadHead∧HttpTimeout::Read → Other（Read 不可重试，FR-008）",
+  )
+  // Call 变体 × 任意段 → Other（R4：取消不可被 catch 捕获，结构上
+  // 不可达；三段如实归 Other 钉死）
+  for stage in [SendStage::Connect, Send, ReadHead] {
+    assert_true(
+      error_family(stage, HttpTimeout::Call) is Other,
+      msg="HttpTimeout::Call×任意段 → Other（R4 结构不可达防御格）",
+    )
+  }
+}
+
+///|
+// P08-WB②（族落点矩阵·不可达格钉不回归，T003）：变体与阶段一一对应
+// （伞注入点决定）——Connect 变体出现在 {Write(=Send), Read(=ReadHead),
+// Call} 段、Send/ReadHead 段目睹 Connect 变体均为不可达格；断言族
+// 落点 = Other（钉不回归——未来分支改动不得把不可达格误归可重试族）。
+test "P08-WB② 族落点矩阵·不可达格：恒 Other（钉不回归）" {
+  // Connect 变体出现在传输/收头段（不可达——连接伞只在建连段注入）
+  assert_true(
+    error_family(Send, HttpTimeout::Connect) is Other,
+    msg="Send∧HttpTimeout::Connect 不可达格 → Other",
+  )
+  assert_true(
+    error_family(ReadHead, HttpTimeout::Connect) is Other,
+    msg="ReadHead∧HttpTimeout::Connect 不可达格 → Other",
+  )
+  // 传输/收头段目睹 Write/Call 变体（不可达——写窗只在 Send、call 伞
+  // 沿取消链逸出）
+  assert_true(
+    error_family(Connect, HttpTimeout::Write) is Other,
+    msg="Connect∧HttpTimeout::Write 不可达格 → Other",
+  )
+  assert_true(
+    error_family(ReadHead, HttpTimeout::Write) is Other,
+    msg="ReadHead∧HttpTimeout::Write 不可达格 → Other",
+  )
+  assert_true(
+    error_family(Connect, HttpTimeout::Call) is Other,
+    msg="Connect∧HttpTimeout::Call 不可达格 → Other",
+  )
+  assert_true(
+    error_family(Send, HttpTimeout::Call) is Other,
+    msg="Send∧HttpTimeout::Call 不可达格 → Other",
+  )
+  assert_true(
+    error_family(ReadHead, HttpTimeout::Call) is Other,
+    msg="ReadHead∧HttpTimeout::Call 不可达格 → Other",
+  )
+}

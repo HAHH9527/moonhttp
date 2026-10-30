@@ -18,6 +18,27 @@ fn error_family(stage : SendStage, err : Error) -> ErrFamily {
     | @http.IncorrectBodyLength) {
     return Protocol
   }
+  // P08 FR-008（T004，R5 判定器族落点三行）：超时变体按段分派——
+  // Connect 变体 ∧ stage=Connect（连接伞注入点，FR-007）⇒
+  // ConnectFailure（建连失败族，可重试：走既有
+  // (Connect, ConnectFailure) => Retry 格，预算 ≤2 次尝试换新连接，
+  // 耗尽透传原始变体——C3 对拍 5.5.0 recover InterruptedIOException
+  // 分支形状）；Write/Read/Call ⇒ Other（decide 既有
+  // `family is Other → Fail` 透传格——三变体不可重试原样透传，
+  // decide 零改动）。插入位在 Protocol 首判之后、具体类型并集之前
+  // （qod-2 零遮蔽：协议族优先级不变；变体与阶段一一对应，不可达格
+  // 落 Other 由 P08-WB② 钉死）。本文件锁 [native, wasm]——HttpTimeout
+  // 为本包自有类型，不引入锁定包类型（R12 moon.pkg 零改动）。
+  if err
+    is (HttpTimeout::Connect
+    | HttpTimeout::Write
+    | HttpTimeout::Read
+    | HttpTimeout::Call) {
+    if err is HttpTimeout::Connect && stage is SendStage::Connect {
+      return ConnectFailure
+    }
+    return Other
+  }
   match stage {
     Connect =>
       // 建连段：OSError（含 ECONNREFUSED 竞速全败）/ResolveHostnameError/

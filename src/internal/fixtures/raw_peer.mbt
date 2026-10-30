@@ -50,6 +50,14 @@ pub(all) enum PeerProgram {
   // 单帧 200 形态不可达）——spec Assumptions「夹具扩展」授权的最小变体，
   // 行为判据不变（R7 优先路径仍承载 US-1①②③，见 007 tasks.md T010 备注）
   ServeSequence(Array[Bytes])
+  // P08（T005，US-1-3 写停滞载体）：极慢读请求体、程序存活期内不主动
+  // 关连。8B/interval_ms 节奏读入直至对端关闭；读满与否都不关连、
+  // 不应答——对端 socket 缓冲持续满载 ⇒ 客户端发体停滞。
+  // 编排纪律（R8/B2② 三段不等式）：停滞填满 < 客户端 write_ms <
+  // 夹具兜底——场景 MUST 声明 run(timeout_ms~) 覆盖值 > 写窗 + 断言
+  // 余量；兜底到期由 run 的 with_timeout_opt 收尾 close（下方统一
+  // 路径），本程序自身零 close。
+  SilentReader(Int32) // interval_ms
 }
 
 ///|
@@ -456,6 +464,28 @@ pub async fn ScriptedPeer::run(
           raw.to_bytes(),
           "CloseObservation：accept 后关闭",
         )
+      }
+      // P08（T005）：极慢读请求体、存活期内不主动关连（US-1-3 写停滞
+      // 载体）。8B/interval_ms 节奏循环读入；对端关闭（n==0/错误）＝
+      // 对端收尾，如实回报；否则读满声明循环外仍保持——本程序自身
+      // 零 close（close 只发生在 run 兜底路径或对端先行关闭）。
+      SilentReader(interval_ms) => {
+        let mut got = 0
+        let buf = FixedArray::make(8, b'\x00')
+        for ;; {
+          // n==0（EOF）或读错误（RST 等）＝对端收尾，同归「对端已关闭」
+          let n = conn.read(buf, max_len=8) catch {
+            _ => 0
+          }
+          if n == 0 {
+            return broken_early(
+              raw.to_bytes(),
+              "SilentReader：对端已关闭（存活期内本程序零关连，共读 \{got}B）",
+            )
+          }
+          got = got + n
+          @async.sleep(interval_ms)
+        }
       }
     }
   }

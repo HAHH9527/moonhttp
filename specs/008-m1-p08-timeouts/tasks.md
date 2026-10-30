@@ -40,7 +40,21 @@ US-4/US-5/US-6 为 P2；Foundational＝类型骨架/族落点/夹具变体
       指令枚举与 run 兜底（raw_peer.mbt:42-53/:259-262/:288/:466-468）、
       ensure_lease acquire 调用点（follow_up.mbt:220）、read_checked
       收口（body_bridge.mbt）、exchange 四调用点（exchange.mbt:127-147）
-      ✅ 证据：（implement 回填）
+      ✅ 证据：①六门现状——native `moon test --target native` =
+      306/306 全绿（exit 0）；wasm = 306/306 全绿（exit 0）；
+      `moon check --target js` = 9 warnings, 13 errors（基线 13 持平，
+      exit 1 为既有红）。`.mbti` 对账基线＝git HEAD
+      （72e5edc）client/core pkg.generated.mbti 现状（FR-012 冻结前）。
+      ②落点行号快照（2026-10-30 实测，与 plan/contracts 引用一致）：
+      execute 组结构 http_client.mbt:190-227（with_task_group :190、
+      Cancelled 收尾 :222-227）；BodyPlan 枚举 scripted_server.mbt:67-71
+      （Framing :40-43，分派 serve_script :548）；PeerProgram 枚举
+      raw_peer.mbt:42-53、run 兜底 :259-262/:288（with_timeout_opt 包裹）/
+      :466-468（超时收尾 close）；ensure_lease acquire 调用点
+      follow_up.mbt:220；read_checked 收口 body_bridge.mbt:137-161
+      （内层读 :150）；exchange 四调用点 exchange.mbt:126（header
+      request）/:132（Bytes write_once）/:139（Stream filler）/:147
+      （end_request）
 
 **Checkpoint**: 基线数字钉死（对照收尾 T028）；落点行号与 plan/
 contracts 引用一致
@@ -60,7 +74,24 @@ contracts 引用一致
       参数（缺省 true 直通——现行为逐位不变）+ exchange_loop 调用点
       从 self.client 透传；`moon check` 双 target 零错误零新增警告、
       js check 与基线对账零新增
-      ✅ 证据：（implement 回填）
+      ✅ 证据：实现落地（http_client.mbt：HttpTimeout 四变体两件式
+      derive+extend、Timeouts pub(all) 四字段 + default() 包内缺省
+      单点、HttpClient priv 三字段、Call.call_timeout_fired 入态清零
+      + Cancelled 收尾标记选择〔骨架期标记恒 false ⇒ 现状逐位〕；
+      follow_up.mbt：follow_up_request 增两参缺省 true 直通 + 调用点
+      透传）。`moon check --target native` = 0 errors / 4 warnings
+      （骨架过渡：unused 构造 Connect/Write/Read ×3 + timeouts 字段
+      未读 ×1——均随 T007–T013 接线自灭，最终态零告警）exit 0；
+      `--target wasm` 同 0 errors / 4 warnings exit 0；
+      `moon check --target js` = 13 errors（基线 13 持平零新增）；
+      `moon test --target native` = 306/306 全绿（INV-T5 首证——缺省
+      直通零扰动）。【现场订正】data-model 实体 1 的
+      `connect_ms : Int = 10_000` 字段缺省值语法不被本工具链支持
+      （moon 0.1.20261023 实测 parse error）——语义不变，缺省改由包内
+      `Timeouts::default()` 单点落地（HttpClient::new/new_builder/
+      builder() 构造点引用；与 004 DEFAULT_MAX_IDLE 常量先例同形），
+      结构体改 pub(all) 供调用方字面量构造（builder .timeouts() 派生
+      面原料）
 - [ ] T003 [P] [红] 判定器族落点矩阵 WB 入 src/client/recover_wbtest.mbt
       （P08-WB①..，S6 收敛口径）：`HttpTimeout` 四变体 × 可达段——
       Connect∧Connect→ConnectFailure（可重试族）、Send∧Write→Other、
@@ -69,13 +100,25 @@ contracts 引用一致
       Send∧Connect、ReadHead∧Connect）断言族=Other（钉不回归）；预
       期红（error_family 无 HttpTimeout 分支 ⇒ Connect∧Connect 格落
       Other，红恰 1 格）
-      ✅ 红证据：（implement 回填）
+      ✅ 红证据：`moon test --target native -p
+      hahh9527/moonhttp/client` = **exit 2，Total 138, failed 1**——
+      失败恰为 P08-WB① 首断言格「Connect∧HttpTimeout::Connect →
+      ConnectFailure」（error_family 无 HttpTimeout 分支 ⇒ 落 Other，
+      红恰 1 格与预期一致）；P08-WB② 不可达格 7 断言全绿（现状落
+      Other 钉位）；Send∧Write/ReadHead∧Read/Call×3 段共 6 断言现状
+      已 Other（绿伴随）。
 - [ ] T004 [绿] 实现 error_family HttpTimeout 分支（src/client/
       recover_family.mbt）：`err is HttpTimeout` 时按变体分派——
       Connect 且 stage=Connect ⇒ ConnectFailure，余 ⇒ Other（插入位
       置在既有 Protocol 首判之后、具体类型并集之前——qod-2 零遮蔽
       核实）；decide 零改动——T003 全绿
-      ✅ 绿证据：（implement 回填）
+      ✅ 绿证据：recover_family.mbt 增 `err is (HttpTimeout::Connect |
+      Write | Read | Call)` 分支（Connect∧stage=Connect ⇒
+      ConnectFailure，余 ⇒ Other；decide 零改动）。`moon test --target
+      native -p client` = 138/138（exit 0，T003 红格转绿）；`--target
+      wasm -p client` = 138/138（exit 0）；`moon check --target js` =
+      13 errors 基线持平；全量 `moon test --target native` = 308/308
+      （306 既有 + 2 新增 WB，既有回归零失败——INV-T5 复证）
 - [ ] T005 [P] 夹具两变体（contracts §3 落点）：①
       scripted_server.mbt BodyPlan 增 `DripHang(block_bytes, blocks,
       interval_ms)`——按 Drip 节奏滴 blocks 块后 sleep 保持（保持时
@@ -84,7 +127,20 @@ contracts 引用一致
       序存活期内不主动关连；fixtures 包内最小自测各一（DripHang 滴
       后保持可观测、SilentReader 存活期内连接不关）；
       `moon test --target native -p …fixtures` 绿
-      ✅ 证据：（implement 回填）
+      ✅ 证据：DripHang 落点 BodyPlan（serve_script 分派臂 + 承诺口径
+      Fixed=blocks+1 块/Chunked 不发终止块；保持形态=阻塞 read_request
+      等下一请求/EOF——「sleep 保持」会拖 serving.wait() 至兜底到期，
+      违背睡眠预算，行为判据不变：滴后零字节下发、存活期不关连，
+      R8/S8 权衡落点如实注记）；SilentReader(interval_ms) 落点
+      PeerProgram（8B/interval 慢读、零 close——收尾只经对端 EOF 或
+      run 兜底）。最小自测各一：P08-FIX①「滴 K 块后静默保持（读超时
+      而非 EOF）」（滴流段 2048B 累计收齐 + 600ms 静默 None 判据）；
+      P08-FIX②「SilentReader：极慢读、存活期内连接不关」（600ms 读
+      超时 None 非 EOF + 零关连 note）。`moon test --target native -p
+      internal/fixtures` = 48/48（exit 0，46 既有 + 2 新增）；
+      `--target wasm -p internal/fixtures` = 48/48（exit 0）。
+      【现场订正】read_some 片边界不与块边界对齐（首片实测
+      983+41=1024 两片）——自测以累计总量判据，不假设片=块
 
 **Checkpoint**: 骨架编译双 target 绿、js 零新增、族落点矩阵全绿、
 夹具变体自测绿；全部既有用例回归绿（缺省直通零扰动——INV-T5 首证）

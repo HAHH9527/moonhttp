@@ -11,6 +11,7 @@ pub(all) enum BodyPlan {
   Static(Bytes)
   Echo
   Drip(Int32, Int32, Int32)
+  DripHang(Int32, Int32, Int32)
 }
 
 pub(all) struct CapturedRequest {
@@ -44,6 +45,7 @@ pub(all) enum PeerProgram {
   SlowReceive(Int32, Int32)
   Capture
   ServeSequence(Array[Bytes])
+  SilentReader(Int32)
 }
 
 pub(all) struct RequestLineExpect {

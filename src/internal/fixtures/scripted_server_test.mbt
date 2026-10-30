@@ -703,6 +703,73 @@ async test "P03-US4① 滴流场景：按操作超时 1s 下 15KB 滴流不触�
 }
 
 ///|
+// P08-FIX①（T005，US-2-2 载体自证）：DripHang 滴后保持可观测——
+// ①滴流段：blocks 块按节奏上线（Fixed 承诺 blocks+1 块）；②保持段：
+// 静默以**读超时**呈现（with_timeout_opt 返回 None）而非 EOF——EOF 即
+// 夹具关连，判据破坏。收尾：client.close() ⇒ 夹具保持段 read_request
+// 以 ReaderClosed 自然退出（睡眠预算零浪费）。
+async test "P08-FIX① DripHang：滴 K 块后静默保持（读超时而非 EOF）" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/drip-hang", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: DripHang(1024, 2, 100),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(() => server.serve_once(timeout_ms=3000))
+    let client = @http.Client::Client("http://127.0.0.1:\{server.port()}/")
+    client.request(Get, "/drip-hang")
+    let head = client.end_request()
+    assert_eq(head.code, 200, msg="DripHang 应按脚本应答 200")
+    // 固定帧承诺 (blocks+1)*block_bytes = 3072（「未发完即静默」线上形态）
+    assert_eq(
+      head.headers.get(@http.CaseInsensitiveString("Content-Length")),
+      Some("3072"),
+      msg="Fixed 帧应承诺 blocks+1 块（3072B）——制造体未收完状态",
+    )
+    // 滴流段：累计收满 2 块 ×1024B=2048B（片边界不与块边界对齐——
+    // read_some 按到达缓冲切片，逐片累计到总量为准）
+    let mut total = 0
+    let mut drip_ended = false
+    while total < 2048 {
+      let r = @async.with_timeout_opt(1000) <| () => { client.read_some() }
+      match r {
+        None => {
+          drip_ended = true
+          break
+        }
+        Some(inner) =>
+          match inner {
+            None => {
+              drip_ended = true
+              break
+            }
+            Some(c) => total = total + c.length()
+          }
+      }
+    }
+    assert_false(
+      drip_ended,
+      msg="滴流段应完整送达 2 块（EOF/超时=夹具提前收尾，判据破坏）",
+    )
+    assert_eq(total, 2048, msg="应恰好滴到 blocks=2 块（2048B）")
+    // 保持段：静默以读超时呈现（None）——若夹具关连，read_some 会以
+    // EOF（None 内层）或读错误失败，判据即破坏
+    let r = @async.with_timeout_opt(600) <| () => { client.read_some() }
+    assert_true(
+      r is None,
+      msg="静默段应表现为读超时（None）而非 EOF——连接保持不关（US-2-2 语义）",
+    )
+    client.close()
+    serving.wait()
+    server.close()
+  }
+}
+
+///|
 // P04-FIX①（F-5 累计 accept 连接数，P04 R5/T002）：每条被接受的连接 +1，
 // 累计不回落。归因：FR-009 外部证据 / US-2 场景 2（长跑无泄漏双证据的
 // 服务侧证据面）。红判据：accepted_total 访问器不存在（编译红）。
