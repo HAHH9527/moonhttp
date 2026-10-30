@@ -4,7 +4,7 @@
 
 面向用户的 HTTP 客户端层（对齐 OkHttp 语义），构建在 moonbitlang/async 公开 API 之上：
 - `http_client.mbt`：`HttpClient` 门面（唯一状态＝`ConnectionPool` 引用）、一次性请求句柄
-  `Call`（Pending→Executing→Done 状态机）、取消通道与错误变体 `CallCancelled`/`CallStateError`。
+  `Call`（Pending→Executing→Done 状态机）、取消通道与错误变体 `CallCancelled`/`CallStateError`/`TooManyFollowUps`。
 - `client.mbt`：连接池 `ConnectionPool`、直连三元组池键 `Address`（scheme/host/port，构造期
   小写化 + IPv6 剥方括号）、独占租约 `Lease`（poison/release）。
 - `exchange.mbt`：单轮收发管线与 `Address` 推导——`exchange_with_lease`
@@ -13,9 +13,18 @@
   （spec 钦定白盒直调接缝，单轮语义不变）。
 - `follow_up.mbt`：P06 follow-up 层——`follow_up_request` 决策表
   （300–308 × Location × 方法 × 可重放，5.5.0 对拍）+ `exchange_loop`
-  轮循环（循环顶取消 guard、中间体排干、同 host 租约保持/跨 host 换租、
-  prior 链、20 跳上限 `TooManyFollowUps`）+ 头改写（跨 host 剥
+  轮循环（循环顶取消 guard、轮级 errdefer 毒化〔登记点在 P07 尝试
+  子循环之前〕、**P07 轮内尝试子循环**：建连/exchange 两段捕获 →
+  family→decide 分流 → 重试换租重入子循环（毒化+stale 计数显式完
+  成）、中间体排干、同 host 租约保持/跨 host 换租、prior 链、20 跳
+  上限 `TooManyFollowUps`）+ 头改写（跨 host 剥
   `Authorization`/`Cookie`）。
+- `recover.mbt` / `recover_family.mbt` / `recover_family.js.mbt`：
+  P07 判定器两层——决策纯函数 `decide`（六条件合取矩阵，全 target）
+  + 族检测 `error_family`（段相关：Protocol 首判 → Connect 段
+  ConnectFailure / Send·ReadHead 段 Stale；family 文件按 target 分
+  锁〔native,wasm 全量 + js 降级恒 Other，moon.pkg targets 表〕）；
+  错误透传原始值，毒化与重试解耦（P07 FR-001..FR-011）。
 - `body_bridge.mbt`：`BodyBridge` 响应体读适配器（实现 `@io.Reader`）与租约处置状态机
   （Consumed/Dropped/Abandoned 事件驱动）。
 
@@ -81,4 +90,7 @@
 - `moon.pkg` 另引入 `core/debug`（错误 derive Debug）与测试专用 `internal/fixtures`、
   `core/test`（运行时零引用，抑制 unused_package 警告）。
 - 消费方：外部库用户（公开面见 `pkg.generated.mbti`：HttpClient/Call/ConnectionPool/
-  Address/Lease 与两错误变体）；基准/测试工具经同一公开面驱动。
+  Address/Lease 与三错误变体 `CallCancelled`/`CallStateError`/
+  `TooManyFollowUps`）；基准/测试工具经同一公开面驱动。P07 后公开面
+  增量＝`HttpClient::new` 可选参 `retry_on_connection_failure~`
+  （specs/007 contracts §1 冻结面）。

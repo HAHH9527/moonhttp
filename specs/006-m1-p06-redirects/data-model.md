@@ -49,6 +49,14 @@ INV-4「干净释放再 raise」的成立条件（反序将使 errdefer 把已�
 指**可观测结果**（连接被毒化关闭、不回池），不指调用位点——读法
 约定成文（round6 N-1，round8 落笔）。
 
+> **P07 修正注记（2026-10-30，specs/007-m1-p07-stale-retry FR-007
+> 承接）**：上段「唯一毒化归属点」的唯一性**限于错误逸出路径**——
+> P07 轮内尝试子循环的重试路径，其毒化由捕获分支显式完成
+> （`poison_release()` 先于 continue，007 INV-R1），错误不逸出、
+> errdefer 不触发。逸出路径（不可重试 re-raise）归属不变；errdefer
+> 登记点已随 007 上移至子循环之前（对 None lease 为 no-op，安全）。
+> 机制形状见 007 data-model「子循环状态迁移」。
+
 ### 实体 2：follow-up 请求代次（generation）
 
 代次 = call 内第 n 个待发送请求的序号（0 = 用户原请求）。承载：
