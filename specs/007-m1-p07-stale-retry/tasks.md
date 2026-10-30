@@ -55,20 +55,23 @@ description: "Tasks for M1-P07 stale-retry"
 
 **Purpose**: 决策函数全分支可测 + 字段/入口就位
 
-- [ ] T004 [P] [红] 判定矩阵白盒测试入 src/client/recover_wbtest.mbt
+- [x] T004 [P] [红] 判定矩阵白盒测试入 src/client/recover_wbtest.mbt
       （P07-WB①..⑧）：按 data-model 实体 3 全分支——cancel 优先、
       开关关、attempts≥2、Protocol、Other、`replayable` 门（None/
       Bytes 恒真、Stream∧entered 假、Stream∧¬entered 真）、
       Connect∧{Stale,ConnectFailure}→Retry、Send∧Stale→Retry、
       ReadHead∧Stale→Retry、收尾兜底行 Fail；用 @io.ReaderClosed/
       @os_error.OSError 可构造值；预期红（decide 存根恒 Fail）
-- [ ] T005 [绿] 实现 `decide`（src/client/recover.mbt）按
+      ✅ 红证据：`moon test --target native` 退出码 2，287 用例 4 红——WB③⑥⑦（Retry 期望格对存根恒 Fail）＋WB⑩（族检测对存根恒 Other）；WB①②④⑤⑧⑪ 为 Fail 期望的 stay-green 格（钉不回归）
+- [x] T005 [绿] 实现 `decide`（src/client/recover.mbt）按
       data-model 实体 3 矩阵（含 replayable 辅助）——T004 全绿
-- [ ] T006 [P] [红] 族检测直测（可构造族）入
+      ✅ 绿证据：decide＋replayable 落地；`moon test --target native` 退出码 0，287 用例 286 过（余 1 红＝T006 的 WB⑩ 族检测存根红，归属正确）
+- [x] T006 [P] [红] 族检测直测（可构造族）入
       src/client/recover_wbtest.mbt：ReaderClosed/OSError ×
       stage∈{Connect,Send,ReadHead} → ConnectFailure/Stale 归类、
       未知错误 → Other；预期红（存根恒 Other）
-- [ ] T007 [绿] 实现 `error_family`（src/client/recover_family.mbt）：
+      ✅ 红证据：同 T004 红批（同文件同批编写，先红后绿次序保持）——WB⑩ 首断言 `Connect∧OSError → ConnectFailure` 对存根恒 Other 红
+- [x] T007 [绿] 实现 `error_family`（src/client/recover_family.mbt）：
       Protocol 首判（@http.BadRequest/HttpVersionNotSupported/
       IncorrectBodyLength）→ Connect 段 {OSError, ResolveHostnameError,
       TlsError, ConnectionClosed}→ConnectFailure → Send/ReadHead 段
@@ -76,6 +79,7 @@ description: "Tasks for M1-P07 stale-retry"
       Other；js 文件保持恒 Other；T006 全绿。诚实边界注释：TLS 族/
       ResolveHostnameError 分支跨包不可构造（pub 非 pub(all)），M1
       无注入通道，集成侧不可达（research R4）
+      ✅ 绿证据：error_family 按矩阵落地（诚实边界注释入文件头）；`moon test --target native` 退出码 0，287/287 全绿；`moon check --target native|wasm` 0 错误
 - [x] T008 字段与入口：src/client/http_client.mbt——`HttpClient::new`
       增尾随可选参 `retry_on_connection_failure~ : Bool = true` +
       HttpClient priv 字段 + Call 构造传入；Call 增 priv 字段
