@@ -2,6 +2,9 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/http",
   "moonbitlang/async/io",
+  "moonbitlang/async/os_error",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/tls",
   "moonbitlang/core/debug",
   "hahh9527/moonhttp/core",
   "hahh9527/moonhttp/internal/fixtures",
@@ -36,6 +39,13 @@ import {
 
 options(
   warnings: "-unused_package",
+  // P07（R6/qod-2 必修⑥）：recover_family.mbt 承载 @os_error/@tls/@socket
+  // 锁定类型引用，须显式锁 [native, wasm]（普通命名文件默认全 target，
+  // 不声明则 js 编译碰到锁定类型）；js 侧由 recover_family.js.mbt 降级
+  // 承载（.js.mbt 后缀自动锁 js）。上游 http/moon.pkg client.mbt/
+  // client.js.mbt 成对声明先例。recover.mbt（枚举+decide 纯函数）全
+  // target 共享，无需入表。
+  targets: { "recover_family.mbt": [ "native", "wasm" ] },
 )
 
 pkgtype(kind: "library")

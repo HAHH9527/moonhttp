@@ -793,3 +793,71 @@ async test "P06-WB④d 循环内轮间取消 + 同 host 不归还判别：第 2 
     )
   }
 }
+
+///|
+// P07-WB⑨（T003，qod-2 探针的仓内固化；预期直接绿——钉语言语义非测新
+// 行为）：轮内尝试子循环（T011）依赖的 errdefer 正方向语义三件套——
+// ①内层 `for ;;` 逸出的 raise 会触发循环之前登记的 errdefer（逸出路径
+// 毒化归属可行性，qod-2 必修⑤前提）；②`continue` 不误触发 errdefer
+// （重试路径不双毒化，INV-R1 单点）；③`for ;; { … break v }` 循环表达式
+// 取值可行（子循环返回响应形态，raw_peer.mbt read_frame 同构先例）。
+// 纯语言语义探针，零 IO 零网络。
+test "P07-WB⑨ errdefer 正方向语义钉用例：子循环逸出 raise 触发、continue 不误触发" {
+  // 形态 ①：errdefer 登记于内层 for ;; 之前，逸出 raise ⇒ 触发恰一次
+  let fired1 : Array[Int32] = []
+  fn subloop_raise() -> Unit raise {
+    errdefer fired1.push(1)
+    for ;; {
+      raise CallCancelled // 模拟子循环内失败逸出
+    }
+  }
+
+  let escaped = try {
+    subloop_raise()
+    false
+  } catch {
+    err => err is CallCancelled
+  }
+  assert_true(
+    escaped,
+    msg="逸出错误原样可达调用方（FR-008 形态）",
+  )
+  assert_eq(fired1.length(), 1, msg="逸出 raise 触发 errdefer 恰一次")
+  // 形态 ②：同一 errdefer 实例的双向判别——raise 分支静态可达（触发），
+  // continue 分支不触发；break v 正常取值返回
+  let fired2 : Array[Int32] = []
+  fn subloop_walk(should_raise : Bool) -> Int32 raise {
+    errdefer fired2.push(1)
+    let mut n = 0
+    let v = for ;; {
+      n = n + 1
+      if should_raise && n == 1 {
+        raise CallCancelled
+      }
+      if n < 3 {
+        continue
+      }
+      break n * 10
+    }
+    v
+  }
+
+  let escaped2 = try {
+    let _ = subloop_walk(true)
+    false
+  } catch {
+    err => err is CallCancelled
+  }
+  assert_true(escaped2, msg="形态②逸出半边：错误可达调用方")
+  assert_eq(
+    fired2.length(),
+    1,
+    msg="形态②逸出半边：errdefer 触发恰一次",
+  )
+  assert_eq(subloop_walk(false), 30, msg="for;;{break v} 循环表达式取值")
+  assert_eq(
+    fired2.length(),
+    1,
+    msg="continue 不误触发 errdefer（计数仍为逸出半边的 1，无双毒化）",
+  )
+}

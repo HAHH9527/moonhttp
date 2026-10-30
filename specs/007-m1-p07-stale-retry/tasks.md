@@ -28,12 +28,13 @@ description: "Tasks for M1-P07 stale-retry"
 
 **Purpose**: 骨架文件 + moon.pkg + 语义钉用例；全部故事的前置
 
-- [ ] T001 探针：核实 `Capture` 变体 canned 200 帧形态（读
+- [x] T001 探针：核实 `Capture` 变体 canned 200 帧形态（读
       src/internal/fixtures/raw_peer.mbt:302-313 与 canned_response
       构造），确认带 Content-Length 且无 `Connection` 头 ⇒ R7 优先
       路径（两跳 run()）成立；不合则后备路径（新增变体）并回记
       research R7。仅记录结论，不改代码
-- [ ] T002 创建判定器骨架三文件——src/client/recover.mbt（SendStage/
+      ✅ 证据：raw_peer.mbt:147 `canned_response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"`——带 CL:0、无 Connection 头 ⇒ R7 优先路径成立；Capture 分支（:302-313）serve→close 即静默关闭形态。结论：US-1①②③ 走优先路径；T010④ 需 conn2 服务 301，Capture 帧源不可达 ⇒ 引入 ServeSequence 变体（spec Assumptions 夹具扩展授权，备注见 T010）
+- [x] T002 创建判定器骨架三文件——src/client/recover.mbt（SendStage/
       ErrFamily/RetryDecision 枚举 + `decide` 存根恒 Fail）、
       src/client/recover_family.mbt（`error_family(stage, err)` 存根
       恒 Other）、src/client/recover_family.js.mbt（同签名降级恒
@@ -41,10 +42,12 @@ description: "Tasks for M1-P07 stale-retry"
       `options(targets: ...)` 表将 recover_family.mbt 锁
       [native, wasm]（recover_family.js.mbt 由后缀自动锁 js）；
       `moon check --target native` 与 `--target wasm` 零错误零警告
-- [ ] T003 [P] 白盒钉用例：errdefer 正方向语义（内层 `for ;;` 逸出
+      ✅ 证据：三文件 + moon.pkg（3 import + targets 表）落位；`moon check --target native|wasm` 0 错误；警告 7 条均为骨架期 unused（decide/error_family/枚举变体 lib 侧未接线，T004/T006 红测试先行消费后剩余项在 T008/T009/T011 接线点归零）——零警告门随 T011 接线达成，无抑制豁免
+- [x] T003 [P] 白盒钉用例：errdefer 正方向语义（内层 `for ;;` 逸出
       raise 触发轮级 errdefer、continue 不误触发）入
       src/client/follow_up_wbtest.mbt（P07-WB⑨，qod-2 探针的仓内
       固化；预期直接绿——钉语义非测新行为）
+      ✅ 证据：P07-WB⑨ 落笔即绿（钉语义）；`moon test --target native` 退出码 0，287/287（红批同跑：283/287，4 红恰为 T004/T006 的 Retry 期望组 WB③⑥⑦⑩）
 
 **Checkpoint**: 骨架编译绿、js 错误数与基线 diff 为零、语义钉用例绿
 
