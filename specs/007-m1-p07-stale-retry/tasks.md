@@ -182,7 +182,7 @@ stale_evictions==1；池守恒；重放字节一致
 
 ### Tests for User Story 2 ⚠️ 先红后绿
 
-- [ ] T014 [红] [US2] 集成+元测试入 src/client/call_test.mbt
+- [x] T014 [红] [US2] 集成+元测试入 src/client/call_test.mbt
       （P07-US2①..③）：①无监听端口 execute → 透传最后一次原始
       错误（先行断言收窄：原始错误 + 池状态零变化 + 恰 2 次尝试——
       尝试计数以白盒 attempts 断言或观测代理）；②拒绝形态双 target
@@ -190,11 +190,15 @@ stale_evictions==1；池守恒；重放字节一致
       型，钉定后补类型断言）；③`decide(Connect, ConnectFailure,…)`
       白盒已盖（T004），此处补 EnsureLease 捕获分支的接线断言（重
       试无毒化、`per_host_total` 不增长）；预期红
+      ✅ 证据：`moon test --target native` 退出码 0，302/302（P07-US2①②③＋P07-WB⑬ 白盒伴随全绿）；US2② 观测打点＝native 实测 `OSError(ECONNREFUSED)`（R8 预期形态，wasm 形态随 wasm 套件运行补录）
+      📝 备注①（红证据归属，显式记录）：US2 集成面无可黑盒观测的红形态——耗尽路径的透传/零状态断言在 P05 既有语义下即成立，1 次 vs 2 次拒绝在无服务端侧无可观测差（R2：先拒后收不可确定注入）；US2 的红证据＝T004 WB⑦（decide 层 Connect∧ConnectFailure→Retry 格）＋P07-US3⑥（恰 2 次尝试的服务端计数观测），集成用例定位为接线护栏（落笔即绿，宪法 IV 对账见 R10）
+      📝 备注②：恰 2 次尝试的确定性观测代理＝US3⑥（双失败模式 + per_host_total==2 + 计数恰 1），本用例按 R8 先行断言收窄为「原始错误透传＋池状态零变化」
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] [绿] 建连段捕获分支落实（T011 已含框架，补缺口：
+- [x] T015 [US2] [绿] 建连段捕获分支落实（T011 已含框架，补缺口：
       ensure_lease 重试 continue 路径与租约 None 断言）；T014 全绿
+      ✅ 证据：核对结论——ensure_lease 段 Retry→continue 路径由 T011 接线承载（US2① 两尝试耗尽端到端走通）；租约 None 断言＝P07-WB⑬（call.lease is None + 三集合零污染，白盒直读）；零代码修补需求——T014 全绿（302/302）
 
 **Checkpoint**: US-2 独立可验
 

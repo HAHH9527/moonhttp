@@ -3417,3 +3417,138 @@ async test "P07-US3⑥ 预算耗尽：恰 2 次尝试、透传最后一次原始
     peer.close()
   }
 }
+
+///|
+// P07 黑盒辅助：建连拒绝错误形态分类（T014② 元测试判别面；FR-015 同款
+// 手法）——@os_error 上游 js 为空包，#cfg 分支；native/wasm 断言集合
+// 外形 + 实测形态打点（跨宿主 errno 形态可能不同，如实记录）。
+#cfg(target="js")
+fn p07_refusal_kind(err : Error) -> String {
+  let _ = err
+  "js（重试不激活，形态不可达）"
+}
+
+///|
+#cfg(target="native")
+fn p07_refusal_kind(err : Error) -> String {
+  match err {
+    @os_error.OSError(errno) as e =>
+      if e.is_ECONNREFUSED() {
+        "OSError(ECONNREFUSED)"
+      } else {
+        "OSError(errno=\{errno})"
+      }
+    _ => "集合外形态"
+  }
+}
+
+///|
+#cfg(target="wasm")
+fn p07_refusal_kind(err : Error) -> String {
+  match err {
+    @os_error.OSError(errno) as e =>
+      if e.is_ECONNREFUSED() {
+        "OSError(ECONNREFUSED)"
+      } else {
+        "OSError(errno=\{errno})"
+      }
+    _ => "集合外形态"
+  }
+}
+
+///|
+// P07-US2①（FR-001 建连分支/FR-008/FR-015，T014）：无监听端口（端口 1，
+// P05-US2① 先例）execute → 2 次尝试各拒绝 → 预算耗尽透传最后一次原始
+// 错误（无包装）；池状态零变化（建连失败零记账零毒化——FR-015/004 契约）。
+// 恰 2 次尝试的确定性观测由 P07-US3⑥（双失败模式服务端计数）承载，本
+// 用例钉透传与零状态半边（R8 先行断言收窄口径）。
+// 【落笔即绿护栏显式记录】拒绝透传/零状态在 P05 既有语义下成立；钉「
+// 重试机器上线后建连失败仍按预算耗尽透传、池零污染」（WB⑦ ConnectFailure
+// → Retry 判定格的端到端回归面）。
+async test "P07-US2① 无监听端口：原始错误透传、池状态零变化" {
+  @async.with_task_group() <| _group => {
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(scheme="http", host="127.0.0.1", port=1)
+    let call = get_call_to(client, 1, "/refused")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(
+      raised,
+      msg="建连拒绝必须以原始 OSError 透传（FR-008 无包装；连接失败族）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      0,
+      msg="建连失败池状态零变化——零记账（FR-015/004 契约）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="建连段零 stale 计数（INV-R2：无租约不构成陈旧命中）",
+    )
+    pool.evict_all()
+  }
+}
+
+///|
+// P07-US2②（FR-015 同款元测试/R8，T014）：拒绝形态双 target 观测记录
+// ——native/wasm 各记录实际错误类型（println 打点，实测产出禁止手写
+// 代替）；钉定后类型断言＝OSError 集合（is_ECONNREFUSED 实测值一并留痕）。
+async test "P07-US2② 拒绝形态观测：双 target 元测试（实测打点 + 集合断言）" {
+  @async.with_task_group() <| _group => {
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let call = get_call_to(client, 1, "/refused-meta")
+    let kind = try {
+      let _ = call.execute()
+      "无错误（不可接受）"
+    } catch {
+      err => {
+        let k = p07_refusal_kind(err)
+        println("[P07-US2② 观测] 拒绝形态实际类型=\{k}")
+        k
+      }
+    }
+    assert_true(
+      kind.find("OSError") is Some(_),
+      msg="拒绝形态 ∈ {OSError(ECONNREFUSED), OSError(其他 errno)}（R8 观测清单，实测=\{kind}）",
+    )
+    pool.evict_all()
+  }
+}
+
+///|
+// P07-US2③（EnsureLease 捕获分支接线断言，T014/T015）：重试无毒化、
+// per_host_total 不增长——拒绝场景两尝试全程无租约持有：循环以租约
+// None 走完、池三集合零污染（黑盒计数半边；priv 三集合直读见 P07-WB⑬）。
+async test "P07-US2③ 建连段捕获接线：重试无毒化、池计数不增长" {
+  @async.with_task_group() <| _group => {
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(scheme="http", host="127.0.0.1", port=1)
+    let call = get_call_to(client, 1, "/refused-wiring")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(raised, msg="拒绝透传（接线断言前提）")
+    assert_eq(
+      pool.per_host_total(addr),
+      0,
+      msg="两次尝试均建连失败——per_host_total 零增长（无毒化新建面）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="建连段零计数（判据 ReadHead∧Stale 不触达）",
+    )
+    pool.evict_all()
+  }
+}

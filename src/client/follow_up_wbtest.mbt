@@ -945,3 +945,70 @@ async test "P07-WB⑫ stale 重试白盒：同代次零重折叠 + 池三集合�
     peer.close()
   }
 }
+
+///|
+// P07-WB⑬ 判别辅助：@os_error js 为空包——#cfg 分支（fr015 先例）；js
+// 侧不跑测，占位编译面。
+#cfg(target="js")
+fn p07_wb_is_refusal(err : Error) -> Bool {
+  let _ = err
+  true
+}
+
+///|
+#cfg(target="native")
+fn p07_wb_is_refusal(err : Error) -> Bool {
+  err is @os_error.OSError(_)
+}
+
+///|
+#cfg(target="wasm")
+fn p07_wb_is_refusal(err : Error) -> Bool {
+  err is @os_error.OSError(_)
+}
+
+///|
+// P07-WB⑬（T014③ 白盒伴随，2026-10-30）：建连段捕获分支接线的 priv 判
+// 别面——无监听端口两尝试全程无租约持有：call.lease 恒 None、池三集合
+// 零污染（borrowed/closed 双空、idle 无桶）、per_host_total 零增长
+// （「重试无毒化」的结构性判别：Connect 段 Retry 无毒化义务，池状态零
+// 变化契约 FR-015）。
+async test "P07-WB⑬ 建连段接线白盒：租约恒 None、池三集合零污染" {
+  @async.with_task_group() <| _group => {
+    let pool = ConnectionPool::new()
+    let client = HttpClient::new(pool)
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=1)
+    let call = get_call_wb(client, 1, "/refused-wb")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_wb_is_refusal(err)
+    }
+    assert_true(raised, msg="拒绝原始 OSError 透传（白盒判别面）")
+    assert_true(
+      call.lease is None,
+      msg="建连段两尝试全程租约 None（无毒化义务面——ensure_lease 失败不置租）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      0,
+      msg="per_host_total 零增长（FR-015 建连失败零记账）",
+    )
+    let mut idle_count = 0
+    for _key, bucket in pool.inner.idle {
+      idle_count = idle_count + bucket.length()
+    }
+    assert_eq(idle_count, 0, msg="idle 零污染")
+    assert_eq(
+      pool.inner.borrowed.length(),
+      0,
+      msg="borrowed 零污染（重试无毒化判别：无租约进出）",
+    )
+    assert_eq(
+      pool.inner.closed.length(),
+      0,
+      msg="closed 零污染（建连段无连接可毒化）",
+    )
+  }
+}
