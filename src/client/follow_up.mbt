@@ -233,11 +233,13 @@ async fn drain_intermediate(lease : Lease) -> Unit {
 }
 
 ///|
-// follow-up 主循环（data-model 实体 1；P06 T004 直通版）：循环顶取消
-// guard（FR-001）→ ensure_lease → 轮级 errdefer 毒化（轮内失败唯一毒化
-// 归属点，round3 D-2）→ 单轮 exchange → 决策表；Terminal 即终态返回，
-// Next 走 advance 最小路径（换请求 + 换代；排干/换租/上限随 T005/T012/
-// T013/T014 深化——round8 I5 分期口径）。
+// follow-up 主循环（data-model 实体 1）：循环顶取消 guard（FR-001）→
+// 轮级 errdefer 毒化（单点登记）→ **轮内尝试子循环**（P07 FR-007：至多
+// 2 次尝试＝1 原始 + 至多 1 重试；建连段与 exchange 段各自捕获 →
+// family → decide 分流；重试路径毒化在捕获分支显式完成——INV-R1，逸出
+// 路径毒化归属＝轮级 errdefer 单点，006 D-2 措辞「唯一性限于错误逸出
+// 路径」）→ 决策表；Terminal 即终态返回，Next 走 advance 最小路径。
+// 子循环不触碰 follow_ups 计数/gen/决策表/prior 链（INV-R3）。
 async fn Call::exchange_loop(self : Call) -> @core.Response {
   let mut request = self.request
   let mut prior : @core.Response? = None // prior 链（实体 4/INV-5）
@@ -251,11 +253,72 @@ async fn Call::exchange_loop(self : Call) -> @core.Response {
     // errdefer 作用域实测仅当前轮循环体——轮间 raise 不触发上一轮
     // errdefer，轮级 errdefer 不代偿轮间 raise。行为锚点 P06-WB④c。
     guard !self.cancelled else { raise CallCancelled }
-    let lease = self.ensure_lease(address_of_request(request))
-    // 轮内失败毒化：exchange/决策表 raise 沿此收尾（与 P05 exchange 段
-    // 既有 errdefer 幂等叠合，无害）
+    let addr = address_of_request(request)
+    // 轮级 errdefer 单点登记（P07 上移：取消 guard 之后、子循环之前——
+    // qod-2 必修⑤；对 None lease 为 no-op 故提前登记安全）。逸出路径
+    // 毒化归属不变（与 P05 exchange 段既有 errdefer 幂等叠合，无害）。
     errdefer self.poison_release()
-    let (response, raw_headers) = self.exchange_with_lease(request, lease)
+    // —— 轮内尝试子循环（P07 FR-007/R1 伪码；预算按请求代次，INV-R3）——
+    let mut attempts = 0
+    let (response, raw_headers) = for ;; {
+      // 体首行复位（qod-2 必修④）：防跨 attempt 阶段残留误计数/误封锁
+      self.last_stage = Connect
+      self.stream_body_entered = false
+      // attempt 级取消 guard（FR-006；decide 首条件兜底）
+      guard !self.cancelled else { raise CallCancelled }
+      attempts = attempts + 1 // 1=原始尝试，2=重试
+      // 建连段捕获（此时租约必为 None——池状态零变化契约，FR-015）：
+      // Retry → continue 无毒化义务；Fail → raise（无租约，errdefer no-op）
+      let lease = self.ensure_lease(addr) catch {
+        err => {
+          let family = error_family(Connect, err)
+          match
+            decide(
+              Connect,
+              family,
+              request.body.map(body => body.source),
+              false,
+              attempts,
+              self.client.retry_on_connection_failure,
+              self.cancelled,
+            ) {
+            Retry => continue
+            Fail => raise err
+          }
+        }
+      }
+      // exchange 段捕获（errdefer 已登记，逸出路径毒化单点）：Retry →
+      // poison_release()【INV-R1：进入重试分支前旧租毒化必已完成】→
+      // (ReadHead∧Stale) 计数（INV-R2 单点）→ continue；Fail → raise err
+      // 原始值透传（FR-008；逸出 errdefer 幂等兜底，净效果 poison 恰隔离）
+      let outcome = self.exchange_with_lease(request, lease) catch {
+        err => {
+          let family = error_family(self.last_stage, err)
+          match
+            decide(
+              self.last_stage,
+              family,
+              request.body.map(body => body.source),
+              self.stream_body_entered,
+              attempts,
+              self.client.retry_on_connection_failure,
+              self.cancelled,
+            ) {
+            Retry => {
+              self.poison_release()
+              if self.last_stage is ReadHead && family is Stale {
+                self.client.pool.note_stale_hit()
+              }
+              continue
+            }
+            Fail => raise err
+          }
+        }
+      }
+      break outcome // 成功出子循环
+    }
+    // 成功交换 ⇒ ensure_lease 已置租约（exchange 成功路径不触碰 self.lease）
+    let lease = self.lease.unwrap()
     // raw_headers = 原始 @http.Headers（H1 保真）：Location 直读不走
     // from_http 拆分产物（WB⑧）
     match follow_up_request(response, request, raw_headers) {

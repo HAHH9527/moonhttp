@@ -45,6 +45,11 @@ pub(all) enum PeerProgram {
   PartialResponse(CutPoint, Bool) // B-11：半截响应头（cut, then_close）
   SlowReceive(Int32, Int32) // B-12：慢速接收（read_bytes, interval_ms）
   Capture // B-13：既有捕获（判定内核 = P02 底座搬运）
+  // P07（T010④）：同连接 keep-alive 逐请求上线预置响应帧，帧序耗尽即
+  // 静默 close。「重试+301 叠加」需同一新连接先回 301 再回 200（Capture
+  // 单帧 200 形态不可达）——spec Assumptions「夹具扩展」授权的最小变体，
+  // 行为判据不变（R7 优先路径仍承载 US-1①②③，见 007 tasks.md T010 备注）
+  ServeSequence(Array[Bytes])
 }
 
 ///|
@@ -310,6 +315,34 @@ pub async fn ScriptedPeer::run(
         conn.close()
         slot.conn = None
         return frame
+      }
+      // P07（T010④）：同连接 keep-alive 逐请求上线预置帧。drain 内置
+      // （D12 教训：每帧先读尽请求再注入）；帧未收完不写、如实收尾。
+      // 帧序耗尽即静默 close（无 Connection 头——与 Capture 同款静默
+      // 语义，客户端回池后为死连接）。返回最后捕获的一帧（follow-up
+      // 请求取证面）。
+      ServeSequence(frames) => {
+        let mut last : Frame? = None
+        for i, resp in frames {
+          let frame = read_frame(conn, raw)
+          match frame {
+            Complete(_, _, _) => {
+              conn.write(resp)
+              last = Some(frame)
+            }
+            _ =>
+              return broken_early(
+                raw.to_bytes(),
+                "ServeSequence：请求帧未收完（第 \{i} 帧），未注入",
+              )
+          }
+        }
+        conn.close()
+        slot.conn = None
+        return match last {
+          Some(frame) => frame
+          None => broken_early(raw.to_bytes(), "ServeSequence：空帧序列")
+        }
       }
       // B-11（T013，owner 裁决 A 收尾）：**先 drain 客户端请求（无条件内置，
       // 不加公开枚举字段）**，再按 CutPoint 上线 canned 前缀，再按

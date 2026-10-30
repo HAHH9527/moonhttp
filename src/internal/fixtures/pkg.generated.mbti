@@ -43,6 +43,7 @@ pub(all) enum PeerProgram {
   PartialResponse(CutPoint, Bool)
   SlowReceive(Int32, Int32)
   Capture
+  ServeSequence(Array[Bytes])
 }
 
 pub(all) struct RequestLineExpect {

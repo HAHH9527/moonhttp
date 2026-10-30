@@ -859,20 +859,20 @@ async test "P05-US5⑤ 空 body 即刻消费完成且回池" {
 }
 
 ///|
-// P05-US5⑥（FR-011/宪法 IV，T023 补判据）：execute 段非取消错误验收——
-// 夹具 PeerProgram::AcceptClose（accept 后立即关连，收头前失败，零夹具
-// 扩展）。断言：错误原样透传（非 CallCancelled 且非 CallStateError）+
-// 毒化不回池（后续 execute 新建 +1；夹具侧证据＝第二次 run 重新 accept
-// 到新连接且按 AcceptClose 语义 early-broken——ScriptedPeer 无
-// accepted_total 计数，run 返回即 accept 发生的凭证）。
-// 【补判据：落笔即绿，显式标注】exchange.mbt 的 errdefer poison_release
-// 实现已在场（既有实现无测试的判据缺口），本用例补齐验收判据、首跑即绿
-// （非红绿对；错误透传路径已由 T021 组外兜底落实）。
-async test "P05-US5⑥ execute 段断连：错误透传 + 毒化不回池" {
+// P05-US5⑥（FR-011/宪法 IV，T023 补判据；P07 更新 2026-10-30）：
+// execute 段非取消错误验收——夹具 PeerProgram::AcceptClose（accept 后立即
+// 关连，收头前失败，零夹具扩展）。
+// 【P07 语义更新】AcceptClose 断连＝stale 族（ReaderClosed/OSError）可
+// 重试（FR-001/FR-005）——单次 execute 现按「两次尝试各新建 1 连接、
+// 预算耗尽透传最后一次原始错误」呈现；原「毒化路径不新建（per_host_
+// total==1）」断言随重试语义退役，毒化不回池改由「第三次 execute 再新建」
+// 承载（计数守恒口径随 INV-R3 更新：每尝试 +1）。
+// 断言：错误原样透传（非 CallCancelled 且非 CallStateError）+ 毒化不回池
+// （后续 execute 必须新建；夹具侧证据＝run 返回即 accept 发生的凭证）。
+async test "P05-US5⑥ execute 段断连：错误透传 + 毒化不回池（P07 重试语义下两尝试耗尽）" {
   @async.with_task_group() <| group => {
     let peer = @fixtures.ScriptedPeer::start()
     peer.mount(AcceptClose)
-    let running1 = group.spawn(() => peer.run(timeout_ms=3000))
     let pool = @client.ConnectionPool::new()
     let client = @client.HttpClient::new(pool)
     let addr = @client.Address::new(
@@ -880,6 +880,13 @@ async test "P05-US5⑥ execute 段断连：错误透传 + 毒化不回池" {
       host="127.0.0.1",
       port=peer.port(),
     )
+    // P07：断连触发重试——串行双 run（F18 禁并发 accept），两次尝试各
+    // 命中一次 AcceptClose 断连，预算耗尽 ⇒ 最后一次原始错误透传
+    let running1 = group.spawn(() => {
+      let _a = peer.run(timeout_ms=3000)
+      let _b = peer.run(timeout_ms=3000)
+      0
+    })
     let call = get_call_to(client, peer.port(), "/cut-early")
     let failed = try {
       let _ = call.execute()
@@ -889,22 +896,23 @@ async test "P05-US5⑥ execute 段断连：错误透传 + 毒化不回池" {
     }
     assert_true(
       failed,
-      msg="execute 段非取消错误必须原样透传（FR-011，T023）",
+      msg="execute 段非取消错误必须原样透传（FR-011，T023；P07 下经两次尝试耗尽）",
     )
-    // 夹具侧收尾：AcceptClose 的 run 正常返回（early-broken 捕获）
-    let capture1 = running1.wait()
-    assert_false(
-      capture1.complete,
-      msg="夹具语义确认：accept 后立即关连（AcceptClose）",
-    )
+    // 夹具侧收尾：两次 AcceptClose run 正常返回（early-broken 捕获）
+    let _ = running1.wait()
     assert_eq(
       pool.per_host_total(addr),
-      1,
-      msg="毒化路径不新建（计数守恒）",
+      2,
+      msg="重试换新连接——两次尝试各新建 1（P07 FR-005/INV-R3；原「毒化路径不新建」断言随重试语义退役）",
     )
-    // 毒化不回池证据：后续 execute 必须新建（夹具第二次 accept）
+    // 毒化不回池证据：两条断连均未回池——后续 execute 必须再新建（夹具
+    // 第三/四次 accept；P07 下再次两尝试耗尽透传）
     peer.mount(AcceptClose)
-    let running2 = group.spawn(() => peer.run(timeout_ms=3000))
+    let running2 = group.spawn(() => {
+      let _a = peer.run(timeout_ms=3000)
+      let _b = peer.run(timeout_ms=3000)
+      0
+    })
     let next = get_call_to(client, peer.port(), "/cut-early")
     let second_failed = try {
       let _ = next.execute()
@@ -912,16 +920,15 @@ async test "P05-US5⑥ execute 段断连：错误透传 + 毒化不回池" {
     } catch {
       _ => true
     }
-    assert_true(second_failed, msg="第二条连接同按 AcceptClose 失败")
-    let capture2 = running2.wait()
-    assert_false(
-      capture2.complete,
-      msg="夹具侧第二次 accept 到新建连接（毒化不回池的夹具证据）",
+    assert_true(
+      second_failed,
+      msg="重试耗尽后错误透传（两条新连接同按 AcceptClose 失败）",
     )
+    let _ = running2.wait()
     assert_eq(
       pool.per_host_total(addr),
-      2,
-      msg="execute 段毒化 ⇒ 不回池，后续 execute 新建 +1（T023）",
+      4,
+      msg="execute 段毒化 ⇒ 不回池，后续 execute 新建（两轮各 +2，P07 守恒口径）",
     )
     pool.evict_all()
     peer.close()
@@ -2845,5 +2852,209 @@ async test "P05-US1⑦ 并发 8 Call 互不串响应" {
       8,
       msg="8 并发 Call 应各自独立租借（FR-013 高水位）实测=\{peak}",
     )
+  }
+}
+
+///|
+// ===== P07：US-1～US-4 场景（2026-10-30 起，spec 007）=====
+// 编排纪律（research R7/qod-2 缺项②）：ScriptedPeer 串行 accept（F18
+// 禁并发 accept）——多连接场景以「单 spawn 任务内链式 run()」编排；
+// timeout_ms 缺省 5000 显式放宽至 8000（重试轮信封）；预热 execute 必须
+// 读尽响应体（CL:0）使租约回池（租约滞留 borrowed 则 stale 场景不成立）。
+
+///|
+// P07-US1①（FR-005/SC-002 闭环，T010）：预热（execute+读尽回池）→
+// ScriptedPeer run1 serve→close 静默关闭 → 二次 execute 首尝试读头 EOF
+// 族失败 → 自动换新连接重放 → run2 承接 → 终态响应正确、无错误暴露。
+async test "P07-US1① stale 闭环：预热→静默关闭→自动换新连接重放成功" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => {
+      let a = peer.run(timeout_ms=8000)
+      let b = peer.run(timeout_ms=8000)
+      (a, b)
+    })
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    // 预热：execute + 读尽体（CL:0）⇒ 租约回池；conn1 被服务端静默关闭
+    let warm = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp1 = warm.execute()
+    assert_eq(resp1.code(), 200, msg="预热响应正确（canned 200）")
+    let _ = resp1.body().unwrap().text() // 读尽回池（R7 编排约束 c）
+    // 二次 execute：首尝试取出死连接 → 读头 EOF 族 → 自动重试换新连接重放
+    let call = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp2 = call.execute()
+    assert_eq(
+      resp2.code(),
+      200,
+      msg="stale 恢复终态响应正确（重放成功、调用方无感知错误）",
+    )
+    let _ = resp2.body().unwrap().text()
+    let (_captured1, captured2) = runs.wait()
+    captured2.assert_matches(
+      @fixtures.expect_request_line(meth="POST", target="/x"),
+      "US1①",
+    )
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US1②（FR-004/INV-R2/004 INV-5，T010）：stale_evictions 递增恰 1；
+// 旧连接未回池判别（探针第三次 execute 复用健康 conn2——若死连接被回池，
+// LIFO 栈顶将命中死连接触发重试新建，per_host_total 变 3）；池计数守恒
+// （重试恰新建 1：per_host_total==2）。
+async test "P07-US1② stale 计数恰 1：旧连接未回池、per_host_total 守恒" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => {
+      let a = peer.run(timeout_ms=8000)
+      let b = peer.run(timeout_ms=8000)
+      (a, b)
+    })
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let warm = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp1 = warm.execute()
+    let _ = resp1.body().unwrap().text()
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="预热成功路径零计数（INV-R2：仅 stale 命中计数）",
+    )
+    let call = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp2 = call.execute()
+    assert_eq(resp2.code(), 200, msg="stale 恢复成功（计数前提）")
+    let _ = resp2.body().unwrap().text()
+    assert_eq(
+      pool.stale_evictions(),
+      1,
+      msg="stale 命中递增恰 1（FR-004：与重试结果无关、恰一次）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="重试恰新建 1 连接（1 预热 + 1 重试，守恒口径）",
+    )
+    let (_captured1, captured2) = runs.wait()
+    captured2.assert_matches(
+      @fixtures.expect_request_line(meth="POST", target="/x"),
+      "US1②",
+    )
+    // 旧连接未回池的精确判别（idle/closed/borrowed 三集合守恒）为 priv
+    // 字段——白盒伴随用例 P07-WB⑫ 承载（follow_up_wbtest.mbt）。
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US1③（SC-004 重放保真，T010）：两次 CapturedRequest 逐字节一致
+// ——预热请求与 stale 重放请求线上字节完全一致（Bytes 体原样重发、同代
+// 次重放）；fold_count 白盒断言（同代次零重折叠）见 follow_up_wbtest
+// P07-WB⑫（priv 字段白盒专属）。
+async test "P07-US1③ 重放保真：两连接捕获逐字节一致（SC-004）" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => {
+      let a = peer.run(timeout_ms=8000)
+      let b = peer.run(timeout_ms=8000)
+      (a, b)
+    })
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let warm = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp1 = warm.execute()
+    let _ = resp1.body().unwrap().text()
+    let call = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp2 = call.execute()
+    assert_eq(resp2.code(), 200, msg="stale 恢复成功")
+    let _ = resp2.body().unwrap().text()
+    let (captured1, captured2) = runs.wait()
+    assert_eq(
+      captured2.raw,
+      captured1.raw,
+      msg="重放与首次尝试线上字节逐字节一致（SC-004/FR-009 请求不可变）",
+    )
+    assert_eq(
+      captured2.body,
+      b"payload",
+      msg="Bytes 体原样重发（重放保真）",
+    )
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US1④（SC-006 预算与跳数语义，T010）：重试+301 叠加——stale 恢复
+// 后跟随 301：终态正确、prior 链深 1（重试不产生 prior 条目、不占 20 跳
+// 预算，跳数语义与 P06 一致）；conn2 以 ServeSequence 同连接先回 301 再
+// 回 200（相对 Location 指回同 peer）。计数面：恰 1 次 stale 命中、恰 2
+// 连接（follow-up 复用 conn2 零新建）。
+async test "P07-US1④ 重试+301 叠加：stale 恢复后跟随 301、prior 链深 1" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let redirect_frame : Bytes = b"HTTP/1.1 301 Moved Permanently\r\nLocation: /b\r\nContent-Length: 0\r\n\r\n"
+    let ok_frame : Bytes = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+    let runs = group.spawn(() => {
+      let a = peer.run(timeout_ms=8000)
+      peer.mount(ServeSequence([redirect_frame, ok_frame]))
+      let b = peer.run(timeout_ms=8000)
+      (a, b)
+    })
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let warm = get_call_to(client, peer.port(), "/warm")
+    let resp1 = warm.execute()
+    let _ = resp1.body().unwrap().text()
+    let call = get_call_to(client, peer.port(), "/start")
+    let resp2 = call.execute()
+    assert_eq(resp2.code(), 200, msg="stale 恢复后跟随 301 终态 200")
+    let p1 = resp2.prior()
+    assert_true(p1 is Some(_), msg="prior 链非空（301 挂链）")
+    let p1 = p1.unwrap()
+    assert_eq(p1.code(), 301, msg="prior 条目为跳转响应")
+    assert_true(
+      p1.prior() is None,
+      msg="prior 链深恰 1——重试不产生 prior 条目、不占跳数（SC-006）",
+    )
+    let _ = resp2.body().unwrap().text()
+    assert_eq(
+      pool.stale_evictions(),
+      1,
+      msg="恰 1 次 stale 命中（跨代次链中 follow-up 轮零 stale）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="follow-up 复用 conn2 零新建（恰 2 连接）",
+    )
+    let (_captured1, captured2) = runs.wait()
+    // ServeSequence 的 raw 为多请求累计捕获（head 跨全部请求）——不以
+    // 前缀 assert_matches 判定，改判 follow-up 请求行在场（GET /b 由
+    // conn2 承接，未新建连接——per_host_total==2 交叉证明）。
+    let raw_text = captured2.raw_text()
+    assert_true(
+      raw_text.find("GET /b HTTP/1.1") is Some(_),
+      msg="follow-up GET /b 由 conn2 承接（ServeSequence 取证面）：\{raw_text}",
+    )
+    pool.evict_all()
+    peer.close()
   }
 }

@@ -861,3 +861,87 @@ test "P07-WB⑨ errdefer 正方向语义钉用例：子循环逸出 raise 触发
     msg="continue 不误触发 errdefer（计数仍为逸出半边的 1，无双毒化）",
   )
 }
+
+///|
+// P07-WB⑫（T010②③ 白盒伴随，2026-10-30）：stale 重试的 priv 状态判别面
+// ——黑盒 P07-US1①..③ 的私有态半边：①同代次重放零重折叠（fold_count
+// 在重试前后不变，INV-R4/FR-009）；②池三集合守恒（004 INV-5：idle 1 +
+// closed 1 + borrowed 0 == per_host_total 2——毒化旧连接未回池、重试新
+// 连接回池）；③stale 计数恰 1（INV-R2）。场景与 US1① 同构（Capture 两
+// 跳串行 run，R7 优先路径）。
+async test "P07-WB⑫ stale 重试白盒：同代次零重折叠 + 池三集合守恒" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => {
+      let a = peer.run(timeout_ms=8000)
+      let b = peer.run(timeout_ms=8000)
+      (a, b)
+    })
+    let pool = ConnectionPool::new()
+    let client = HttpClient::new(pool)
+    let addr = Address::new(scheme="http", host="127.0.0.1", port=peer.port())
+    let url = @core.HttpUrl::parse("http://127.0.0.1:\{peer.port()}/x")
+    // 预热：execute + 读尽体（CL:0）回池；conn1 被服务端静默关闭
+    let warm = client.new_call(
+      @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(@core.RequestBody::bytes(b"payload", 7L))
+      .build(),
+    )
+    let resp1 = warm.execute()
+    assert_eq(resp1.code(), 200, msg="预热响应正确")
+    let _ = resp1.body().unwrap().text()
+    assert_eq(warm.fold_count, 1, msg="预热折叠恰一次（I-2）")
+    // stale 重放：首尝试死连接 → 重试换新连接重放（同代次）
+    let call = client.new_call(
+      @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(@core.RequestBody::bytes(b"payload", 7L))
+      .build(),
+    )
+    let resp2 = call.execute()
+    assert_eq(resp2.code(), 200, msg="stale 恢复成功")
+    let _ = resp2.body().unwrap().text()
+    assert_eq(
+      call.fold_count,
+      1,
+      msg="同代次重放零重折叠（fold_count 不变，INV-R4）",
+    )
+    assert_eq(
+      call.gen,
+      0,
+      msg="重试不换代（INV-R3：gen/决策表/prior 链零接触）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      1,
+      msg="stale 计数恰 1（INV-R2：与重试结果无关）",
+    )
+    // 池三集合守恒（白盒直读，pool_wbtest 先例）：conn1 毒化→closed、
+    // conn2 新建→ Consumed 回池 idle、borrowed 空
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="重试恰新建 1（1 预热 + 1 重试）",
+    )
+    let mut idle_count = 0
+    for _key, bucket in pool.inner.idle {
+      idle_count = idle_count + bucket.length()
+    }
+    assert_eq(idle_count, 1, msg="idle 恰 1（conn2 回池）")
+    assert_eq(
+      pool.inner.borrowed.length(),
+      0,
+      msg="borrowed 空（租约处置完成）",
+    )
+    assert_eq(
+      pool.inner.closed.length(),
+      1,
+      msg="closed 恰 1（conn1 毒化关闭未回池——旧连接未回池判别面）",
+    )
+    let (_captured1, _captured2) = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}

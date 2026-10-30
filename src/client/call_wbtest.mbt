@@ -800,12 +800,19 @@ async test "P05-WB⑮ 失败路径终态：Done + task None" {
 // P05-WB⑯（T023 补判据，FR-011）：execute 段非取消错误（AcceptClose 收头
 // 前关连）——白盒直读 `call.lease is None`（毒化收尾已完成，I-3；黑盒池
 // 计数证据见 P05-US5⑥）。
+// 【P07 语义更新 2026-10-30】AcceptClose 断连＝stale 族可重试——串行双
+// run（F18 禁并发 accept）服务两次尝试，预算耗尽 ⇒ 原样透传（形态同
+// P05-US5⑥ 更新注记）。
 // 【补判据：落笔即绿，显式标注】毒化收尾实现在场、首跑即绿（非红绿对）。
-async test "P05-WB⑯ execute 段断连：lease 已清（毒化收尾）" {
+async test "P05-WB⑯ execute 段断连：lease 已清（毒化收尾；P07 下两尝试耗尽）" {
   @async.with_task_group() <| group => {
     let peer = @fixtures.ScriptedPeer::start()
     peer.mount(AcceptClose)
-    let running = group.spawn(() => peer.run(timeout_ms=3000))
+    let running = group.spawn(() => {
+      let _a = peer.run(timeout_ms=3000)
+      let _b = peer.run(timeout_ms=3000)
+      0
+    })
     let pool = ConnectionPool::new()
     let client = HttpClient::new(pool)
     let call = get_call_wb(client, peer.port(), "/cut-early")
@@ -817,7 +824,7 @@ async test "P05-WB⑯ execute 段断连：lease 已清（毒化收尾）" {
     }
     assert_true(
       failed,
-      msg="execute 段非取消错误原样透传（FR-011，T023）",
+      msg="execute 段非取消错误原样透传（FR-011，T023；P07 下经两次尝试耗尽）",
     )
     assert_true(
       call.lease is None,

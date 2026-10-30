@@ -105,7 +105,7 @@ stale_evictions==1；池守恒；重放字节一致
 
 ### Tests for User Story 1 ⚠️ 先红后绿
 
-- [ ] T010 [红] [US1] 集成测试入 src/client/call_test.mbt
+- [x] T010 [红] [US1] 集成测试入 src/client/call_test.mbt
       （P07-US1①..④）：①预热（execute+读尽体回池）→
       `ScriptedPeer` run1（Capture serve→close 静默关闭）→ 二次
       execute 自动重试 → run2 承接新连接 → 终态响应正确、无错误暴
@@ -116,10 +116,16 @@ stale_evictions==1；池守恒；重放字节一致
       折叠）；④重试+301 叠加：stale 恢复后跟随 301 → 终态正确、
       prior 链深 1、跳数语义与 P06 一致（SC-006）；预期红（子循环
       未接线，二次 execute 直接抛 ReaderClosed）
+      ✅ 红证据：`moon test --target native` 退出码 2，291 用例 4 红——P07-US1①②③④ 全红，二次 execute 抛 OSError("connection aborted"，Windows 宿主静默关闭读形态，R1/E5 观测清单口径，与 ReaderClosed 同入 Stale 族）
+      ✅ 绿证据：`moon test --target native` 退出码 0，291/291；`moon test --target wasm` 退出码 0，291/291（US-1 边界双 target）
+      📝 备注①（夹具增量，spec Assumptions「夹具扩展」授权）：T010④ 需同一重试新连接先回 301 再回 200，Capture 单帧 200 形态不可达 ⇒ fixtures/raw_peer.mbt 新增 `ServeSequence(Array[Bytes])` 变体（同连接 keep-alive 逐帧上线、耗尽即静默 close，.mbti 增量随 T019 对账）；R7 优先路径仍完整承载 ①②③（探针结论见 T001）
+      📝 备注②：②的「探针第三次 execute 判旧连接未回池」不可达——Capture 每连接 serve 后即静默关闭，回池的 conn2 亦为死连接；旧连接未回池与三集合守恒改由白盒伴随用例 P07-WB⑫ 精确判别（idle 1/closed 1/borrowed 0 == per_host_total 2）
+      📝 备注③：③的 fold_count 断言为 priv 字段（call_test.mbt 黑盒作用域不可达）——由 P07-WB⑫ 白盒承载（R10「fold_count 白盒断言或捕获对端」的后者+前者分解）
+      📝 备注④：④的 follow-up 取证改 `raw_text().find("GET /b")`——ServeSequence 多请求捕获的 raw 为累计字节（assert_matches 的 0 位前缀判据只适用单请求 run）
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] [绿] 轮内尝试子循环接线：src/client/follow_up.mbt——
+- [x] T011 [US1] [绿] 轮内尝试子循环接线：src/client/follow_up.mbt——
       轮级 errdefer 上移至取消 guard 之后子循环之前（单点登记）；
       `for ;;` 子循环体首行复位 `last_stage`/`stream_body_entered`
       + attempt 级取消 guard；ensure_lease 段 try/catch
@@ -128,6 +134,8 @@ stale_evictions==1；池守恒；重放字节一致
       `(ReadHead∧Stale)` 时 `note_stale_hit()` → continue；Fail：
       `raise err` 原样）；不触碰 follow_ups/gen/决策表/prior 链；
       T010 全绿 + 既有 276 用例零回归
+      ✅ 证据：接线按 R1 伪码落地（errdefer 上移/体首行复位/attempt guard/两捕获段 family→decide→分支次序）；`moon test --target native` 291/291（含既有 276 零回归）、`--target wasm` 291/291；`moon check --target native|wasm` 0 警告 0 错误（T002 骨架期未接线警告全部归零）
+      📝 备注（P07 语义更新波及的既有用例适配，2 处）：P05-US5⑥ 与 P05-WB⑯（AcceptClose 单连接断连注入）——stale 族断连现触发重试，单 run 编排会令重试尝试连入无 accept 的监听队列而悬挂（F18 串行 accept 约束），且「毒化路径不新建 per_host_total==1」断言与 FR-005 重试换新连接直接冲突；两用例按「串行双 run + 两尝试耗尽透传 + 每尝试 +1 守恒口径」更新并注记，判据意图（错误透传/毒化不回池）保留
 
 **Checkpoint**: US-1 独立可验（M1 闭环判据达成）
 
