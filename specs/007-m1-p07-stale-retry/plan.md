@@ -58,15 +58,19 @@ qodercn 独立复核六项阻断修正已采纳——F17 口径统一、FR-007 �
 `HttpClient::new` 可选参数（FR-011 冻结面）；`src/client/placeholder`
 原样保留
 
-**Scale/Scope**: `src/client` 增 2 文件（recover.mbt〔native/wasm 判
-定器+族检测〕、recover.js.mbt〔js 降级〕、recover_wbtest.mbt 白盒）
-+ 改 4 文件（http_client.mbt 增 Call priv 字段与构造参数、
-exchange.mbt 阶段标记插桩、follow_up.mbt 尝试子循环接线、client.mbt
-增 note_stale_hit 私有入口）+ moon.pkg 增 3 import；测试改 2 文件
-（call_test.mbt 增补、follow_up_wbtest.mbt 增补）；
-`src/internal/fixtures` 增 1 变体（静默关闭组合脚本，raw_peer.mbt +
-pkg.generated.mbti）；specs/006/data-model.md D-2 加注；codemap 收尾
-订正。FR-001～FR-011、SC-001～SC-008
+**Scale/Scope**: `src/client` 增 3 文件（recover.mbt〔全 target：枚
+举+decide 纯函数〕、recover_family.mbt〔[native,wasm] 族检测，
+moon.pkg targets 表显式锁定〕、recover_family.js.mbt〔js 降级，后缀
+自动锁〕、recover_wbtest.mbt 白盒）+ 改 4 文件（http_client.mbt 增
+HttpClient/Call priv 字段与构造参数、exchange.mbt 阶段标记插桩、
+follow_up.mbt 尝试子循环接线（errdefer 上移）、client.mbt 增
+note_stale_hit 私有入口）+ moon.pkg（3 import + targets 表）；测试
+改 2 文件（call_test.mbt 增补、follow_up_wbtest.mbt 增补）；
+`src/internal/fixtures` 原则零增量（优先路径＝Capture 两跳 run()，
+探针不合才引入新变体——research R7 比选）；specs/006/data-model.md
+D-2 加注；codemap 收尾订正。FR-001～FR-011、SC-001～SC-008
+（T0 基线实测订正：js check 基线即红——13 个既有错误，P07 过门
+条件＝零新增 js 错误，见 contracts §5）
 
 ## Constitution Check
 
@@ -108,20 +112,21 @@ specs/007-m1-p07-stale-retry/
 ```text
 src/
 ├── client/                          # 门面包（同包私有能力复用）
-│   ├── moon.pkg                     # 改：+os_error/tls/socket import（js 上为空包，R6）
-│   ├── http_client.mbt              # 改：HttpClient::new 可选参 + HttpClient/Call priv 字段
+│   ├── moon.pkg                     # 改：+3 import；+options(targets) 表（recover_family.mbt 锁 native,wasm）
+│   ├── http_client.mbt              # 改：HttpClient::new 可选参 + HttpClient priv 字段（开关不进 Call）
 │   ├── client.mbt                   # 改：ConnectionPool::note_stale_hit（priv，锁内 +1）
 │   ├── exchange.mbt                 # 改：阶段标记插桩（last_stage 前置赋值 + filler 置位）
-│   ├── follow_up.mbt                # 改：ensure_lease 捕获 + 轮内尝试子循环 + recover 接线
-│   ├── recover.mbt                  # 新：SendStage/ErrFamily/RetryDecision + 族检测〔native,wasm〕+ 决策函数
-│   ├── recover.js.mbt               # 新：族检测 js 降级（同签名，恒 Other→不重试）〔js〕
+│   ├── follow_up.mbt                # 改：errdefer 上移 + 轮内尝试子循环 + recover 接线
+│   ├── recover.mbt                  # 新（全 target）：SendStage/ErrFamily/RetryDecision + decide 纯函数
+│   ├── recover_family.mbt           # 新〔targets 锁 native,wasm〕：error_family 段相关分类
+│   ├── recover_family.js.mbt        # 新〔js 自动〕：error_family 降级恒 Other
 │   ├── call_test.mbt                # 改（在场，增补）：US-1~US-4 场景（黑盒 P07-US*）
-│   ├── follow_up_wbtest.mbt         # 改（在场，增补）：决策函数全分支 + 子循环接线（白盒 P07-WB*）
-│   └── recover_wbtest.mbt           # 新：族检测可构造族 + 决策函数矩阵（白盒 P07-WB*）
+│   ├── call_wbtest.mbt              # 改（在场，如需）：构造参数适配（尾随可选参零改动兼容，qod-2 点 4 已核）
+│   ├── follow_up_wbtest.mbt         # 改（在场，增补）：errdefer 正方向钉用例 + 子循环接线（白盒 P07-WB*）
+│   └── recover_wbtest.mbt           # 新：decide 矩阵全分支 + 可构造族直测（白盒 P07-WB*）
 ├── core/                            # 零 diff（contracts 显式声明）
-└── internal/fixtures/
-    ├── raw_peer.mbt                 # 改：+静默关闭组合变体（第一连接 serve→silent close、第二连接正常 serve）
-    └── pkg.generated.mbti           # 改：变体入公开面（fixtures 为内部包，不算 client 冻结面）
+└── internal/fixtures/               # 原则零增量（R7 优先路径＝Capture 两跳 run()）；
+                                     #   仅当 canned 帧探针不合才引入新变体（raw_peer.mbt + .mbti）
 ```
 
 **Structure Decision**: recover 入既有门面包 `src/client`（P06 结构
@@ -135,5 +140,8 @@ recover.js.mbt）仅为 target 分文件所需，逻辑量小、不设新包。
 
 > 无违宪项。例外跟踪延续项：`src/client/exchange.mbt:90` 的
 > `#warnings("-unused_value")` 定点抑制（006 converge 遗留，本包不
-> 动其语义）；js check 上新增 import 可能报 unused_package（js 非门
-> 禁目标，如实记录不抑制）。
+> 动其语义）；js `unused_package` 已由包级既有抑制覆盖（contracts
+> §5）。**T0 基线记录（2026-10-30）**：native/wasm check+test 全绿
+> （276/276）；js check 基线即红（13 个既有错误——P06 承诺未达成
+> 的存量，非本包回归），P07 过门＝零新增 js 错误。P08 前瞻欠账一
+> 行：组级取消与重试子循环的接线归 P08 callTimeout/取消伞对拍。

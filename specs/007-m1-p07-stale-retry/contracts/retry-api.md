@@ -23,23 +23,27 @@
 ## §2 priv 接缝契约（包内可见，非公开面）
 
 ```text
-priv enum SendStage     { Connect; Send; ReadHead }
+priv enum SendStage     { Connect; Send; ReadHead }        # recover.mbt（全 target）
 priv enum ErrFamily     { Stale; Protocol; ConnectFailure; Other }
 priv enum RetryDecision { Retry; Fail }
 
-priv fn error_family(err : Error) -> ErrFamily
-  # recover.mbt [native, wasm]：全量分类
-  # recover.js.mbt [js]：恒 Other（重试不激活，Target 矩阵）
+priv fn error_family(stage : SendStage, err : Error) -> ErrFamily
+  # recover_family.mbt〔moon.pkg options(targets) 显式锁 native,wasm——
+  #   普通命名文件默认全 target，必须声明（qod-2 必修⑥）〕
+  # recover_family.js.mbt〔.js.mbt 后缀自动锁 js〕：恒 Other（重试不激活）
 priv fn decide(stage : SendStage, family : ErrFamily,
                body : @core.BodySource?, stream_body_entered : Bool,
                attempts : Int, enabled : Bool, cancelled : Bool) -> RetryDecision
-  # 全 target 共享纯函数；矩阵见 data-model 实体 3
+  # recover.mbt（全 target 共享纯函数）；矩阵见 data-model 实体 3
+  # （含 replayable 前置门与收尾兜底行）
 
 priv fn ConnectionPool::note_stale_hit(self) -> Unit
-  # 锁内 stale_evictions += 1；调用点仅「Stale ∧ ReadHead 进入重试分支」
+  # 锁内 stale_evictions += 1；调用判据＝decide==Retry ∧ stage==ReadHead
+  # ∧ family==Stale，调用点仅一（exchange 段捕获分支 poison_release 后）
 
-# Call priv 字段：retry_enabled : Bool / last_stage : SendStage / stream_body_entered : Bool
-# HttpClient priv 字段：retry_on_connection_failure : Bool（new_call 装入 Call）
+# Call priv 字段：last_stage : SendStage / stream_body_entered : Bool
+#   （子循环体首行复位；开关不复制进 Call——判定处直读 client priv 字段）
+# HttpClient priv 字段：retry_on_connection_failure : Bool
 ```
 
 职责边界：
@@ -47,25 +51,34 @@ priv fn ConnectionPool::note_stale_hit(self) -> Unit
   赋值插桩）。
 - `exchange_loop` 轮结构、`follow_ups` 计数、决策表、prior 链、
   `advance_generation` 调用点零变化（尝试子循环为轮内新增）。
+- 轮级 errdefer 单点登记**上移至取消 guard 之后、子循环之前**
+  （qod-2 必修⑤；对 None lease 为 no-op 故提前登记安全）；捕获分
+  支次序统一 `family → decide → Retry{poison_release() →
+  (ReadHead∧Stale) note_stale_hit() → continue} / Fail{raise}`。
 - 逸出路径毒化归属＝轮级 errdefer（006 D-2 加注后的措辞：唯一性限
   于错误逸出路径）；重试路径毒化＝捕获分支显式 `poison_release()`，
-  且必须先于 continue（INV-R1）。
+  必须先于 continue（INV-R1）。
 
-## §3 fixtures 包增量（内部测试基建）
+## §3 fixtures 增量（内部测试基建；qod-2 必修⑦修订：比选后扩面）
 
-`src/internal/fixtures`（PeerProgram 变体，命名 implement 定）：
+**优先路径（零公开面增量）**：现有 `Capture` 变体 + 同一 ScriptedPeer
+实例串行 `run()` 两次（监听 socket 在 run 返回后仍打开，close 在
+raw_peer.mbt:447）——conn1 serve→close（静默关闭）、conn2 承接重试
+新连接；每 run 各返一份 `CapturedRequest`，双连接捕获返回面天然成
+立。**前置探针**：Capture canned 200 必须带 Content-Length 且无
+`Connection` 头。
 
-```text
-+ <SilentCloseThenServe>   # 同端口两连接顺序处理：
-                           #  conn1: 读尽请求帧 → 200 + Content-Length（无 Connection 头）→ 静默 close
-                           #  conn2: 正常 serve（canned 200）
-```
+**后备路径（仅探针不合时）**：新增 PeerProgram 变体
+`SilentCloseThenServe`（conn1：读尽请求帧→200 + `Content-Length: 0`
+无 Connection 头→静默 close；conn2：正常 serve），返回面同构（每
+run 一份 CapturedRequest），计入本包 fixtures `.mbti` 增量（internal
+包，不属 client 冻结面对账范围）。
 
-- 与 B-06 的关键差异：不带 `Connection: close`（否则客户端主动毒
-  化，不构成陈旧场景）。
-- drain 内置（先读尽请求帧再 close ⇒ FIN 确定性，D12 教训继承，
-  不加公开枚举字段）。
-- `.mbti` 入公开面（fixtures 为 `internal` 包，消费方仅本仓测试域）。
+**编排约束（两路径通用）**：(a) 两次 run 与两次 execute 全程测试内
+串行（夹具 accept 串行契约，raw_peer.mbt:16-18）；(b) `timeout_ms`
+缺省 5000ms 信封显式放宽；(c) 预热 execute 必须读尽响应体（或 skip
+收尾）使租约回池；(d) 断言集合＝双捕获逐字节一致（SC-004）+
+stale_evictions==1 + accepted_total==2 + 池计数守恒。
 
 ## §4 跨文档修订义务（implement 同批）
 
@@ -77,7 +90,16 @@ priv fn ConnectionPool::note_stale_hit(self) -> Unit
 
 ## §5 moon.pkg 变更
 
-`src/client/moon.pkg` 常规 import 增：
-`moonbitlang/async/os_error`、`moonbitlang/async/tls`、
-`moonbitlang/async/socket`（js 上三包为空包，判定器 js 文件无引用
-点；unused_package 警告若现于 js check，如实记录不抑制——js 非门禁）。
+`src/client/moon.pkg`：
+1. 常规 import 增 `moonbitlang/async/os_error`、
+   `moonbitlang/async/tls`、`moonbitlang/async/socket`（js 上三包为
+   空包；`unused_package` 警告已由本包既有包级抑制
+   `warnings: "-unused_package"` 覆盖，无需追加）。
+2. **新增 `options(targets: ...)` 表**：`recover_family.mbt` 锁
+   `[native, wasm]`（承载锁定类型引用；普通命名文件默认全 target，
+   必须显式声明——qod-2 必修⑥，上游 http/moon.pkg:60-61
+   client.mbt/client.js.mbt 成对声明先例）；`recover_family.js.mbt`
+   由后缀自动锁 js。
+3. **js 验收口径（T0 基线实测 2026-10-30）**：`moon check --target js`
+   基线即红（13 个既有错误，`@http.ServerConnection` 等上游 js 缺
+   口）——P07 过门条件＝与基线错误集 diff **零新增错误**。

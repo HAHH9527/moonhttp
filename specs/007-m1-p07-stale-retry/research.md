@@ -30,31 +30,56 @@
 **Anchors**: follow_up.mbt:241-291（轮结构）、exchange.mbt:114-164
 （阶段平铺）、http_client.mbt:174-190（execute catch 只映射取消）。
 
-**形状（伪码，implement 以红绿定稿）**:
+**形状（伪码，implement 以红绿定稿；qod-2 探针实测背书：外层
+errdefer 会被内层 `for ;;` 逸出的 raise 触发、continue 不误触发、
+catch 内 continue 合法、`for ;; { … break v }` 可行——仓内同构先例
+body_bridge.mbt:150-155，正方向 errdefer 白盒用例随 T0 补钉）**:
 
 ```text
 每轮 follow-up:
   guard 取消
   addr = address_of_request(request)
+  errdefer self.poison_release()      # 单点登记：上移至子循环之前（qod-2 必修⑤：
+                                      #  原位在 ensure_lease 之后须移动；对 None lease 为
+                                      #  no-op——body_bridge.mbt:38-48——故提前登记安全）
   attempts = 0
-  resp = loop {                       # 轮内尝试子循环
+  resp = for ;; {                     # 轮内尝试子循环
+    # 体首行复位（qod-2 必修④，防跨 attempt 阶段残留误计数）：
+    self.last_stage = Connect
+    self.stream_body_entered = false
+    guard !self.cancelled             # attempt 级取消 guard（decide 首条件兜底）
     attempts += 1                     # 1=原始尝试，2=重试
-    # —— 建连段捕获（此时无租约，池状态零变化契约）——
-    try ensure_lease(addr)
+    # —— 建连段捕获（此时租约必为 None，池状态零变化契约）——
+    try self.ensure_lease(addr)
     catch err:
-      d = decide(Connect, family(err), …, attempts, …)
-      d=Retry → continue；否则 raise（无租约，无毒化义务）
-    # —— exchange 段捕获（轮级 errdefer 在首轮 attempt 前登记）——
-    try exchange_with_lease(request, lease)
+      family = error_family(Connect, err)
+      decide(Connect, family, body, false, attempts, …) 
+        ├─ Retry → continue（无毒化义务）
+        └─ Fail  → raise（无租约，errdefer no-op）
+    # —— exchange 段捕获（errdefer 已登记，逸出路径毒化单点）——
+    try self.exchange_with_lease(request, lease)
     catch err:
-      f = family(err)                 # 按 last_stage 细分阶段已在 family 输入
-      d = decide(…, attempts, …)
-      d=Retry → poison_release();  f=Stale → note_stale_hit();  continue
-      否则 raise err                  # 逸出 → 轮级 errdefer 毒化（归属不变）
-    break resp                        # 成功出子循环
+      family = error_family(self.last_stage, err)
+      decide(self.last_stage, family, body, self.stream_body_entered,
+             attempts, …)
+        ├─ Retry → self.poison_release()                 # 进入重试分支前必完成
+        │           family == Stale ∧ stage == ReadHead → self.pool.note_stale_hit()
+        │           continue
+        └─ Fail  → raise err（原始值透传；逸出 errdefer 幂等兜底，净效果 poison 恰隔离）
+    break resp                           # 成功出子循环
   }
   …（决策表/排干/换代照旧）
 ```
+
+**统一口径（qod-2 必修③⑤）**：捕获分支次序一律 `family → decide →
+Retry{poison_release() → (ReadHead∧Stale) note_stale_hit() →
+continue} / Fail{raise}`；stale 计数判据全文统一为
+**`Retry ∧ stage == ReadHead ∧ family == Stale`**（data-model §5 与
+contracts §2 同步）。
+
+**前瞻登记（P08 欠账一行）**：组级取消与子循环的接线（cancel 触达
+attempt 中间形态）归 P08 callTimeout/取消伞对拍；本包以 attempt 级
+guard + decide 首条件兜底。
 
 ## R2 上游错误面与判别形态（全锚点）
 
@@ -91,34 +116,42 @@ FR-003 封锁条件的保守上界（多封锁「已调用但零成功写」的�
 边界区分阶段——签名不变但结构变更大于字段插桩，且读头段仍需独立
 捕获点，两层改动无收益。
 
-## R4 判定器两层形状：族检测（按 target 分文件）+ 决策函数（纯、全可测）
+## R4 判定器两层形状：族检测（段相关、按 target 分文件）+ 决策函数（纯、全可测）
 
-**Decision**:
+**Decision**（qod-2 必修②⑥修订：三文件切分 + 签名带 stage）：
 
 ```text
-priv enum SendStage    { Connect; Send; ReadHead }          # 全 target 可见
+priv enum SendStage    { Connect; Send; ReadHead }          # recover.mbt（全 target）
 priv enum ErrFamily    { Stale; Protocol; ConnectFailure; Other }
 priv enum RetryDecision{ Retry; Fail }
 
-priv fn error_family(err : Error) -> ErrFamily                   # recover.mbt [native,wasm]
-                                                                 # recover.js.mbt [js]：恒 Other
+priv fn error_family(stage : SendStage, err : Error) -> ErrFamily
+  # recover_family.mbt〔moon.pkg targets 显式锁 native,wasm〕：全量分类
+  #   （普通命名文件默认全 target，必须显式声明——上游 http/moon.pkg:60-61
+  #    client.mbt/client.js.mbt 成对声明先例；qod-2 必修⑥）
+  # recover_family.js.mbt〔.js.mbt 后缀自动锁 js〕：恒 Other
 priv fn decide(stage, family, body : @core.BodySource?, stream_body_entered : Bool,
                attempts : Int, enabled : Bool, cancelled : Bool) -> RetryDecision
+  # recover.mbt（全 target 共享纯函数）
 ```
 
+- **族签名带 stage**（qod-2 必修②）：`@os_error.OSError` 在
+  `stage == Connect` → `ConnectFailure`，在 `Send`/`ReadHead` →
+  `Stale`（RST 读头形态可重试的必要条件）；`ResolveHostnameError`/
+  TLS 族同理按段归类。
 - `decide` 纯函数：输入全部可构造 → 白盒矩阵全分支用例（FR/US 判
   定分支的可测性主体，宪法 IV）。
-- `error_family`：native/wasm 文件命名 `@io.ReaderClosed`/
-  `@os_error.OSError`/`@tls.TlsError`/`@tls.ConnectionClosed`/
-  `@socket.ResolveHostnameError`/`@http.BadRequest` 等类型——其中可
-  构造族（ReaderClosed/OSError）单元级直测；不可构造族（协议族/
-  TLS 族/ResolveHostnameError，`pub` 非 `pub(all)` 跨包不可构造）以
-  集成场景（B-11 MidHeaderLine→Protocol；Content-Length 谎报→
-  IncorrectBodyLength）覆盖，**诚实边界记录**：TLS 族/
-  ResolveHostnameError 分支在 M1 无任何可注入通道，判定框架级，
-  M2 TLS 场景扩展时接管（spec C1/R1 已预留口径）。
+- `error_family`：可构造族（ReaderClosed/OSError）单元级直测；不可
+  构造族（协议族/TLS 族/ResolveHostnameError，`pub` 非 `pub(all)`
+  跨包不可构造）以集成场景（B-11 MidHeaderLine→Protocol；
+  Content-Length 谎报→IncorrectBodyLength）覆盖，**诚实边界记录**：
+  TLS 族/ResolveHostnameError 分支在 M1 无任何可注入通道，判定框架
+  级，M2 TLS 场景扩展时接管（spec C1/R1 已预留口径）。
 - js 降级：`error_family` 恒 `Other` ⇒ `decide` 恒 `Fail`（透传），
-  语义＝重试不激活（spec Target 矩阵）。
+  语义＝重试不激活（spec Target 矩阵）。**T0 基线实测**：js check
+  在本包动工前即红（13 个既有错误，`@http.ServerConnection` 等上
+  游 js 缺口——P06「js 仅编译检查」承诺在基线未达成）；P07 验收
+  口径＝**不新增 js 错误**（与基线错误集 diff 对比）。
 
 **Rationale**: 决策/检测分层把「不可构造输入」隔离在检测层，决策
 层全分支可测满足宪法 IV 的分支覆盖义务；target 分文件机制与上游
@@ -136,38 +169,63 @@ await）。调用点＝重试分支且 `family == Stale` 时、`poison_release()
 （client.mbt:348-364, :360）；004 FR-007 语义扩展行已预留「P07 命中
 行对同一计数器 +1」；公开 setter 违 FR-011（stale 计数入口保持私
 有）。同包直读先例在场（follow_up.mbt:213/:271 读 `lease.addr`）。
+调用判据统一为 **`Retry ∧ stage == ReadHead ∧ family == Stale`**
+（qod-2 必修③；建连段无租约不构成陈旧命中；attempt≥2 恒 Fail 故
+计数至多每次 execute 一次/代次）。锁形态沿用包内
+`sync_lock_or_abort`（client.mbt:189）同步形态，调用点不在临界区
+内。
 
-## R6 js 编译面：target 分文件 + 空包 import
+## R6 js 编译面：target 分文件 + 空包 import + 基线实测
 
 **Decision**: `src/client/moon.pkg` 增 `moonbitlang/async/os_error`/
 `tls`/`socket` 三个 import（三包在 js 上编译为空包——全部实现文件
 锁 [native,wasm]，os_error/moon.pkg 与 tls/moon.pkg targets 表实
-证；上游 @http 无条件 import @tls 而 js 可编译为同构先例）。判定器
-族检测按 target 分文件：`recover.mbt`〔native,wasm〕/
-`recover.js.mbt`〔js〕。
+证；上游 @http 无条件 import @tls 而 js 可编译为同构先例）。
+**moon.pkg 须显式新增 `options(targets: ...)` 表**——`recover_family.mbt`
+锁 [native, wasm]（普通命名文件默认全 target，不声明则 js 编译会
+碰到锁定类型引用；上游 client.mbt/client.js.mbt 成对声明先例），
+`recover_family.js.mbt` 由 `.js.mbt` 后缀自动锁 js（qod-2 必修⑥）。
 
-**Rationale**: 上游 `targets` 机制即为此设计（http 包 client.mbt/
-client.js.mbt 对）；`decide`/枚举定义放全 target 可见文件，
-js 侧无任何对锁定类型的引用。js check 若报新增 import
-unused_package（js 上三包无引用点）——js 非门禁目标，如实记录不抑
-制（plan Complexity Tracking）。
+**T0 基线实测（2026-10-30）**：`moon check --target js` 在本包动工
+前即红——13 个既有错误（`@http.ServerConnection` undefined 等，
+fixtures/@http.Server 上游 js 缺口所致），P06 spec「js 仅
+`moon check --target js`」的承诺在基线即未达成。P07 验收口径据此
+修正为：**不新增 js 错误**（实现后与基线错误集 diff，零新增错误为
+过）；`unused_package` 警告在 js 上已由 `src/client/moon.pkg` 既有
+包级抑制（`warnings: "-unused_package"`）覆盖，无需追加抑制。
 
-## R7 夹具扩展：静默关闭组合变体（US-1 依赖）
+## R7 夹具方案：优先零增量两跳 run()，新变体为后备
 
-**Decision**: `raw_peer.mbt` 新增 PeerProgram 变体（命名 implement
-定，建议 `SilentCloseThenServe`）：同一监听端口顺序处理两条连接——
-第一连接：读尽请求帧（drain 内置，D12 教训：先读后 close ⇒ FIN 确
-定性）→ 回 200 + Content-Length（**不带** `Connection: close`，与
-B-06 close_after_response 的关键差异）→ 静默 close；第二连接：正
-常 serve（canned 200 → close 或保持）。入 fixtures 公开面
-（.mbti）。
+**Decision**（qod-2 必修⑦修订：先比选、后扩面）：
 
-**Rationale**: 现有变体无一满足「应答后静默关闭空闲连接 + 二次
-accept」——B-06 必带 close 头（客户端主动毒化，不构成 stale）、
-AcceptClose 无第一跳正常应答、Capture 单连接一次性（exp-3 盘点）。
-时序确定性论证：响应体字节先于 FIN 进入接收缓冲，客户端读满
-Content-Length 即 Consumed 回池，不受 close 时序影响；二次
-execute 取出死连接 → end_request 读到 0 字节 EOF → ReaderClosed
+- **优先路径（零公开面增量）**：现有 `Capture` 变体（raw_peer.mbt
+  :302-313，serve canned 200 → close）+ **同一 ScriptedPeer 实例串
+  行 run() 两次**（监听 socket 在 run 返回后仍打开——close 在 :447
+  才执行）：run1 承 conn1（serve→close＝静默关闭），run2 承 conn2
+  （重试新连接）；两次 run 各返一份 `CapturedRequest` ⇒ 双连接捕获
+  返回面天然成立（qod-2 缺项①）。**前置探针（T-first）**：核实
+  Capture 的 canned 200 带 Content-Length 且无 `Connection` 头——
+  成立则此路径交付 US-1 全部判据（含 SC-004 双捕获逐字节对比）。
+- **后备路径（新变体）**：仅当探针发现 Capture 帧形态不合（如带
+  close 头或无 Content-Length）时，新增 PeerProgram 变体
+  （`SilentCloseThenServe`）：conn1 读尽请求帧（drain 内置，D12 教
+  训）→ 200 + `Content-Length: 0`（无 Connection 头）→ 静默 close；
+  conn2 正常 serve。返回面按「每 run 一份 CapturedRequest」同构设
+  计，计入 fixtures .mbti 增量（contracts §3）。
+- **编排约束（两路径通用，qod-2 缺项②）**：(a) 两次 run 与两次
+  execute 全程测试内串行编排（夹具头注钉死所有 accept 串行
+  ：16-18，禁并发 accept）；(b) `timeout_ms` 缺省 5000ms 信封显式
+  放宽（第二次 execute 含重试轮）；(c) 预热 execute **必须读尽响应
+  体（或 skip 收尾）租约回池**——租约若滞留 borrowed，stale 场景
+  根本不成立；(d) 断言集合：两捕获逐字节一致（SC-004）、
+  stale_evictions==1、accepted_total==2、池计数守恒。
+
+**Rationale**: 现有变体单看「一跳」都有近似形态（Capture 即
+serve→close），真正的缺口是「同端口两连接的编排」——run() 可重入
+使编排零增量可达；新变体仅在帧形态不合时引入，避免无谓的公开面扩
+张（宪法 VI）。时序确定性论证：响应体字节先于 FIN 进入接收缓冲，
+客户端读满 Content-Length 即 Consumed 回池，不受 close 时序影响；
+二次 execute 取出死连接 → end_request 读到 0 字节 EOF → ReaderClosed
 （FR-015 观测清单形态）。
 
 ## R8 US-2 拒绝形态观测清单（FR-015 同款手法）
