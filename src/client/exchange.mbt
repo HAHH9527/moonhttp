@@ -119,19 +119,31 @@ async fn Call::exchange_with_lease(
   let folded = self.folded_headers(request, self.gen)
   let meth = request.method.to_request_method()
   let path = origin_form(request.url)
+  // P07 阶段标记插桩（T009，data-model 实体 1）：四调用点前置赋值——
+  // L1 自有调用点边界即阶段边界（02 §4，非侵入）；发头/写体/体填充段
+  // ＝Send，收头段＝ReadHead。逸出行为零变化（仅 O(1) 字段赋值）。
+  self.last_stage = Send
   lease.conn.request(meth, path, extra_headers=folded)
   match request.body {
     Some(body) =>
       match body.source {
         @core.BodySource::Bytes(data) => {
+          self.last_stage = Send
           let _ = lease.conn.write_once(data, offset=0, len=data.length())
         }
-        @core.BodySource::Stream(filler) => filler(lease.conn)
+        @core.BodySource::Stream(filler) => {
+          self.last_stage = Send
+          // R3 保守口径：filler 调用即置位（体发送已进入的保守上界——
+          // 精确字节级观测须改 core 公开面，FR-011 冻结否决，plan R3）
+          self.stream_body_entered = true
+          filler(lease.conn)
+        }
       }
     None => ()
   }
   // 收头：不传 on_informational_response（C3 裁决——1xx 自动跳过、回调
   // 不进本包公开面；101 原样返回归 M5，本包零特判，R2 锚点）
+  self.last_stage = ReadHead
   let http_resp = lease.conn.end_request()
   // FR-009：响应声明 Connection: close ⇒ 该连接不回池——先毒化标记，
   // 其后体处置的 release 走关闭分支（对端已关/将关，回池必得死连接）。

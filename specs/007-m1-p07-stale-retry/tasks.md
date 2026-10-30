@@ -76,7 +76,7 @@ description: "Tasks for M1-P07 stale-retry"
       Other；js 文件保持恒 Other；T006 全绿。诚实边界注释：TLS 族/
       ResolveHostnameError 分支跨包不可构造（pub 非 pub(all)），M1
       无注入通道，集成侧不可达（research R4）
-- [ ] T008 字段与入口：src/client/http_client.mbt——`HttpClient::new`
+- [x] T008 字段与入口：src/client/http_client.mbt——`HttpClient::new`
       增尾随可选参 `retry_on_connection_failure~ : Bool = true` +
       HttpClient priv 字段 + Call 构造传入；Call 增 priv 字段
       `last_stage : SendStage`/`stream_body_entered : Bool`；
@@ -84,12 +84,14 @@ description: "Tasks for M1-P07 stale-retry"
       （`sync_lock_or_abort` 锁形态，锁内 `inner.stale_evictions += 1`，
       无 IO 无 await）；`moon check` 双 target 绿（既有 72 处
       HttpClient::new 调用点零改动兼容）
-- [ ] T009 阶段标记插桩：src/client/exchange.mbt——request(:122)/
+      ✅ 证据：`moon check --target native|wasm` 0 错误（尾随可选参零改动兼容实测——全部既有调用点未动）；警告 8 条均为 T011 消费项（note_stale_hit/三字段/Retry/Fail/decide/error_family 未接线）；`HttpClient::new` 新形态零回归
+- [x] T009 阶段标记插桩：src/client/exchange.mbt——request(:122)/
       write_once(:127)/filler(:129)/end_request(:135) 四调用点前置
       `self.last_stage = …` 赋值；filler 调用前置位
       `self.stream_body_entered = true`（R3 保守口径：调用即置位）；
       逸出行为零变化；`moon test --target native` 既有 276 用例
       全绿（零回归证据）
+      ✅ 证据：四调用点前置赋值 + filler 置位落位（逸出行为零变化，纯 O(1) 赋值）；`moon test --target native` 退出码 0，287/287（基线 276 + P07-WB 11 全绿，零回归）
 
 **Checkpoint**: 判定器全分支绿、字段/入口就位、零回归
 

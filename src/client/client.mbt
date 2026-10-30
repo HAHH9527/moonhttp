@@ -342,6 +342,21 @@ pub fn ConnectionPool::stale_evictions(self : ConnectionPool) -> Int32 {
 }
 
 ///|
+// stale 命中计数入口（P07 FR-004/R5，priv 不进公开面——FR-011 冻结面）：
+// 锁内 stale_evictions += 1（与 evict_bucket_locked:360 同一字段的第二个
+// 递增点）；sync_lock_or_abort 同步锁形态（R3 fail fast），临界区无 IO
+// 无 await（004 INV-4 满足）。调用判据统一＝decide==Retry ∧ stage==
+// ReadHead ∧ family==Stale（qod-2 必修③），调用点仅一：exchange 段捕获
+// 分支 poison_release() 之后、continue 之前（INV-R2 计数单点：在进入重
+// 试分支时发生、与重试最终结果无关；建连段无租约不构成陈旧命中；
+// attempts≥2 恒 Fail ⇒ 每 execute 每代次至多计 1）。
+fn ConnectionPool::note_stale_hit(self : ConnectionPool) -> Unit {
+  sync_lock_or_abort(self.lock, "note_stale_hit")
+  self.inner.stale_evictions = self.inner.stale_evictions + 1
+  self.lock.release()
+}
+
+///|
 // 单桶超期剔除（持锁段内调用；T013/T014 共享的超期判定单点，R2 时间语义
 // 单点/不变量 7）：自尾向头 splice（R4.1——不破坏 LIFO 序；R4.2——结果
 // 不依赖 Map 迭代序）；每条关闭（幂等 C-3）、迁 Closed、stale_evictions +1。

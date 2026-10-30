@@ -52,7 +52,7 @@ pub fn ConnectionPool::stale_evictions(Self) -> Int32
 pub struct HttpClient {
   // private fields
 }
-pub fn HttpClient::new(ConnectionPool) -> Self
+pub fn HttpClient::new(ConnectionPool, retry_on_connection_failure? : Bool) -> Self
 pub fn HttpClient::new_call(Self, @core.Request) -> Call
 
 pub struct Lease {

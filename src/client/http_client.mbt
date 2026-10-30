@@ -23,8 +23,13 @@ pub suberror TooManyFollowUps derive(@debug.Debug)
 ///|
 // 门面（data-model 实体 1）：唯一必需状态＝P04 池实例。P08/P09 配置位
 // 字段不建（YAGNI，plan 宪法核查 VI）。直连形态唯一构造（FR-008）。
+// P07：retry_on_connection_failure 为构造期不可变开关（FR-010，缺省
+// true＝OkHttp 默认行为面；builder 化归 P08/C4）——priv 字段不进公开面
+// （FR-011 冻结面：公开增量恰为 new 的可选参数一项）；开关值不复制进
+// Call，判定处经 client 同包 priv 直读（qod-2 点 4-5）。
 pub struct HttpClient {
   priv pool : ConnectionPool
+  priv retry_on_connection_failure : Bool
 }
 
 ///|
@@ -38,9 +43,14 @@ pub extend CallStateError with @debug.Debug::{to_repr}
 pub extend TooManyFollowUps with @debug.Debug::{to_repr}
 
 ///|
-// 直连构造（FR-008）：持池引用、零网络动作、无 builder。
-pub fn HttpClient::new(pool : ConnectionPool) -> HttpClient {
-  { pool, }
+// 直连构造（FR-008）：持池引用、零网络动作、无 builder。P07 增尾随可选
+// 参 retry_on_connection_failure~（缺省 true，FR-010/C4）——本参数为本包
+// 公开面唯一增量（FR-011 冻结面，contracts §1 对账）。
+pub fn HttpClient::new(
+  pool : ConnectionPool,
+  retry_on_connection_failure~ : Bool = true,
+) -> HttpClient {
+  { pool, retry_on_connection_failure, }
 }
 
 ///|
@@ -70,6 +80,13 @@ pub struct Call {
   priv mut body_consumed : Bool // Consumed 事件已见（on_event 通道，T018）
   priv mut body_dropped : Bool // Dropped 事件已见（T018）
   priv mut abandoned_fired : Bool // Abandoned 触发标记（T018 白盒断言面）
+  // P07 阶段标记（data-model 实体 4）：当前 attempt 的失败阶段——子循环
+  // 体首行复位 Connect（qod-2 必修④），exchange.mbt 调用点前置赋值刷新
+  // （T009 插桩）；捕获分支据此取族（error_family 段相关）。
+  priv mut last_stage : SendStage
+  // P07：filler 已被调用（保守封锁口径 R3——调用即置位，每 attempt 复位）；
+  // decide 的体可重放门消费（FR-003）。
+  priv mut stream_body_entered : Bool
 }
 
 ///|
@@ -91,6 +108,8 @@ pub fn HttpClient::new_call(self : HttpClient, request : @core.Request) -> Call 
     body_consumed: false,
     body_dropped: false,
     abandoned_fired: false,
+    last_stage: Connect,
+    stream_body_entered: false,
   }
 }
 
