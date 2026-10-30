@@ -84,12 +84,6 @@ target 优先级固定为 native ≥ wasm > js = wasm-gc；js 与 wasm-gc
 - MoonBit 代码按 block 组织（`///|` 分隔，块序无关）；废弃代码移入 `deprecated.mbt`。
 - 三行相似代码优于一个过早的抽象。
 
-### VII. 中文表达（不可妥协）
-
-- 本项目全部文档（宪法/spec/plan/tasks/README/设计文档）必须使用中文。
-- Agent 输出必须使用中文；代码注释中文优先。
-- Commit message 采用 Conventional Commits 格式，描述可用中文。
-
 ## 技术约束与合规
 
 - 实现语言 MoonBit；唯一底座 `moonbitlang/async`
@@ -145,8 +139,8 @@ target 优先级固定为 native ≥ wasm > js = wasm-gc；js 与 wasm-gc
   扩充；PATCH = 措辞澄清、笔误修正等非语义调整。
 - 合规审查：每次 code review 与 `/speckit-analyze` 必须验证宪法符合性；
   复杂度引入必须能被理由辩护。
-- 运行时开发指引：项目根 `agents.md`（MoonBit 工程约定）、
+- 运行时开发指引：项目根 `AGENTS.md`（MoonBit 工程约定、中文表达要求）、
   `proj-init-docs/speckit-tutorial.md`（Spec Kit 流程）、
   `proj-init-docs/okhttp-on-async-http/`（可行性研究报告全集）。
 
-**版本**：1.2.0 | **批准日期**：2026-10-12 | **最近修订**：2026-10-14
+**版本**：2.0.0 | **批准日期**：2026-10-12 | **最近修订**：2026-10-29

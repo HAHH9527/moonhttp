@@ -17,8 +17,14 @@ You can browse and install extra skills here:
   必须显式说明理由并记录。
 - 宪法不可妥协项摘要：只经公开 API 使用 `moonbitlang/async`，禁止 fork、复制
   或 vendor 上游源码，上游改动与 issue/PR 提交须事先人工批准；验收场景与测试
-  先行；项目文档全部使用中文。完整原则以宪法原文为准。
+  先行。完整原则以宪法原文为准（中文表达要求见下方专节，自宪法 v2.0.0 迁入）。
 - Spec Kit 流程参考：`proj-init-docs/speckit-tutorial.md`。
+
+## 中文表达（不可妥协）
+
+- 本项目全部文档（宪法/spec/plan/tasks/README/设计文档）必须使用中文。
+- Agent 输出必须使用中文；代码注释中文优先。
+- Commit message 采用 Conventional Commits 格式，描述可用中文。
 
 ## Project Structure
 
