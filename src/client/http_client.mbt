@@ -53,10 +53,10 @@ pub extend HttpTimeout with @debug.Debug::{to_repr}
 // DEFAULT_MAX_IDLE 常量先例同形）。构建期不可变，HttpClient 持有、
 // Call 经 `self.client.timeouts` 同包直读（P07 开关同形态）。
 pub(all) struct Timeouts {
-  connect_ms : Int // 连接伞（建连段，含 DNS——FR-007）；缺省 10_000
-  write_ms : Int // 写窗（每次写调用——research R3）；缺省 10_000
-  read_ms : Int // 读窗（收头调用/每次体读——research R4）；缺省 10_000
-  call_ms : Int // call 伞（execute 全程；0=不建窗——INV-T1）；缺省 0
+  connect_ms : Int32 // 连接伞（建连段，含 DNS——FR-007）；缺省 10_000
+  write_ms : Int32 // 写窗（每次写调用——research R3）；缺省 10_000
+  read_ms : Int32 // 读窗（收头调用/每次体读——research R4）；缺省 10_000
+  call_ms : Int32 // call 伞（execute 全程；0=不建窗——INV-T1）；缺省 0
 } derive(@debug.Debug)
 
 ///|
@@ -70,7 +70,127 @@ pub extend Timeouts with @debug.Debug::{to_repr}
 // 10s、call = 0（不限）。包内构造点（HttpClient::new/new_builder/
 // builder() 直派）与白盒断言共用此单点，杜绝缺省值漂移。
 fn Timeouts::default() -> Timeouts {
-  { connect_ms: 10_000, write_ms: 10_000, read_ms: 10_000, call_ms: 0 }
+  { connect_ms: 10_000, write_ms: 10_000, read_ms: 10_000, call_ms: 0, }
+}
+
+///|
+// 超时配置校验错误（priv 不进公开面；C5/004 validate_pool_config
+// 先例同形——纯校验可 raise ⇒ 双 target 可断言，abort 落点在 build()）。
+priv suberror TimeoutConfigError {
+  TimeoutConfigError(String)
+}
+
+///|
+// 超时配置纯校验（C5：负值构建期快速失败，不静默钳制；0 恒合法=
+// 不限不建窗）。可 raise 纯函数口径（004 D15 先例）——白盒判据通道。
+fn validate_timeouts(t : Timeouts) -> Unit raise TimeoutConfigError {
+  if t.connect_ms < 0 {
+    raise TimeoutConfigError("connect_ms must be >= 0, got \{t.connect_ms}")
+  }
+  if t.write_ms < 0 {
+    raise TimeoutConfigError("write_ms must be >= 0, got \{t.write_ms}")
+  }
+  if t.read_ms < 0 {
+    raise TimeoutConfigError("read_ms must be >= 0, got \{t.read_ms}")
+  }
+  if t.call_ms < 0 {
+    raise TimeoutConfigError("call_ms must be >= 0, got \{t.call_ms}")
+  }
+}
+
+///|
+// HttpClient 派生构建器（P08 FR-009/FR-012 冻结面③；data-model 实体 6）：
+// 仅覆盖标量配置（timeouts/两跟随开关/retry 开关——P07 开关在此承接，
+// 语义不变），pool 引用共享（两客户端连接记账同池守恒，US-4-1）。
+// 字段全 priv（不进公开面）；链式 setter（P01 RequestBuilder 家法）；
+// build() 为负值校验单点（C5：abort——004 ConnectionPool::new 先例）。
+pub struct HttpClientBuilder {
+  priv pool : ConnectionPool
+  priv timeouts : Timeouts
+  priv follow_redirects : Bool
+  priv follow_ssl_redirects : Bool
+  priv retry_on_connection_failure : Bool
+}
+
+///|
+// 根构造（FR-009 双入口之一）：pool 根、全缺省标量（Timeouts::default()
+// + 三开关 true）。
+pub fn HttpClient::new_builder(pool : ConnectionPool) -> HttpClientBuilder {
+  {
+    pool,
+    timeouts: Timeouts::default(),
+    follow_redirects: true,
+    follow_ssl_redirects: true,
+    retry_on_connection_failure: true,
+  }
+}
+
+///|
+// 自派生构造（FR-009 双入口之二；OkHttp client.newBuilder() 同形）：
+// pool 引用共享、标量缺省取被派生方当前值（快照——派生链 A→B→C 逐级
+// 覆盖经此天然达成）。无此入口则调用方无法从既有 client 派生共享池的
+// 新 client（pool 为 priv，US-4-1 对真实用户不可达——R6 裁决）。
+pub fn HttpClient::builder(self : HttpClient) -> HttpClientBuilder {
+  {
+    pool: self.pool,
+    timeouts: self.timeouts,
+    follow_redirects: self.follow_redirects,
+    follow_ssl_redirects: self.follow_ssl_redirects,
+    retry_on_connection_failure: self.retry_on_connection_failure,
+  }
+}
+
+///|
+// 整体替换超时配置（链式）。
+pub fn HttpClientBuilder::timeouts(
+  self : HttpClientBuilder,
+  timeouts : Timeouts,
+) -> HttpClientBuilder {
+  { ..self, timeouts, }
+}
+
+///|
+// 覆盖跟随开关（链式；false ⇒ 3xx 终态透传——FR-010）。
+pub fn HttpClientBuilder::follow_redirects(
+  self : HttpClientBuilder,
+  follow_redirects : Bool,
+) -> HttpClientBuilder {
+  { ..self, follow_redirects, }
+}
+
+///|
+// 覆盖跨 scheme 跟随开关（链式；false ⇒ 跨 scheme 3xx 终态透传——
+// FR-010，5.5.0 sameScheme 门）。
+pub fn HttpClientBuilder::follow_ssl_redirects(
+  self : HttpClientBuilder,
+  follow_ssl_redirects : Bool,
+) -> HttpClientBuilder {
+  { ..self, follow_ssl_redirects, }
+}
+
+///|
+// 覆盖建连失败重试开关（链式；P07 C4 承接——语义不变）。
+pub fn HttpClientBuilder::retry_on_connection_failure(
+  self : HttpClientBuilder,
+  retry_on_connection_failure : Bool,
+) -> HttpClientBuilder {
+  { ..self, retry_on_connection_failure, }
+}
+
+///|
+// 组装不可变 HttpClient（FR-009）：负值校验单点（C5——失败形态沿
+// 004 validate_pool_config abort 先例，构建期快速失败不静默钳制）。
+pub fn HttpClientBuilder::build(self : HttpClientBuilder) -> HttpClient {
+  validate_timeouts(self.timeouts) catch {
+    TimeoutConfigError(msg) => abort(msg)
+  }
+  {
+    pool: self.pool,
+    retry_on_connection_failure: self.retry_on_connection_failure,
+    timeouts: self.timeouts,
+    follow_redirects: self.follow_redirects,
+    follow_ssl_redirects: self.follow_ssl_redirects,
+  }
 }
 
 ///|
@@ -250,10 +370,6 @@ pub async fn Call::execute(self : Call) -> @core.Response {
     raise CallCancelled
   }
   self.state = Executing
-  // P08 call 伞标记入态清零（I-1 一次性语义的防御性入态复位——
-  // new_call 已置 false，此处钉死「入 Executing 即 false」不变量，
-  // 使标记读取只可能目睹本 execute 生命周期内看门者的置位）。
-  self.call_timeout_fired = false
   // T021（I-1/图 1）：上游 with_task_group 在子任务失败时于组退出重抛
   // （task_group.mbt worker catch 先置组态 Fail，body 内 catch 不改组态），
   // 故组后终态置位在失败路径不可达——兜底置位移到组外（errdefer 形态，
@@ -266,6 +382,27 @@ pub async fn Call::execute(self : Call) -> @core.Response {
   let outcome : ExchangeOutcome = @async.with_task_group() <| group => {
     let task = group.spawn(() => self.exchange_loop())
     self.task = Some(task)
+    // P08 call 伞看门者（T013，FR-002 有界例外①/FR-004；data-model
+    // 实体 4，research R1 Shape C）：call_ms>0 才派生（INV-T1——0=不
+    // 建窗非立即到期）。三步序纪律：sleep(call_ms) → 置位
+    // call_timeout_fired → task.cancel()——**置位先于取消**（收尾
+    // 分支目睹标记时取消必已发生）。取消不可被 catch 捕获（R4）⇒
+    // 变体经标记位在收尾分支选定；正常交付路径组退出时看门者被组
+    // 取消（取消不算失败——task_group.mbt:116-119），标记不被置位。
+    if self.client.timeouts.call_ms > 0 {
+      // no_wait=true（T013 修正）：看门者为即发即忘——组退出不等它，
+      // 否则正常交付路径会被组收尾拖满整个 call_ms 睡眠（WB⑦ 实证
+      // 5s 悬挂 + 标记误置位）；组退出时其仍睡眠即被取消（不算失败
+      // ——task_group.mbt:116-119）。
+      let _watchman = group.spawn(
+        () => {
+          @async.sleep(self.client.timeouts.call_ms)
+          self.call_timeout_fired = true
+          task.cancel()
+        },
+        no_wait=true,
+      )
+    }
     try {
       match @async.handle_cancellation(() => task.wait()) {
         Some(resp) => Delivered(resp)

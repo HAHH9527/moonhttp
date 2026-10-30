@@ -123,28 +123,68 @@ async fn Call::exchange_with_lease(
   // L1 自有调用点边界即阶段边界（02 §4，非侵入）；发头/写体/体填充段
   // ＝Send，收头段＝ReadHead。逸出行为零变化（仅 O(1) 字段赋值）。
   self.last_stage = Send
-  lease.conn.request(meth, path, extra_headers=folded)
+  // P08 写窗（T010，FR-003/R3；data-model 实体 5 接点②）：header 写
+  // 直包一窗（每写调用一窗；0=不建窗——INV-T1；取消态直调——T008
+  // 上游适配同款）。逸出毒化＝轮级 errdefer 既有单点。
+  let write_ms = self.client.timeouts.write_ms
+  if write_ms > 0 && !@async.is_being_cancelled() {
+    @async.with_timeout(
+      write_ms,
+      () => lease.conn.request(meth, path, extra_headers=folded),
+      error=HttpTimeout::Write,
+    )
+  } else {
+    lease.conn.request(meth, path, extra_headers=folded)
+  }
   match request.body {
     Some(body) =>
       match body.source {
         @core.BodySource::Bytes(data) => {
           self.last_stage = Send
-          let _ = lease.conn.write_once(data, offset=0, len=data.length())
+          // P08 写窗（T010）：Bytes 整写即单写调用单窗（R6——分块不
+          // 采纳，单次 write_once 即其线上形态的诚实粒度）
+          if write_ms > 0 && !@async.is_being_cancelled() {
+            let _ = @async.with_timeout(
+              write_ms,
+              () => lease.conn.write_once(data, offset=0, len=data.length()),
+              error=HttpTimeout::Write,
+            )
+          } else {
+            let _ = lease.conn.write_once(data, offset=0, len=data.length())
+          }
         }
         @core.BodySource::Stream(filler) => {
           self.last_stage = Send
           // R3 保守口径：filler 调用即置位（体发送已进入的保守上界——
           // 精确字节级观测须改 core 公开面，FR-011 冻结否决，plan R3）
           self.stream_body_entered = true
-          filler(lease.conn)
+          // P08 写窗（T010，R3）：Stream 经 @io.Writer 门面——每次用户
+          // 写调用各享独立写窗（timeout_writer.mbt priv 门面，三方法
+          // 全覆写、委托内层自身方法，单窗无嵌套）
+          let writer : TimeoutWriter = { inner: lease.conn, write_ms, }
+          filler(writer)
         }
       }
     None => ()
   }
   // 收头：不传 on_informational_response（C3 裁决——1xx 自动跳过、回调
   // 不进本包公开面；101 原样返回归 M5，本包零特判，R2 锚点）
+  // P08 读窗（T008，FR-003/C4；data-model 实体 5 接点③）：收头段单窗
+  // 覆盖 end_request 整调用（含内部 1xx 跳读）；read_ms=0 不建窗
+  // （INV-T1——0=不限非立即到期）。error=HttpTimeout::Read 经上游
+  // with_timeout 注入通道直达（FR-005），逸出毒化＝轮级 errdefer
+  // 既有单点（零新增接线）。
   self.last_stage = ReadHead
-  let http_resp = lease.conn.end_request()
+  let http_resp = if self.client.timeouts.read_ms > 0 &&
+    !@async.is_being_cancelled() {
+    @async.with_timeout(
+      self.client.timeouts.read_ms,
+      () => lease.conn.end_request(),
+      error=HttpTimeout::Read,
+    )
+  } else {
+    lease.conn.end_request()
+  }
   // FR-009：响应声明 Connection: close ⇒ 该连接不回池——先毒化标记，
   // 其后体处置的 release 走关闭分支（对端已关/将关，回池必得死连接）。
   // T022（FR-007/SC-002）：@http 头值不归一、重复头以 "," 拼接——精确

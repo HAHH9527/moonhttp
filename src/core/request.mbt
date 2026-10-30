@@ -58,6 +58,34 @@ pub fn RequestBuilder::new(url : HttpUrl) -> RequestBuilder {
 }
 
 ///|
+/// 设置 url（链式；P08 T019——`Request::new_builder` 派生面「url 可换」
+/// 的承载位：FR-009/US-4-2「五要素保三换」要求派生后可换 url，既有
+/// Builder 仅构造期收 url，本 setter 为该语义的最小承载；归 008 FR-012
+/// ④派生面语义项组成部分）。
+pub fn RequestBuilder::url(
+  self : RequestBuilder,
+  url : HttpUrl,
+) -> RequestBuilder {
+  { ..self, url, }
+}
+
+///|
+// Request 派生构造（P08 FR-009/R6，contracts/timeout-api.md §1 冻结面④）：
+// 五要素保三换——headers 逐项与 tag 保留、url/method/body 可经链式覆盖；
+// 无超时位（C2 裁决——OkHttp Request 无超时字段，per-call 定制=client
+// 派生惯用法）。同包字面量构造：headers 经 `builder()` 防御性回转
+// （P01 校验已发生，不重跑——P02 RequestBuilder::headers 同款先例）。
+pub fn Request::new_builder(self : Request) -> RequestBuilder {
+  {
+    url: self.url,
+    method: self.method,
+    headers: self.headers.builder(),
+    tag: self.tag,
+    body: self.body,
+  }
+}
+
+///|
 /// 设置方法（链式）。
 pub fn RequestBuilder::method(
   self : RequestBuilder,

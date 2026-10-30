@@ -60,8 +60,19 @@ pub fn ConnectionPool::stale_evictions(Self) -> Int32
 pub struct HttpClient {
   // private fields
 }
+pub fn HttpClient::builder(Self) -> HttpClientBuilder
 pub fn HttpClient::new(ConnectionPool, retry_on_connection_failure? : Bool) -> Self
+pub fn HttpClient::new_builder(ConnectionPool) -> HttpClientBuilder
 pub fn HttpClient::new_call(Self, @core.Request) -> Call
+
+pub struct HttpClientBuilder {
+  // private fields
+}
+pub fn HttpClientBuilder::build(Self) -> HttpClient
+pub fn HttpClientBuilder::follow_redirects(Self, Bool) -> Self
+pub fn HttpClientBuilder::follow_ssl_redirects(Self, Bool) -> Self
+pub fn HttpClientBuilder::retry_on_connection_failure(Self, Bool) -> Self
+pub fn HttpClientBuilder::timeouts(Self, Timeouts) -> Self
 
 pub struct Lease {
   // private fields

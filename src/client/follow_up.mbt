@@ -225,7 +225,44 @@ async fn Call::ensure_lease(self : Call, addr : Address) -> Lease {
     }
     None => ()
   }
-  let lease = self.client.pool.acquire(addr)
+  // P08 连接伞（T011，FR-002 有界例外②/FR-007；data-model 实体 5 接点
+  // ①）：包 pool.acquire(addr)——每 attempt 新伞（子循环每次重入
+  // ensure_lease 即新伞）。connect_ms=0 不建窗（INV-T1）；取消态直调
+  // （T008 上游适配同款——已取消协程构造任务组触发上游 PanicError）。
+  //
+  // 【伞形态——R2 机制的 implement 级订正（P08-WB⑥ 实证）】research R2
+  // 原定 `with_timeout(connect_ms, acquire)` 整包形态存在 R5 孤儿租约
+  // 竞态：伞到期取消 body 时，acquire 若已越过末个暂停点（记账锁无
+  // 竞争 fast-path）则同步记账尾不可中断 ⇒ 记账完成而租约被组丢弃
+  // ⇒ borrowed 悬挂（白盒第 8/4 轮实测复现，native/wasm 双现）——
+  // 违反 FR-006/US-3-3「副作用必达或显式撤销」。订正为看门者同型
+  // （R1 三步序的伞侧镜像）：子任务跑 acquire、定时器到期 task.cancel()
+  // 、wait() 交付——记账完成 ⇒ 租约必达（wait 拿到值，连接照常使用）；
+  // 建连在途被截断 ⇒ WaitedTaskAlreadyCancelled ⇒ HttpTimeout::Connect
+  // （记账零发生：记账锁 await 取消安全 mutex.mbt:39-41 + 建连 await
+  // 构造器 errdefer 清理）。INV-T3 两支恒成立。真实建连失败
+  // （OSError 等）沿 wait 原样透传（P07 建连族判定不受影响）。
+  let connect_ms = self.client.timeouts.connect_ms
+  let lease = if connect_ms > 0 && !@async.is_being_cancelled() {
+    @async.with_task_group() <| group => {
+      let child = group.spawn(() => self.client.pool.acquire(addr))
+      group.spawn_bg(no_wait=true) <| () => {
+        @async.sleep(connect_ms)
+        child.cancel()
+      }
+      child.wait() catch {
+        err =>
+          if err is @async.WaitedTaskAlreadyCancelled {
+            // 伞到期截断在途建连（child 无值死亡）⇒ 连接伞变体直达
+            raise HttpTimeout::Connect
+          } else {
+            raise err
+          }
+      }
+    }
+  } else {
+    self.client.pool.acquire(addr)
+  }
   self.lease = Some(lease)
   self.conn_close_seen = false
   lease
@@ -291,7 +328,16 @@ async fn Call::exchange_loop(self : Call) -> @core.Response {
               self.cancelled,
             ) {
             Retry => continue
-            Fail => raise err
+            // P08（T010/T011 取消映射，FR-002a 对称面）：取消后连接已被
+            // Call::cancel 同步 poison_release 关闭，窗体内的挂起建连可能
+            // 先见真实错误而非取消——按取消态归一裸 CallCancelled（P08
+            // 前取消沿 await 原生传播，本映射恢复既有可观测行为）。
+            Fail => {
+              if self.cancelled {
+                raise CallCancelled
+              }
+              raise err
+            }
           }
         }
       }
@@ -319,7 +365,16 @@ async fn Call::exchange_loop(self : Call) -> @core.Response {
               }
               continue
             }
-            Fail => raise err
+            // P08（T010/T008 取消映射，FR-002a 对称面——与建连段同口径）：
+            // 取消后连接已被同步关闭，写/读窗体内的挂起操作可能先见真实
+            // 错误（conn closed）而非取消——按取消态归一裸 CallCancelled
+            //（P05-US3②/P05-WB⑩ 行为面回归钉）。
+            Fail => {
+              if self.cancelled {
+                raise CallCancelled
+              }
+              raise err
+            }
           }
         }
       }
@@ -331,13 +386,14 @@ async fn Call::exchange_loop(self : Call) -> @core.Response {
     // from_http 拆分产物（WB⑧）
     // P08：两开关从 self.client 直读透传（FR-010；缺省 true＝P06 行为
     // 面逐位不变——INV-T5；门实体化归 T024，R7 门序）。
-    match follow_up_request(
-      response,
-      request,
-      raw_headers,
-      follow_redirects=self.client.follow_redirects,
-      follow_ssl_redirects=self.client.follow_ssl_redirects,
-    ) {
+    match
+      follow_up_request(
+        response,
+        request,
+        raw_headers,
+        follow_redirects=self.client.follow_redirects,
+        follow_ssl_redirects=self.client.follow_ssl_redirects,
+      ) {
       // 终态返回：活体透传 + prior 挂链（FR-006）
       Terminal => return attach_prior(response, prior)
       Next(followup) => {

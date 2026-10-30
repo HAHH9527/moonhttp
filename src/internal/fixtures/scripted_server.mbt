@@ -655,9 +655,7 @@ async fn ScriptedServer::serve_script(
       // 保持段：等待客户端下一步（下一请求或关闭）；对端关闭以
       // ReaderClosed 如实收尾（parser.mbt:343-348 同源锚点）。
       // catch 吞掉的只有「对端关闭」这一正常收尾——不应答即静默。
-      let _next = conn.read_request() catch {
-        _ => return false
-      }
+      let _next = conn.read_request() catch { _ => return false }
       false
     }
     // B-04 echo 唯一 id（T008，FR-013）：体 = "<单调id>:<请求体原样>"。

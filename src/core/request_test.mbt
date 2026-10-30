@@ -477,3 +477,58 @@ test "T015 补：Bytes 包装保元信息与转换恒等" {
   assert_eq(wrapped.content_length, Some(5L))
   assert_eq(wrapped.content_type, Some("application/json"))
 }
+
+///|
+// P08-US4（Request::new_builder 派生保留性，T018 红；FR-009/R6/C2）：
+// 五要素保三换——headers 逐项与 tag 保留、url/method/body 可换；
+// Request 级无超时覆盖位（C2——Request/RequestBuilder 无 timeouts API，
+// 编译面即契约）。
+test "P08-US4 Request::new_builder：headers/tag 保留、url/method/body 可换" {
+  let url1 = @core.HttpUrl::parse("http://127.0.0.1:1/a")
+  let origin_builder = @core.RequestBuilder::new(url1)
+    .method(@core.Method::Post)
+    .tag(Some(()))
+    .body(@core.RequestBody::bytes(b"payload", 7L))
+  origin_builder.header("X-A", "1")
+  origin_builder.header("X-B", "2")
+  let origin = origin_builder.build()
+  // 换 url + method，headers/tag/body 保留
+  let url2 = @core.HttpUrl::parse("http://127.0.0.1:2/b")
+  let derived = origin.new_builder().url(url2).method(@core.Method::Put).build()
+  assert_true(derived.url == url2, msg="url 可换")
+  assert_true(derived.method is @core.Method::Put, msg="method 可换")
+  assert_eq(
+    derived.headers.get("X-A"),
+    Some("1"),
+    msg="headers 逐项保留（一）",
+  )
+  assert_eq(
+    derived.headers.get("X-B"),
+    Some("2"),
+    msg="headers 逐项保留（二）",
+  )
+  assert_true(derived.tag is Some(_), msg="tag 保留")
+  match derived.body {
+    Some(body) =>
+      assert_eq(
+        body.content_length,
+        Some(7L),
+        msg="body 保留（不换即随行）",
+      )
+    None => fail("body 应保留")
+  }
+  // 换 body
+  let replaced = origin
+    .new_builder()
+    .body(@core.RequestBody::bytes(b"next", 4L))
+    .build()
+  match replaced.body {
+    Some(body) => assert_eq(body.content_length, Some(4L), msg="body 可换")
+    None => fail("body 应可换")
+  }
+  assert_eq(
+    replaced.headers.get("X-A"),
+    Some("1"),
+    msg="换 body 不动 headers",
+  )
+}

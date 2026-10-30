@@ -451,9 +451,7 @@ async test "P08-FIX② SilentReader：极慢读、存活期内连接不关" {
     )
     // 写完成即可证首段未被对端关闭卡死；此后静候——对端只慢读不回写
     let buf : FixedArray[Byte] = FixedArray::make(8, b'\x00')
-    let r = @async.with_timeout_opt(600) <| () => {
-      conn.read(buf, max_len=8)
-    }
+    let r = @async.with_timeout_opt(600) <| () => { conn.read(buf, max_len=8) }
     assert_true(
       r is None,
       msg="600ms 内应读超时（None）而非 EOF（Some(0)）——对端存活期内不关连（US-1-3 语义）",
@@ -462,10 +460,17 @@ async test "P08-FIX② SilentReader：极慢读、存活期内连接不关" {
     let cap = running.wait()
     peer.close()
     // 客户端先行关闭 ⇒ SilentReader 如实回报（零关连注记），无响应帧
-    assert_eq(cap.complete, false, msg="SilentReader 不应答——无完整响应帧")
+    assert_eq(
+      cap.complete,
+      false,
+      msg="SilentReader 不应答——无完整响应帧",
+    )
     match cap.note {
       Some(n) =>
-        assert_true(n.contains("对端已关闭"), msg="note 应如实回报收尾：\{n}")
+        assert_true(
+          n.contains("对端已关闭"),
+          msg="note 应如实回报收尾：\{n}",
+        )
       None => fail("SilentReader 必须给出收尾 note")
     }
   }

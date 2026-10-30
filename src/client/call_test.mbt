@@ -3744,3 +3744,311 @@ async test "P07-US4③ 开关 false：stale 注入不重试、原错误透传、
     peer.close()
   }
 }
+
+///|
+// ===== P08 US1：四类超时各自触发（黑盒场景；红绿循环，T007/T009/T012
+// 红批同批编写——预期红因各自钉明）=====
+
+///|
+// P08 黑盒辅助：配置化 client（黑盒面——Timeouts 纯值对象全字段字面量，
+// 包内 default() 缺省单点不对黑盒暴露；builder 为 P08 新公开面）。
+fn p08_client_with(
+  pool : @client.ConnectionPool,
+  connect_ms~ : Int32 = 10_000,
+  write_ms~ : Int32 = 10_000,
+  read_ms~ : Int32 = 10_000,
+  call_ms~ : Int32 = 0,
+) -> @client.HttpClient {
+  @client.HttpClient::new_builder(pool)
+  .timeouts({ connect_ms, write_ms, read_ms, call_ms, })
+  .build()
+}
+
+///|
+// C1 计时带上界按 target 放宽（native +300ms、wasm +1000ms——宿主调度
+// 抖动；下界统一 阈值−50ms 防早触发）。#cfg 分支沿 p07_is_stale_error
+// 先例。测量原点=窗建立点；黑盒观测起点=execute 时刻——前置同步段
+// δ（execute 入口→窗建立）= 实测 elapsed − 阈值，首片钉入证据行。
+#cfg(target="native")
+fn p08_band_upper_ms() -> Int64 {
+  300
+}
+
+///|
+#cfg(target="wasm")
+fn p08_band_upper_ms() -> Int64 {
+  1000
+}
+
+///|
+// 计时带断言（C1 不对称带）。
+fn p08_assert_band(
+  threshold_ms : Int32,
+  elapsed_ms : Int64,
+  tag : String,
+) -> Unit raise {
+  let lower = threshold_ms.to_int64() - 50
+  let upper = threshold_ms.to_int64() + p08_band_upper_ms()
+  assert_true(
+    elapsed_ms >= lower && elapsed_ms <= upper,
+    msg="\{tag}：计时带越界——实测 \{elapsed_ms}ms，C1 带 [\{lower}, \{upper}]ms",
+  )
+}
+
+///|
+// P08-US1②（FR-003/FR-005，T007 红）：收头读窗——B-01 头延迟 2000ms +
+// read_ms=500 ⇒ 约 500ms 收头窗内 raise HttpTimeout::Read（C1 带
+// [450, 800]ms）。预期红：end_request 未包窗 ⇒ 无 Read 变体（慢头
+// 正常返回 200）。
+async test "P08-US1② 收头读窗：头延迟 2s + read_ms=500 → Read 变体与 C1 带" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/slow-head", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"ok"),
+      head_delay_ms: 2000,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_once(timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, read_ms=500)
+    let call = get_call_to(client, server.port(), "/slow-head")
+    let start = @async.now()
+    try {
+      let _ = call.execute()
+      fail(
+        "慢头应触发 Read 超时（红因：end_request 未包窗 ⇒ 正常返回）",
+      )
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Read,
+          msg="终态应恰为 HttpTimeout::Read（FR-005，红因：无窗 ⇒ 观察不到该变体）",
+        )
+    }
+    p08_assert_band(500, @async.now() - start, "US1②")
+    // δ 观测（C1 测量原点义务）：黑盒观测起点=execute 时刻，窗建立点在
+    // ensure_lease+折叠+发头之后——δ = 实测总耗时 − 阈值，首片钉证据行
+    println(
+      "[P08-US1② 观测] execute 总耗时=\{@async.now() - start}ms ⇒ δ(入口→读窗建立)=\{@async.now() - start - 500}ms",
+    )
+    // 收尾：读窗超时毒化（连接不回池）后夹具端写头失败可容忍
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// P08-US1② C4/S9（T007 红）：1xx+慢头共享收头单窗——F-8 interim 后接
+// head_delay，总收头超窗 ⇒ Read（窗覆盖 1xx 跳读，C4 单窗语义）。
+// 预期红：无窗 ⇒ interim+慢头正常完成。
+async test "P08-US1② C4/S9：1xx+慢头共享收头单窗 ⇒ Read" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount_interim("GET", "/interim-slow", 100, {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"final"),
+      head_delay_ms: 2000,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_once(timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, read_ms=500)
+    let call = get_call_to(client, server.port(), "/interim-slow")
+    let start = @async.now()
+    try {
+      let resp = call.execute()
+      fail(
+        "1xx+慢头总收头超窗应触发 Read（红因：无窗 ⇒ 返回 \{resp.code()}）",
+      )
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Read,
+          msg="收头单窗（含 1xx 跳读）终态应恰为 Read（C4）",
+        )
+    }
+    p08_assert_band(500, @async.now() - start, "US1②-C4")
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// P08-US1③（R6 载体钉定 Stream，T009 红）：写窗——SilentReader（极慢
+// 读、不关连；run 兜底 3000ms > write_ms 500 + 余量）+ Stream 体 64 块
+// × 16KB = 1MB 分块 filler ⇒ 写停滞超 write_ms 后 raise
+// HttpTimeout::Write（C1 带 [450, 800]ms）。三段不等式定标（B2③/S8）：
+// 停滞填满（回环 socket 缓冲 ~64KB，毫秒级） < write_ms=500 < 夹具兜底
+// 3000。预期红：无写窗 ⇒ 停滞至兜底关连 ⇒ OSError 误现（P07
+// (Send,Stale) 不重试——Stream 不可重放 ⇒ Fail 透传）。
+async test "P08-US1③ 写窗：SilentReader+Stream 体停滞 → Write 变体与 C1 带" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(SilentReader(50))
+    let running = group.spawn(() => peer.run(timeout_ms=3000))
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, write_ms=500)
+    let url = @core.HttpUrl::parse("http://127.0.0.1:\{peer.port()}/upload")
+    let body = @core.RequestBody::stream(w => {
+      let chunk = FixedArray::make(16 * 1024, b'x').unsafe_reinterpret_as_bytes()
+      for _i in 0..<64 {
+        w.write(chunk)
+      }
+    })
+    let request = @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(body)
+      .build()
+    let call = client.new_call(request)
+    let start = @async.now()
+    try {
+      let _ = call.execute()
+      fail(
+        "写停滞应触发 Write 超时（红因：无窗 ⇒ 停滞至兜底）",
+      )
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Write,
+          msg="终态应恰为 HttpTimeout::Write（FR-005；OSError 误现=红因判据——定标失败）",
+        )
+    }
+    p08_assert_band(500, @async.now() - start, "US1③")
+    peer.close()
+    let _ = running.wait()
+  }
+}
+
+///|
+// P08-US1④（FR-004，T012 红）：call 伞覆盖 follow-up 全程——3 跳 301 ×
+// 每跳 head_delay 600ms + call_ms=1000（各单窗未超：read_ms 缺省 10s）
+// ⇒ HttpTimeout::Call（C1 带 [950, 1300]ms）。预期红：无看门者 ⇒
+// 3 跳正常完成（200 返回）。
+async test "P08-US1④ call 伞：3 跳 301×600ms + call_ms=1000 → Call 与 C1 带" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    // 3 跳链：/a →301→ /b →301→ /c →301→ /final（200）——每跳
+    // head_delay 600ms（各单窗未超：read_ms 缺省 10s），总 1.8s >
+    // call_ms=1000 ⇒ call 伞在第 2 跳读窗内触发。
+    server.mount("GET", "/a", {
+      status: 301,
+      headers: [("Location", "/b")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 600,
+      close_after_response: false,
+    })
+    server.mount("GET", "/b", {
+      status: 301,
+      headers: [("Location", "/c")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 600,
+      close_after_response: false,
+    })
+    server.mount("GET", "/c", {
+      status: 301,
+      headers: [("Location", "/final")],
+      framing: Fixed,
+      body: Static(b""),
+      head_delay_ms: 600,
+      close_after_response: false,
+    })
+    server.mount("GET", "/final", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"done"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(1, timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, call_ms=1000)
+    let call = get_call_to(client, server.port(), "/a")
+    let start = @async.now()
+    try {
+      let resp = call.execute()
+      fail(
+        "3 跳链应被 call 伞截断（红因：无看门者 ⇒ 正常完成 \{resp.code()}）",
+      )
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Call,
+          msg="call 伞到期终态恰为 HttpTimeout::Call（FR-004/INV-T2；实际=\{e}）",
+        )
+    }
+    p08_assert_band(1000, @async.now() - start, "US1④")
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// P08-US1④ 归属判别（B5 修订口径，T012 红）：单轮慢对照——head_delay
+// 2000ms + call_ms=1000 < read_ms 缺省 10s ⇒ 终态 Call 非 Read（阈值
+// 互不重叠时的归属判别）。预期红：无看门者 ⇒ 200 正常返回。
+async test "P08-US1④ 归属判别：单轮慢 2s + call_ms=1000 → Call 非 Read" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/slow-single", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"slow"),
+      head_delay_ms: 2000,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_once(timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    // read_ms 缺省 10s（> head_delay 2s）：若误归读窗则不会触发
+    let client = p08_client_with(pool, call_ms=1000)
+    let call = get_call_to(client, server.port(), "/slow-single")
+    let start = @async.now()
+    try {
+      let resp = call.execute()
+      fail(
+        "call_ms=1000 应先于慢头 2s 触发（红因：无看门者 ⇒ \{resp.code()} 返回）",
+      )
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Call,
+          msg="阈值互不重叠时终态应恰为 Call（归属判别，非 Read）",
+        )
+    }
+    p08_assert_band(1000, @async.now() - start, "US1④-对照")
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}

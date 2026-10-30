@@ -474,9 +474,7 @@ pub async fn ScriptedPeer::run(
         let buf = FixedArray::make(8, b'\x00')
         for ;; {
           // n==0（EOF）或读错误（RST 等）＝对端收尾，同归「对端已关闭」
-          let n = conn.read(buf, max_len=8) catch {
-            _ => 0
-          }
+          let n = conn.read(buf, max_len=8) catch { _ => 0 }
           if n == 0 {
             return broken_early(
               raw.to_bytes(),

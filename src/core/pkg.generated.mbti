@@ -114,6 +114,7 @@ pub struct Request {
   tag : Unit?
   body : RequestBody?
 } derive(@debug.Debug)
+pub fn Request::new_builder(Self) -> RequestBuilder
 pub fn Request::to_http_request(Self) -> @http.Request
 pub fn Request::to_repr(Self) -> @debug.Repr
 
@@ -143,6 +144,7 @@ pub fn RequestBuilder::method(Self, Method) -> Self
 pub fn RequestBuilder::new(HttpUrl) -> Self
 pub fn RequestBuilder::tag(Self, Unit?) -> Self
 pub fn RequestBuilder::to_repr(Self) -> @debug.Repr
+pub fn RequestBuilder::url(Self, HttpUrl) -> Self
 
 pub struct Response {
   code : Int32
