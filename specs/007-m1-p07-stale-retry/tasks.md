@@ -210,15 +210,18 @@ stale_evictions==1；池守恒；重放字节一致
 
 ### Tests for User Story 4 ⚠️ 先红后绿
 
-- [ ] T016 [红] [US4] 集成测试入 src/client/call_test.mbt
+- [x] T016 [红] [US4] 集成测试入 src/client/call_test.mbt
       （P07-US4①..③）：①K=2 次独立 execute 各命中 stale 一次 →
       `stale_evictions()==2`（跨代次形态可选：stale 恢复后 301 再
       stale）；②非 stale 路径对照（BadRequest/Stream/耗尽/预算耗
       尽各 ≥1 次）→ 计数零误增；③开关
       `retry_on_connection_failure=false`：stale 注入 → 不重试、
       原错误透传、计数为 0；预期红
-- [ ] T017 [US4] [绿] 开关接线核对（decide `!enabled` 首条件已盖，
+      ✅ 证据：`moon test --target native` 退出码 0，306/306；`moon test --target wasm` 退出码 0，306/306；US4② 元测试双 target 观测打点齐备（native+wasm 实测均 `OSError(ECONNREFUSED)`）
+      📝 备注（红证据归属，显式记录）：US4 的计数/开关行为随 T011 一次成形（decide 首条件与计数单点同批接线），集成面无可分离的红形态——红证据＝T004/T006 判定层矩阵红（WB①②取消/开关格、WB③预算格）＋T010/T012 集成层红；US4 用例定位为计数精度与开关面的回归护栏（落笔即绿，跨代次 301 形态已由 US1④ 承载故①取 K 次独立 execute 主形态）
+- [x] T017 [US4] [绿] 开关接线核对（decide `!enabled` 首条件已盖，
       补 `HttpClient::new` 参数传递链断言）；T016 全绿
+      ✅ 证据：参数传递链断言＝P07-WB⑭（缺省 true/显式 false 落字段直读，priv 白盒）；端到端开关面＝US4③（零新建+零计数判别面）；T016 全绿（native/wasm 306/306 双绿）
 
 **Checkpoint**: US-1..US-4 全部独立可验
 

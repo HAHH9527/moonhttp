@@ -266,3 +266,22 @@ test "P07-WB⑪ 族检测未知错误：CallCancelled → Other" {
     msg="ReadHead∧未知错误 → Other",
   )
 }
+
+///|
+// P07-WB⑭（T017，2026-10-30）：HttpClient::new 开关参数传递链断言——
+// 尾随可选参缺省 true（FR-010＝OkHttp 默认行为面）、显式 false 如实落
+// 字段（判定处经 client 同包 priv 直读，qod-2 点 4-5）；构造面字段值
+// 直读（priv 白盒）。
+test "P07-WB⑭ 开关参数传递链：缺省 true、显式 false 落字段" {
+  let pool = ConnectionPool::new()
+  let default_client = HttpClient::new(pool)
+  assert_true(
+    default_client.retry_on_connection_failure,
+    msg="缺省 true（FR-010/C4：OkHttp 默认行为面）",
+  )
+  let off_client = HttpClient::new(pool, retry_on_connection_failure=false)
+  assert_false(
+    off_client.retry_on_connection_failure,
+    msg="显式 false 如实落字段（FR-010）",
+  )
+}

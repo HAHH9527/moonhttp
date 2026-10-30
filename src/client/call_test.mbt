@@ -3432,7 +3432,7 @@ fn p07_refusal_kind(err : Error) -> String {
 #cfg(target="native")
 fn p07_refusal_kind(err : Error) -> String {
   match err {
-    @os_error.OSError(errno) as e =>
+    @os_error.OSError(errno, ..) as e =>
       if e.is_ECONNREFUSED() {
         "OSError(ECONNREFUSED)"
       } else {
@@ -3446,7 +3446,7 @@ fn p07_refusal_kind(err : Error) -> String {
 #cfg(target="wasm")
 fn p07_refusal_kind(err : Error) -> String {
   match err {
-    @os_error.OSError(errno) as e =>
+    @os_error.OSError(errno, ..) as e =>
       if e.is_ECONNREFUSED() {
         "OSError(ECONNREFUSED)"
       } else {
@@ -3550,5 +3550,197 @@ async test "P07-US2③ 建连段捕获接线：重试无毒化、池计数不增
       msg="建连段零计数（判据 ReadHead∧Stale 不触达）",
     )
     pool.evict_all()
+  }
+}
+
+///|
+// P07-US4①（FR-004 计数精度/SC-003，T016）：K=2 次独立 execute 各命中
+// stale 一次 → stale_evictions 恰 2（Capture 每连接 serve 后静默关闭，
+// 天然形成「逐次 execute 逐次 stale 命中」链：conn1→conn2→conn3）；
+// 计数进度留痕（预热 0 → 首命中 1 → 次命中 2）。
+async test "P07-US4① K=2 次独立 stale 注入：计数恰 2" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => {
+      let _a = peer.run(timeout_ms=8000)
+      let _b = peer.run(timeout_ms=8000)
+      let _c = peer.run(timeout_ms=8000)
+      0
+    })
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    // 预热：conn1 建立并回池（服务端已静默关闭）
+    let warm = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp1 = warm.execute()
+    let _ = resp1.body().unwrap().text()
+    assert_eq(pool.stale_evictions(), 0, msg="预热零计数")
+    // 第 1 次 stale 注入：conn1 死连接命中 → 重试 conn2
+    let call2 = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp2 = call2.execute()
+    assert_eq(resp2.code(), 200, msg="第 1 次 stale 恢复成功")
+    let _ = resp2.body().unwrap().text()
+    assert_eq(pool.stale_evictions(), 1, msg="第 1 次命中恰 +1")
+    // 第 2 次 stale 注入：conn2 亦已被 Capture 静默关闭 → 重试 conn3
+    let call3 = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp3 = call3.execute()
+    assert_eq(resp3.code(), 200, msg="第 2 次 stale 恢复成功")
+    let _ = resp3.body().unwrap().text()
+    assert_eq(
+      pool.stale_evictions(),
+      2,
+      msg="K=2 次独立注入计数恰 2（SC-003 计数精度）",
+    )
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      3,
+      msg="每次命中恰新建 1（守恒：3 新建 = 2 毒化关 + 1 在池）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US4②（FR-004 反向/INV-R2，T016）：非 stale 路径对照——BadRequest
+//（Protocol 族）/Stream 封锁/建连耗尽各 ≥1 次 → 计数零误增（毒化与
+// 重试解耦：毒化照常、计数只认 stale 命中）。每路径独立池独立断言。
+async test "P07-US4② 非 stale 路径对照：计数零误增" {
+  // 路径 1：BadRequest（B-11 MidHeaderLine，Protocol 族 Fail + 毒化零计数）
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(
+      @fixtures.PeerProgram::PartialResponse(
+        @fixtures.CutPoint::MidHeaderLine(4),
+        true,
+      ),
+    )
+    let runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let call = get_call_to(client, peer.port(), "/bad")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => err is @http.BadRequest
+    }
+    assert_true(raised, msg="对照路径 1：BadRequest 透传（前提）")
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="Protocol 族零误增（对照 1）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+  // 路径 2：Stream 已进入发送（AcceptClose，保守封锁 Fail + 毒化零计数）
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(AcceptClose)
+    let runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let url = @core.HttpUrl::parse("http://127.0.0.1:\{peer.port()}/oneshot2")
+    let request = @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(@core.RequestBody::stream(w => w.write(b"px")))
+      .build()
+    let call = client.new_call(request)
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(raised, msg="对照路径 2：Stream 封锁透传（前提）")
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="Stream 封锁路径零误增（对照 2）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+  // 路径 3：建连预算耗尽（无监听端口，两尝试全拒绝 + 零毒化零计数）
+  @async.with_task_group() <| _group => {
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let call = get_call_to(client, 1, "/exhaust")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(raised, msg="对照路径 3：建连耗尽透传（前提）")
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="建连耗尽路径零误增（对照 3）",
+    )
+    pool.evict_all()
+  }
+}
+
+///|
+// P07-US4③（FR-010 开关面/SC-001，T016）：retry_on_connection_failure=
+// false——stale 注入（预热后静默关闭）→ 不重试、原错误透传、计数为 0、
+// 零新建（对端单连接）。判别面：若开关失效（误重试）则 per_host_total
+// 变 2 且计数变 1。
+// 【落笔即绿护栏显式记录】T011 起 decide 首条件即接开关；本用例钉端到
+// 端参数传递链不回归（T017 补构造面直读断言）。
+async test "P07-US4③ 开关 false：stale 注入不重试、原错误透传、计数 0" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(
+      pool,
+      retry_on_connection_failure=false,
+    )
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    // 预热（开关只作用于失败判定，成功路径不受影响）
+    let warm = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp1 = warm.execute()
+    let _ = resp1.body().unwrap().text()
+    // stale 注入：死连接命中 → 开关关 ⇒ 不重试、原错误透传
+    let call = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(
+      raised,
+      msg="开关 false：stale 命中原错误透传（FR-010，不重试不包装）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="开关 false：不进入重试分支 ⇒ 零计数（计数判据含 Retry 前置）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="开关 false：零新建（若误重试则 2——判别面）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
   }
 }
