@@ -58,10 +58,12 @@ fetch 不保证取消，FR-011）；wasm-gc 排除
 **Project Type**: library（门面包 `src/client` 增量 + core 一函数增
 量）
 
-**Performance Goals**: 快乐路径成本＝每操作一 Timer 创建/取消（~百 ns
-级，块 ≥16KB 占比 <0.1%，10 §6 预算）+ call 伞每 execute 一 Timer
-（O(1)）；量化归 P10「超时开/关」对比场景；本包测试不断言性能数字
-（计时带为功能正确性）
+**Performance Goals**: 快乐路径成本＝每操作一 `with_timeout`（实现形
+态＝一 TaskGroup + timer 子任务 spawn，非裸 Timer——qod-2 S7 如实表
+述；10 §6 预算口径「Timer 创建/取消 ~百 ns 级、块 ≥16KB 占比 <0.1%」
+的量级复核归 P10 实测）+ call 伞每 execute 一组（O(1)）；量化归 P10
+「超时开/关」对比场景，超出预算则 M2 转 refresh 方案；本包测试不断
+言性能数字（计时带为功能正确性）
 
 **Constraints**: 全程公开 API（宪法 I）；包裹层非流程层——仅两处有
 界例外（看门者+收尾变体选择、ensure_lease 连接伞位点，FR-002）；
@@ -73,12 +75,14 @@ data-model）；`HttpClient::new` 签名不变（FR-012 冻结底线）
 构造入口/HttpClient/Call priv 字段/看门者/收尾变体选择〕、follow_up.mbt
 〔连接伞包裹 + follow_up_request 两门 + 调用点透传〕、exchange.mbt
 〔写窗三接点/读窗收头接点/filler 实参替换〕、body_bridge.mbt
-〔read_checked 体读包窗〕、recover_family.mbt〔族落点三行〕）；`src/core` 改 1 文件
-（request.mbt 增 `Request::new_builder`）；测试改 3 文件（call_test.mbt
-增补、follow_up_wbtest.mbt 增补、recover_wbtest.mbt 增补）+ 新增
-timeout_wbtest.mbt（看门者/门面/池守恒收敛）；`src/internal/fixtures`
-改 2 文件（scripted_server.mbt 增 DripHang、scripted_peer.mbt 增
-SilentReader）；文档回写四处（P08 种子 D 表八项、F21 两处状态、P06
+〔read_checked 体读包窗〕、recover_family.mbt〔族落点三行〕）；`src/core` 改 2 文件
+（request.mbt 增 `Request::new_builder` + request_test.mbt 派生保留
+性断言）；测试改 3 文件 + 新增 1 文件（call_test.mbt 增补、
+follow_up_wbtest.mbt 增补、recover_wbtest.mbt 增补、timeout_wbtest.mbt
+新〔看门者/门面/池守恒收敛〕）；`src/internal/fixtures`
+改 2 文件（scripted_server.mbt 增 **BodyPlan::DripHang**、
+**raw_peer.mbt** 增 **PeerProgram::SilentReader**——qod-2 B1 落点修
+正）；文档回写四处（P08 种子 D 表八项、F21 两处状态、P06
 映射表加注、README 用户文档段）；codemap 收尾订正。FR-001～FR-012、
 SC-001～SC-010
 
@@ -89,7 +93,7 @@ SC-001～SC-010
 | 原则 | 对照结论 |
 | --- | --- |
 | I 非侵入底座（不可妥协） | **通过**：全部设计仅经上游公开 API（research R1–R4 锚点：with_timeout/sleep/task_group 组语义、@io.Writer trait、@http Client 面一律公开调用）；不 fork/复制/vendor；上游改动零需求。**显式否决①**：`with_timeout` 包 execute——上游组 Fail 覆盖语义吞变体（B2 取证），改看门者形态（R1）；**显式否决②**：改 core filler 签名插桩写调用——动 core 公开面，改 trait 门面（R3）；**显式否决③**：acquire 加阈值参数——P04 手术，改 ensure_lease 侧包裹（R2） |
-| II 性能优先 | 通过：每操作一 Timer 成本在 10 §6 预算内（块 ≥16KB <0.1%）；call 伞 O(1)；refresh 优化留待 P10 基准驱动（14 跟踪）；热路径无新分配（门面仅 Stream 体路径构造，Bytes/header 零门面） |
+| II 性能优先 | 通过：每操作一 `with_timeout` 的成本（TaskGroup + timer 子任务 spawn，qod-2 S7 如实口径）在 10 §6 量级预算内，P10「超时开/关」实测量化，超出则 M2 转 refresh；热路径有新增分配（Bytes/header 开窗同成本）——如实登记，量化归 P10；门面仅 Stream 体路径构造 |
 | III OkHttp 语义对齐 | 通过：四类缺省/0 语义、按操作计时、newBuilder 派生、跟随两门、recover 超时分类全部 5.5.0 锚点对拍（spec 映射表 16 行，两处实测取证）；显式差异七处——①连接伞含 DNS（更严）；②收头单窗粒度（含 1xx）；③写停滞尾刷归读窗；④体消费期不在 call 伞；⑤显式变体替代异常类型判别；⑥js 弱化形态（AbortController 不可触及）；⑦call 伞机制差异（看门者形态，上游 with_timeout 包裹吞变体——实现机制注记非语义差异） |
 | IV 验收场景与测试先行 | 通过：FR/US ↔ 元测试映射（research R10）；红-绿循环优先区＝判定器族落点矩阵/决策表两门/看门者标记位三处；计时带不对称带钉死（C1）；睡眠预算表（R9）；全部基于 P03 本地夹具 + 两夹具变体（R8，spec Assumptions 登记） |
 | V Target 策略 | 通过：native/wasm 双绿门；js 仅编译检查——新增代码全 target 中性（R12，无 P07 式锁定类型问题）；js 语义＝调用方侧变体（FR-011 弱化形态如实登记，宪法 V 未验证面）；wasm-gc 排除 |
@@ -139,8 +143,8 @@ src/
 │   ├── request.mbt                  # 改：Request::new_builder（五要素保三换）
 │   └── request_test.mbt             # 改：派生保留性断言
 └── internal/fixtures/
-    ├── scripted_server.mbt          # 改：Framing::DripHang 变体
-    └── scripted_peer.mbt            # 改：SilentReader 指令变体
+    ├── scripted_server.mbt          # 改：BodyPlan::DripHang 变体（Drip 同族）
+    └── raw_peer.mbt                 # 改：PeerProgram::SilentReader 变体
 docs/roadmap/M1/P08-timeouts-builder.md   # 回写：种子偏差 D 表八项
 docs/roadmap/deferred-items{,-m1}.md      # 回写：F21 状态→已回补
 specs/006-m1-p06-redirects/spec.md        # 回写：映射表行加注（008 已交付）
@@ -160,6 +164,11 @@ README.md                                  # 回写：超时配置段 + js 降�
 |-----------|------------|-------------------------------------|
 | （无违宪项） | — | — |
 
-**提请 qod-2 复核的两项裁决**：① R2 连接伞整包 acquire 依赖「记账段
-无暂停点」的结构论证（上游构造器取消清理形态首片取证）；② R1 看门
-者形态的标记位竞争窗口断言强度。
+**qod-2 定案记录（2026-10-30）**：两项提请裁决均已定案——① R2 残留
+风险关闭（上游 `errdefer proxy.close()`/`errdefer transport.close()`
+在场，http/client.mbt:49/:57；论证前提按 S3 修复：acquire 暂停点两
+处——池锁 await 取消安全〔mutex.mbt:39-41〕+ 建连 await，两支池状态
+均零变化）；② 看门者标记位竞争——单线程协作调度下数据竞争不存在，
+残余仅语义竞态，US-5-2 二择一口径已覆盖。plan 两项待裁决清零；qod-2
+阻断 B1/B2 修正落笔（夹具落点/枚举归属/run 兜底协调），S1–S11 全部
+采纳（R2/R3/R8/R9/风险表/contracts §1–§3 同批回填）。

@@ -47,18 +47,20 @@ execute 既有 `with_task_group` 组内增派看门者子任务：
 `ConnectionPool` 与 `acquire` 签名零改动。
 
 **Rationale**:
-- **池副作用安全（R5 结构分析，修正 qod-1 B3 的担忧烈度）**：
-  `acquire` 记账段（client.mbt:244-252，borrowed + per_host_total +1）
-  与 lease 返回之间**无暂停点**（协作式调度，取消只在 await 落）。整
-  包形态下取消只可能落在 `@http.Client::Client(uri)` 建连 await 内：
-  此时构造器未返回、记账必未执行 ⇒ 池状态零变化（004 建连失败契约）
-  结构成立；若建连 await 先返回，同步记账段原子完成、lease 必达调用
-  方。两支皆满足 FR-006/R5 不变量（INV-T3）。
-- 残留风险仅「上游构造器取消时半途 socket 的清理」——上游取消水平
-  触发 + defer 清理语义（宪法 I 信任公开 API）；以 US-3-3 白盒收敛断
-  言兜底（`with_timeout` 极小阈值 × 真实回环 acquire 竞速，断言池计
-  数守恒与变体二择一），上游内部形态归 implement 首片取证（风险 R3
-  表登记）。
+- **池副作用安全（R5 结构分析，qod-2 S3 修复前提）**：acquire 路径
+  的暂停点共两处——池锁 await（client.mbt:212）与建连 await；记账段
+  （client.mbt:244-252）与 lease 返回之间**无暂停点**（协作式调度，
+  取消只在 await 落）。取消无论落在锁等待还是建连 await：锁等待支
+  取消安全（上游 mutex.mbt:39-41 明文「acquire is cancellation
+  safe…a cancelled acquire request will never actually acquire the
+  mutex」——结构依赖登记）、建连支构造器未返回 ⇒ 两支记账均未执行
+  ⇒ 池状态零变化（004 建连失败契约）结构成立；若建连 await 先返回，
+  同步记账段原子完成、lease 必达调用方。两支皆满足 FR-006/R5 不变量
+  （INV-T3；US-3-3 收敛断言覆盖含锁等待支）。
+- 残留风险已当场关闭（qod-2 S4）：上游构造器取消/错误路径的半途资
+  源清理有行号证据——`errdefer proxy.close()`（http/client.mbt:49）
+  与 `errdefer transport.close()`（:57）在场；US-3-3 白盒收敛断言继
+  续兜底行为面。
 - 相比「改 acquire 签名加 connect_ms~」：零 P04 手术、零 acquire
   `.mbti` 增量（FR-012 对账面更小）、连接伞与重试子循环的每 attempt
   语义天然对齐（子循环每次 `ensure_lease` 重入即新伞，P07 follow_up.mbt:220
@@ -82,11 +84,14 @@ error=HttpTimeout::Write)` 后委托内层；`filler(门面)` 替代
 （`conn.write_once`）各自直包一窗。
 
 **Rationale**:
-- trait 门面＝P02 计数 Writer 同款先例（request_body.mbt:139「以计数
-  @io.Writer 包装后传给用户回调」），非侵入（宪法 I）。
+- trait 门面＝P02 计数 Writer 同款先例（request_body.mbt:118-134
+  CountingWriter 在场），非侵入（宪法 I）。
 - 每次用户写调用一窗＝OkHttp 逐 sink write 语义对齐（spec FR-003）；
   Bytes 单次 `write_once` 即单操作（单窗）＝其线上形态的诚实粒度
   （R6，分块不采纳）。
+- **委托目标注记（qod-2 S9）**：门面 `write`/`write_reader` 委托目标
+  ＝内层 conn 的对应方法（`@http.Client` 自身 `pub impl @io.Writer`
+  面），非门面自身方法 ⇒ 单窗，无嵌套开窗。
 - 写超时错误从 filler 内层写调用逸出 → exchange 段 `last_stage=Send`
   已置位（exchange.mbt:132 前置赋值）→ 判定器族落点 Other → 透传
   （FR-008）；逸出路径毒化＝轮级 errdefer 既有单点（follow_up.mbt:260）。
@@ -181,27 +186,37 @@ follow_ups 零推进、跳数预算零消耗（INV-4 计数点在决策表之后
 足）；判据载体 `Response::prior() is None` + 终态 3xx（S7）。缺省
 true ＝ P06 行为面逐位不变（回归保护，US-6-3）。
 
-## R8 夹具增量：两变体（fixtures 包内最小扩展）
+## R8 夹具增量：两变体（fixtures 包内最小扩展；qod-2 B1/B2 修正落点）
 
 **Decision**:
-- **DripHang**（ScriptedServer Framing 新变体）：`DripHang(block_bytes,
-  blocks, interval_ms)`——按 Drip 节奏滴 blocks 块后 sleep 长时（保持
-  连接不断开，不 close 不回 EOF）。US-2-2 载体。
-- **SilentReader**（ScriptedPeer 新指令变体）：对端按极慢节奏读请求
-  体（或不读）且**不关闭**连接（B-12 SlowReceive 收尾形态为 close，
-  不满足写停滞保持；US-1-3 载体）。
+- **DripHang**（**BodyPlan** 新变体——现场 `Framing` 枚举仅
+  Fixed|Chunked（scripted_server.mbt:40-43），三参滴流挂在 BodyPlan
+  （:67-71））：`DripHang(block_bytes, blocks, interval_ms)`——按 Drip
+  节奏滴 blocks 块后 sleep **保持时长 ≥ 客户端读窗 + 断言余量**
+  （S1 下限口径；ScriptedServer 每操作超时保护与该保持时长协调，读
+  窗先于夹具兜底到期）。US-2-2 载体。
+- **SilentReader**（**raw_peer.mbt::PeerProgram** 新指令变体——现场
+  ScriptedPeer/PeerProgram 全在 raw_peer.mbt（:42-53/:142），无
+  scripted_peer.mbt）：对端按极慢节奏读请求体且程序存活期内不主动
+  关闭连接。**与 run() 兜底的协调义务（qod-2 B2）**：`run(timeout_ms~
+  = 5000)` 以 `with_timeout_opt` 包裹全程序、超时兜底显式 close
+  （raw_peer.mbt:259-262/:288/:466-468）——SilentReader 场景 MUST
+  声明 `run(timeout_ms~)` 覆盖值 > 客户端写窗 + 断言余量；编排纪律
+  三段不等式：**体量/节奏填满停滞 < write_ms < 夹具兜底**（B2②）。
 
 **Rationale**: 行为判据不变（spec Assumptions 登记）；复用既有编排骨
-架（ScriptedServer Framing 分派/ScriptedPeer 指令枚举各加一臂）；
+架（ScriptedServer BodyPlan 分派/PeerProgram 指令枚举各加一臂）；
 US-1-4/US-5-1/US-6 全部由既有夹具参数化组合（301 链 × B-01 头延迟；
-ServeSequence × B-01；301 两态矩阵），零新增类型。
+ServeSequence × B-01；301 两态矩阵），零新增类型。**定标纪律（B2③/
+S8）**：US-1-3 的体量/节奏/write_ms 定标归 implement 首片红绿取证
+（红因判据＝未停滞或 OSError 误现；R9 表 US-1-3 行随之回填）。
 
 ## R9 耗时预算表（C1/S8，每 target ≤10s）
 
 | 场景 | 睡眠量 | 累计 |
 | --- | --- | --- |
 | US-1-2 read 超时 | 0.5s 窗 + 2s 头延迟（只等到窗） | ~0.6s |
-| US-1-3 write 超时 | 0.5s 窗（1MB 填充即时） | ~0.6s |
+| US-1-3 write 超时 | 窗=write_ms（定标：停滞填满 < write_ms < 夹具兜底，三段不等式——首片红绿定标，R8） | ~0.7s（定标后回填） |
 | US-1-4 call 超时（3 跳） | 1s 窗（首跳 0.6s 延迟内触发） | ~1.1s |
 | US-2-1 滴流完整读 | 5 块 × 200ms | ~1.1s |
 | US-2-2 滴后静默 | 2×200ms + 0.5s 窗 | ~0.9s |
@@ -255,7 +270,8 @@ target 中性，P08 无需 .js.mbt 分文件（P07 的 os_error/tls 锁定问题
 
 | 风险 | 等级 | 缓解 |
 | --- | --- | --- |
-| 上游构造器取消时半途 socket 清理形态未证 | 低 | US-3-3 白盒收敛断言兜底；implement 首片取证（宪法 I 信任公开 API；异常时登记上游欠账） |
-| 看门者与 execute 终态置位的竞争窗口 | 低 | 标记位在 cancel 前同步置位；errdefer 终态置位与变体选择同为同步段（I-6 白名单纪律）；WB 竞争断言 |
+| 上游构造器取消时半途 socket 清理形态 | 已证关闭（qod-2 S4） | `errdefer proxy.close()`/`errdefer transport.close()` 在场（http/client.mbt:49/:57）；US-3-3 白盒收敛断言继续兜底行为面 |
+| 看门者与 execute 终态置位的竞争窗口 | 已证关闭（qod-2） | 单线程协作调度下数据竞争不存在，残余仅语义竞态——spec US-5-2 二择一口径已覆盖；标记先置后取消的顺序纪律保持 |
 | wasm 计时器粒度劣于 native | 低 | C1 wasm 带放宽（+1000ms）登记于 tasks 证据行 |
 | Writer 门面漏覆写缺省方法 | 低 | 三方法全覆写 + WB 委托断言；--deny-warn 门 |
+| 计时带测量起点漂移（qod-2 S5） | 低 | 原点钉定＝各窗 with_timeout/看门者 sleep 的建立点；黑盒观测起点=execute 时刻、前置同步段 δ≈0（状态检查+spawn），tasks 证据行以首片实测钉 δ 上界 |
