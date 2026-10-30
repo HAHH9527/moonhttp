@@ -9,15 +9,9 @@ You can browse and install extra skills here:
 
 本项目使用 Spec Kit（speckit）进行规格驱动开发，工作流配置位于 `.specify/`。
 
-- 最小闭环：`specify → clarify → plan → tasks → implement`，`analyze`/`converge`
-  按需插入；改需求必须回改 spec 再向下重新生成，不得手改 tasks 使其与 spec 脱节。
 - 项目宪法：[`.specify/memory/constitution.md`](.specify/memory/constitution.md)
-  是最高治理文档，效力高于其他一切实践约定。所有 plan 与 analyze 必须对照宪法
-  检查，code review 与 `/speckit-analyze` 必须验证宪法符合性；违背核心原则处
-  必须显式说明理由并记录。
-- 宪法不可妥协项摘要：只经公开 API 使用 `moonbitlang/async`，禁止 fork、复制
-  或 vendor 上游源码，上游改动与 issue/PR 提交须事先人工批准；验收场景与测试
-  先行。完整原则以宪法原文为准（中文表达要求见下方专节，自宪法 v2.0.0 迁入）。
+  是最高治理文档。核心原则、SDD 流程（`specify → clarify → plan → tasks →
+  implement`）、质量门与合规审查均以其为准。
 - Spec Kit 流程参考：`proj-init-docs/speckit-tutorial.md`。
 
 ## 中文表达（不可妥协）

@@ -59,8 +59,8 @@ moonhttp 必须只通过 `moonbitlang/async` 的公开 API 与底座耦合，
 - 每项能力在动工前必须先有可审的验收场景（spec 用户故事/场景）与测试方案；
   实现以测试通过为完成判据，不允许"先写完再补测试"。
 - 新行为与 bug 修复优先采用红-绿-重构循环：先写失败测试，再实现，再重构。
-- `moon test` 必须全绿才能合入；断言优先 `assert_eq` / `assert_true`；
-  结构化调试输出用 `derive(Debug)` + `debug_inspect` 快照。
+- `moon test` 必须全绿才能合入；断言与快照的测试风格遵循 `AGENTS.md`
+  Tooling 约定。
 - 关键子系统（缓存、cookie、URL 解析等）必须移植 OkHttp 对应测试场景对拍。
 - 网络行为测试必须基于可控本地服务端，不得依赖外部网络环境。
 
@@ -79,9 +79,10 @@ target 优先级固定为 native ≥ wasm > js = wasm-gc；js 与 wasm-gc
 ### VI. 简洁与接口纪律
 
 - 从简单开始，遵循 YAGNI：不为假设的未来需求引入抽象。
-- 每片改动后必须运行 `moon info && moon fmt`，并检查 `.mbti` diff——
-  对外接口的任何变化必须是有意识的决定，而非意外泄漏。
-- MoonBit 代码按 block 组织（`///|` 分隔，块序无关）；废弃代码移入 `deprecated.mbt`。
+- 每片改动后必须运行 `moon info && moon fmt` 并审视 `.mbti` diff——
+  对外接口的任何变化必须是有意识的决定，而非意外泄漏
+  （工具用法详见 `AGENTS.md` Tooling）。
+- MoonBit 代码组织（block 风格）、废弃代码处理等工程约定遵循项目根 `AGENTS.md`。
 - 三行相似代码优于一个过早的抽象。
 
 ## 技术约束与合规
@@ -125,9 +126,9 @@ target 优先级固定为 native ≥ wasm > js = wasm-gc；js 与 wasm-gc
   `moon test --target wasm` 双双全绿、`.mbti` diff 已审视、性能改动附
   基准数据、宪法合规已自查。js 与 wasm-gc 不作为合入门禁，仅要求每项
   能力的 target 矩阵显式标注「暂不验证」并挂欠账跟踪。
-- agent 可在合适时机主动 commit（Conventional Commits、中文描述、不含秘密
-  文件，汇报中列明 commit 范围）；一切 push 与分支合并（merge/rebase 进主分支）
-  须事先人工批准。
+- agent 可在合适时机主动 commit（commit message 遵循 `AGENTS.md` 中文表达节；
+  不含秘密文件，汇报中列明 commit 范围）；一切 push 与分支合并
+  （merge/rebase 进主分支）须事先人工批准。
 
 ## 治理
 
@@ -143,4 +144,4 @@ target 优先级固定为 native ≥ wasm > js = wasm-gc；js 与 wasm-gc
   `proj-init-docs/speckit-tutorial.md`（Spec Kit 流程）、
   `proj-init-docs/okhttp-on-async-http/`（可行性研究报告全集）。
 
-**版本**：2.0.0 | **批准日期**：2026-10-12 | **最近修订**：2026-10-29
+**版本**：2.0.1 | **批准日期**：2026-10-12 | **最近修订**：2026-10-29
