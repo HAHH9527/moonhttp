@@ -231,14 +231,19 @@ stale_evictions==1；池守恒；重放字节一致
 
 ## Phase 7: Polish & Cross-Cutting（收尾）
 
-- [ ] T018 跨文档修订：specs/006-m1-p06-redirects/data-model.md D-2
+- [x] T018 跨文档修订：specs/006-m1-p06-redirects/data-model.md D-2
       行加注（errdefer 唯一毒化归属点限于**错误逸出路径**，P07 修正
       2026-10-30）；src/client/codemap.md 订正「两错误变体」漂移 +
       补 recover 三文件职责
-- [ ] T019 质量门全套（quickstart.md 六门）：`moon info && moon fmt`
+      ✅ 证据（编排层执行）：006 data-model.md:50 后加注块；codemap
+      Responsibility/Integration 两处订正，commit d3782d5
+- [x] T019 质量门全套（quickstart.md 六门）：`moon info && moon fmt`
       干净；`.mbti` diff 对账（恰为 HttpClient::new 可选参数一项，
       contracts §1）；`moon test` native+wasm 双绿；`moon check
       --target js` 与基线错误集 diff 零新增；结果证据行回填本文件
+      ✅ 证据（编排层独立复跑 2026-10-30）：info/fmt 零 diff；
+      pkg.generated.mbti 增量恰一项；native 306/306 + wasm 306/306；
+      js "13 errors" 与基线（98130de）持平零新增
 - [ ] T020 收尾提交（Conventional Commits 中文描述；汇报列明 commit
       范围）——后续 converge + open-code-review 由编排层执行
 
