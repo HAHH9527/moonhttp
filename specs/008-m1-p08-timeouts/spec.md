@@ -348,13 +348,17 @@ OkHttp 语义终态透传，不再自动跟随。
   到期的取消形态零误判 stale 为**结构保证**——取消不可被 catch 捕
   获（上游废弃语义，R4 取证），P07 捕获分支不可能目睹取消形态；零
   重试轮、零 `stale_evictions` 误增随之成立。
-- **FR-009**（种子）`HttpClient::new_builder()` MUST 以既有池为根派
-  生新客户端：pool 引用语义共享（两客户端连接记账同池守恒），仅覆
-  盖标量配置（timeouts/follow_redirects/follow_ssl_redirects/
-  retry_on_connection_failure——P07 开关在此承接，语义不变）；派生
-  缺省值取自被派生方当前值（newBuilder 语义）。`Request::new_builder()`
-  MUST 保留 headers 逐项与 tag，仅可换 url/method/body；Request 级
-  无超时覆盖位（C2 裁决）。
+- **FR-009**（种子）HttpClient 派生面 MUST 双入口：`HttpClient::new_builder(pool)`
+  （pool 根构造，全缺省）与 `HttpClient::builder()`（**自既有 client
+  派生**——pool 引用共享、标量缺省取自被派生方当前值，OkHttp
+  `client.newBuilder()` 同形；无此入口则调用方无法从既有 client 派生
+  共享池的新 client——HttpClient 不暴露 pool）。两者共享 builder 类
+  型与 `build()`（负值校验单点）；仅覆盖标量配置
+  （timeouts/follow_redirects/follow_ssl_redirects/
+  retry_on_connection_failure——P07 开关在此承接，语义不变）。
+  pool 引用语义共享（两客户端连接记账同池守恒，US-4-1）。
+  `Request::new_builder()` MUST 保留 headers 逐项与 tag，仅可换
+  url/method/body；Request 级无超时覆盖位（C2 裁决）。
 - **FR-010**（F21 回补）跟随开关两枚（follow_redirects /
   follow_ssl_redirects）MUST 为 builder 配置位、缺省 true（＝P06 既
   有行为面零变化）：follow_redirects=false 时任何 3xx MUST 终态透
