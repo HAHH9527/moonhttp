@@ -80,6 +80,10 @@
 
 1. Given 夹具端口先拒绝 N-1 次后可用（P03 脚本），When execute，
    Then 在 max_attempts 内成功（M1 直连单地址，此场景为「整体重来一次」语义）。
+   <!-- 2026-10-30 P07 spec 裁决 R2 修正：进程内无法确定性「先拒后收」（无信号
+   通道，竞态注入违反可控服务端原则）；集成测覆盖确定性半边（关闭端口→2 次尝试
+   →原始错误透传），恢复半边由 stale 路径共用 recover 机器 + 判定器单元级用例
+   覆盖。以 specs/007-m1-p07-stale-retry/spec.md 为准。 -->
 
 ### US-3 不可重试分类（P1）
 
@@ -183,6 +187,9 @@ stale-retry 把「陈旧连接导致的用户可见失败」变成 ~1 次额外 
   为独立计数——遵 OkHttp 分离，spec 记录）。
 - **C4** `retryOnConnectionFailure` 开关的配置面（HttpClient builder 字段，
   与 P08 的 builder 设计合并交付）。
+  <!-- 2026-10-30 P07 spec 裁决 C4/FR-010 修正：M1 无 builder，开关以
+  HttpClient::new 可选参数（缺省 true）交付，.mbti 增量恰此一项；P08 builder
+  落地时承接为 builder 字段。以 specs/007-m1-p07-stale-retry/spec.md 为准。 -->
 
 ## 验收判据（包级 DoD）
 
