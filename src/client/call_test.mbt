@@ -3058,3 +3058,362 @@ async test "P07-US1④ 重试+301 叠加：stale 恢复后跟随 301、prior 链
     peer.close()
   }
 }
+
+///|
+// P07 黑盒辅助：stale 族错误集合判别（ReaderClosed/OSError）——@os_error
+// 上游 js 为空包，黑盒测试文件按 target 分支（fr015 #cfg 先例）；js 侧
+// 仅 ReaderClosed（重试不激活，OSError 形态在 js 不可达）。
+#cfg(target="js")
+fn p07_is_stale_error(err : Error) -> Bool {
+  err is @io.ReaderClosed
+}
+
+///|
+#cfg(target="native")
+fn p07_is_stale_error(err : Error) -> Bool {
+  err is (@io.ReaderClosed | @os_error.OSError(_))
+}
+
+///|
+#cfg(target="wasm")
+fn p07_is_stale_error(err : Error) -> Bool {
+  err is (@io.ReaderClosed | @os_error.OSError(_))
+}
+
+///|
+// P07-US3①（FR-002/SC-005，T012）：B-11 MidHeaderLine（畸形头行中断）→
+// `err is @http.BadRequest` 原样透传（D3 钉死集合）、对端仅见一次发送
+// 尝试（零重试——探针第三次 execute 需新建连接证明旧连接未复用）、毒化、
+// `stale_evictions()==0`（FR-004 反向：Protocol 族零计数）。
+// 【落笔即绿护栏显式记录】错误透传/毒化/零计数在 P05 既有语义下已成立
+// ——本用例钉的是「重试机器上线后 Protocol 族仍不触发重试」（WB④ 的
+// 端到端回归面）。
+async test "P07-US3① B-11 MidHeaderLine：BadRequest 透传、零重试零计数、毒化" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(
+      @fixtures.PeerProgram::PartialResponse(
+        @fixtures.CutPoint::MidHeaderLine(4),
+        true,
+      ),
+    )
+    let runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let call = get_call_to(client, peer.port(), "/mid")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => err is @http.BadRequest
+    }
+    assert_true(
+      raised,
+      msg="畸形头行中断必须以 BadRequest 原样透传（FR-002/D3，无包装）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="Protocol 族零计数（FR-004 反向：毒化与重试解耦）",
+    )
+    let _ = runs.wait()
+    // 毒化判别：同址后续请求建新连接（探针 Capture 服务，per_host_total
+    // 2 = 失败连接 1 + 探针 1——若旧连接被复用则恒 1）
+    peer.mount(Capture)
+    let probe_runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let probe = get_call_to(client, peer.port(), "/probe")
+    let resp2 = probe.execute()
+    assert_eq(resp2.code(), 200, msg="探针可达（新建连接）")
+    let _ = resp2.body().unwrap().text()
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="BadRequest 连接毒化不回池——探针新建（SC-005）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="全程零 stale 计数（重试未触发、探针零 stale）",
+    )
+    let _ = probe_runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US3②（FR-002/F17 实测口径，T012）：B-11 Nothing(0B)/15B/17B 三
+// 截断形态均落 ReaderClosed ⇒ 均可重试、判定 stale（不以「零字节」为
+// 判据）——每形态独立 peer：run1 半截注入后关，重试由 run2（Capture）
+// 承接成功，stale_evictions 恰 1/形态。
+async test "P07-US3② B-11 三形态 ReaderClosed：重试成功、stale 恰 1" {
+  for
+    cut in [
+      @fixtures.CutPoint::Nothing,
+      @fixtures.CutPoint::MidStatusLine(15),
+      @fixtures.CutPoint::AfterStatusLine,
+    ] {
+    @async.with_task_group() <| group => {
+      let peer = @fixtures.ScriptedPeer::start()
+      peer.mount(@fixtures.PeerProgram::PartialResponse(cut, true))
+      let runs = group.spawn(() => {
+        let _a = peer.run(timeout_ms=8000)
+        peer.mount(Capture)
+        let b = peer.run(timeout_ms=8000)
+        b
+      })
+      let pool = @client.ConnectionPool::new()
+      let client = @client.HttpClient::new(pool)
+      let call = get_call_to(client, peer.port(), "/cut")
+      let resp = call.execute()
+      assert_eq(
+        resp.code(),
+        200,
+        msg="截断形态 ReaderClosed 重试成功（F17：半截字节形态同判）",
+      )
+      let _ = resp.body().unwrap().text()
+      assert_eq(
+        pool.stale_evictions(),
+        1,
+        msg="stale 命中恰 1（ReadHead∧Stale 计数判据）",
+      )
+      let captured = runs.wait()
+      captured.assert_matches(
+        @fixtures.expect_request_line(meth="GET", target="/cut"),
+        "US3②",
+      )
+      pool.evict_all()
+      peer.close()
+    }
+  }
+}
+
+///|
+// P07-US3③（FR-003/C2，T012）：Stream 体 + AcceptClose——filler 已被
+// 调用（stream_body_entered 置位，R3 保守口径）⇒ 不可重试、错误 ∈
+// {ReaderClosed, OSError} 原样透传、对端单连接（per_host_total==1——
+// 若误重试将新建第二连接）、零计数（FR-004：Fail 路径不计数）。
+async test "P07-US3③ Stream 已进入发送：不重试、错误透传、对端单连接" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(AcceptClose)
+    let runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let url = @core.HttpUrl::parse("http://127.0.0.1:\{peer.port()}/oneshot")
+    let request = @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(@core.RequestBody::stream(w => w.write(b"px")))
+      .build()
+    let call = client.new_call(request)
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(
+      raised,
+      msg="Stream 已进入发送后断连：错误 ∈ {ReaderClosed, OSError} 原样透传（FR-003）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="对端单连接——一次性体封锁重试，零新建（若误重试则 2）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="不可重试路径零计数（FR-004 反向）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US3④（ IncorrectBodyLength 边界，T012）：Content-Length 谎报——
+// Stream 体声明 content_length=Some(99) 实写 3 ⇒ 发送期上游
+// @http.IncorrectBodyLength 原样透传（P05 发送路径无映射——FR-008 透传
+// 原始错误值；Bytes 谎报在 core 构造期即被拒、不达发送段）⇒ 本地框架
+// 缺陷非连接失败：不可重试（Protocol 族）、透传 + 毒化 + 零计数。
+// run1 Capture 容忍帧未收完（客户端中途 raise 关连）；探针证明毒化不回池。
+async test "P07-US3④ Content-Length 谎报：IncorrectBodyLength 透传 + 毒化" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let url = @core.HttpUrl::parse("http://127.0.0.1:\{peer.port()}/liar")
+    let request = @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(
+        @core.RequestBody::stream(
+          w => w.write(b"abc"),
+          content_length=Some(99L),
+        ),
+      )
+      .build()
+    let call = client.new_call(request)
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => err is @http.IncorrectBodyLength
+    }
+    assert_true(
+      raised,
+      msg="CL 谎报必须以 @http.IncorrectBodyLength 原样透传（上游原始值，不可重试、无包装；P05 发送路径无映射——FR-008 透传原始错误值）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="本地框架缺陷零计数（FR-004 反向）",
+    )
+    let _ = runs.wait()
+    peer.mount(Capture)
+    let probe_runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let probe = get_call_to(client, peer.port(), "/probe")
+    let resp2 = probe.execute()
+    assert_eq(resp2.code(), 200, msg="探针可达（新建连接）")
+    let _ = resp2.body().unwrap().text()
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="IncorrectBodyLength 连接毒化不回池——探针新建",
+    )
+    let _ = probe_runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US3⑤（FR-006/FR-008，T012）：execute 中 cancel → 裸 CallCancelled，
+// 重试机器不吞不改——Stream 填充器内同步 cancel()（WB④d 构造先例）：
+// 取消发生在 attempt1 在途（end_request 前），decide 首条件
+// （cancelled → Fail）+ attempt 级 guard 兜底 ⇒ 不入重试分支、零计数、
+// 恰 1 连接。构造等价性归约（P06-WB④c 先例口径）：真实「重试轮间
+// cancel」（第一次 stale 后、第二次尝试前）的进程内确定注入不可得
+// （两尝试之间为同步代码段，无 await 交错点）——其观测面（裸
+// CallCancelled + 不入重试分支）恰由本用例的 decide 首条件端到端钉住。
+async test "P07-US3⑤ execute 中 cancel：裸 CallCancelled、零重试零计数" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let holder : Array[@client.Call] = []
+    let url = @core.HttpUrl::parse("http://127.0.0.1:\{peer.port()}/cancel-mid")
+    let request = @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(
+        @core.RequestBody::stream(w => {
+          let _ = w.write(b"px")
+          holder[0].cancel()
+        }),
+      )
+      .build()
+    let call = client.new_call(request)
+    holder.push(call)
+    let cancelled = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => err is @client.CallCancelled
+    }
+    assert_true(
+      cancelled,
+      msg="execute 中 cancel 必须以裸 CallCancelled 终止（FR-006，重试机器不吞取消）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="取消优先于重试——零新建（decide 首条件 Fail）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="取消路径零 stale 计数（FR-004/FR-006）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P07-US3⑥（FR-005/FR-008 预算耗尽，T012）：强制两次失败（conn1 静默
+// 关闭 + conn2 AcceptClose）→ attempts 恰 2 后透传最后一次原始错误（无
+// 包装）；计数判据判别面：仅第 1 次失败（Retry 分支）计数、第 2 次失败
+// （Fail 分支）不计数 ⇒ stale_evictions 恰 1（INV-R2「与重试最终结果
+// 无关」的双向钉死）。
+async test "P07-US3⑥ 预算耗尽：恰 2 次尝试、透传最后一次原始错误、计数恰 1" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => {
+      let _a = peer.run(timeout_ms=8000)
+      peer.mount(AcceptClose)
+      let _b = peer.run(timeout_ms=8000)
+      0
+    })
+    let pool = @client.ConnectionPool::new()
+    let client = @client.HttpClient::new(pool)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let warm = get_call_to(client, peer.port(), "/warm")
+    let resp1 = warm.execute()
+    let _ = resp1.body().unwrap().text()
+    let call = get_call_to(client, peer.port(), "/twice")
+    let raised = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(
+      raised,
+      msg="预算耗尽必须透传最后一次原始错误（FR-008，无包装变体）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      1,
+      msg="恰 1 次计数：第 1 次失败（Retry 分支）计入、第 2 次失败（Fail 分支）不计（INV-R2）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="恰 2 次尝试（1 原始 + 1 重试，FR-005/INV-R3）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}

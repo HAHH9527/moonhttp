@@ -147,7 +147,7 @@ stale_evictions==1；池守恒；重放字节一致
 
 ### Tests for User Story 3 ⚠️ 先红后绿
 
-- [ ] T012 [红] [US3] 集成测试入 src/client/call_test.mbt
+- [x] T012 [红] [US3] 集成测试入 src/client/call_test.mbt
       （P07-US3①..⑥）：①B-11 PartialResponse MidHeaderLine →
       `err is @http.BadRequest` 原样透传、对端仅见一次发送尝试、
       毒化（同址后续请求建新连接）、`stale_evictions()==0`；
@@ -158,14 +158,19 @@ stale_evictions==1；池守恒；重放字节一致
       ⑤execute 中 cancel → 裸 `err is CallCancelled`（含重试轮间
       cancel：第一次 stale 后、第二次尝试前取消）；⑥预算耗尽：强
       制两次失败 → 透传最后一次原始错误、attempts 恰 2；预期红
+      ✅ 红证据（红重放，git checkout 48403eb -- follow_up.mbt 后同批用例实跑）：`moon test --target native -p .../client -f "P07-US3*"` 退出码 2——②红（execute 抛裸 ReaderClosed，无重试）、⑥红（stale_evictions==0≠1）；①③⑤ 同跑即绿＝护栏用例（Protocol 封锁/Stream 封锁/取消优先在 P05 既有语义已成立，本批钉「机器上线后不破」），红证据由 T004/T006 判定层矩阵与 T010 集成层红承载（US-3 与 US-1 共用同一子循环机器，宪法 IV 红绿对账见 R10）
+      ✅ 绿证据：`moon test --target native` 退出码 0，298/298；`moon test --target wasm` 退出码 0，298/298（US-3 边界双 target）
+      📝 备注①：④注入通道实测订正——Bytes 谎报在 core 构造期即拒（C3 裁决，不达发送段）；实际通道＝Stream 体 content_length=Some(99) 实写 3 ⇒ 发送期 @http.IncorrectBodyLength **原样透传**（P05 发送路径无映射，FR-008 透传原始错误值口径）；族检测 @http.IncorrectBodyLength→Protocol 正确承接
+      📝 备注②：⑤的「第二次尝试前取消」进程内确定注入不可得（两尝试之间为同步代码段、无 await 交错点）——构造等价性归约（P06-WB④c 先例口径）：其观测面（裸 CallCancelled＋不入重试分支＋零计数）由⑤的填充器同步 cancel 端到端钉住（decide 首条件），不静默偏离语义
 
 ### Implementation for User Story 3
 
-- [ ] T013 [US3] [绿] 差距修补（T011 机制已覆盖大半）：核对 Fail
+- [x] T013 [US3] [绿] 差距修补（T011 机制已覆盖大半）：核对 Fail
       分支逸出路径 errdefer 毒化、cancel 在捕获分支的优先（decide
       首条件 + attempt guard）、`BadRequest` 判别形态按编译实况
       （`err is @http.BadRequest` 先例 scripted_peer_test.mbt:122）；
       T012 全绿
+      ✅ 证据：核对结论——Fail 分支逸出毒化＝轮级 errdefer 单点（US3①④ 的探针新建判别通过即毒化在场）；cancel 优先＝decide 首条件（US3⑤ 端到端通过：裸 CallCancelled＋零新建＋零计数）；判别形态 `err is @http.BadRequest` 编译实况通过（US3①）；零代码修补需求——T011 机制全量覆盖，T012 全绿（native/wasm 298/298 双绿）
 
 **Checkpoint**: US-1 与 US-3 同时独立可验（P1 完成）
 
