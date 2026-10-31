@@ -32,7 +32,7 @@ US-4/US-5/US-6 为 P2；Foundational＝类型骨架/族落点/夹具变体
 
 **Purpose**: 六门基线快照 + 落点行号快照；全部故事的前置
 
-- [ ] T001 基线取证（只记录不改代码）：①六门现状快照——`moon test
+- [x] T001 基线取证（只记录不改代码）：①六门现状快照——`moon test
       --target native|wasm` 用例计数、`moon check --target js` 错误
       数（基线 13）、client/core `.mbti` 当前公开面（FR-012 对账基
       线）；②落点行号快照——execute 组结构（http_client.mbt:190-227）、
@@ -63,7 +63,7 @@ contracts 引用一致
 
 **Purpose**: 类型与接缝就位 + FR-008 判定器承接 + 夹具两变体
 
-- [ ] T002 类型骨架（http_client.mbt + follow_up.mbt）：①
+- [x] T002 类型骨架（http_client.mbt + follow_up.mbt）：①
       `HttpTimeout` suberror（四变体，derive(@debug.Debug) +
       extend to_repr 两件式）；② `Timeouts` struct（四 Int 字段带缺
       省 10_000/10_000/10_000/0，derive(Debug)）；③ HttpClient priv
@@ -92,7 +92,7 @@ contracts 引用一致
       builder() 构造点引用；与 004 DEFAULT_MAX_IDLE 常量先例同形），
       结构体改 pub(all) 供调用方字面量构造（builder .timeouts() 派生
       面原料）
-- [ ] T003 [P] [红] 判定器族落点矩阵 WB 入 src/client/recover_wbtest.mbt
+- [x] T003 [P] [红] 判定器族落点矩阵 WB 入 src/client/recover_wbtest.mbt
       （P08-WB①..，S6 收敛口径）：`HttpTimeout` 四变体 × 可达段——
       Connect∧Connect→ConnectFailure（可重试族）、Send∧Write→Other、
       ReadHead∧Read→Other、Call 变体×任意段→Other（伞取消不经
@@ -107,7 +107,7 @@ contracts 引用一致
       红恰 1 格与预期一致）；P08-WB② 不可达格 7 断言全绿（现状落
       Other 钉位）；Send∧Write/ReadHead∧Read/Call×3 段共 6 断言现状
       已 Other（绿伴随）。
-- [ ] T004 [绿] 实现 error_family HttpTimeout 分支（src/client/
+- [x] T004 [绿] 实现 error_family HttpTimeout 分支（src/client/
       recover_family.mbt）：`err is HttpTimeout` 时按变体分派——
       Connect 且 stage=Connect ⇒ ConnectFailure，余 ⇒ Other（插入位
       置在既有 Protocol 首判之后、具体类型并集之前——qod-2 零遮蔽
@@ -119,7 +119,7 @@ contracts 引用一致
       wasm -p client` = 138/138（exit 0）；`moon check --target js` =
       13 errors 基线持平；全量 `moon test --target native` = 308/308
       （306 既有 + 2 新增 WB，既有回归零失败——INV-T5 复证）
-- [ ] T005 [P] 夹具两变体（contracts §3 落点）：①
+- [x] T005 [P] 夹具两变体（contracts §3 落点）：①
       scripted_server.mbt BodyPlan 增 `DripHang(block_bytes, blocks,
       interval_ms)`——按 Drip 节奏滴 blocks 块后 sleep 保持（保持时
       长 ≥ 客户端读窗 + 断言余量，与每操作超时保护协调）；②
@@ -153,7 +153,7 @@ contracts 引用一致
 **Independent Test**: B-01 头延迟/SilentReader/301 链 × 阈值配置 →
 `err is` 命中对应变体且 C1 计时带内
 
-- [ ] T007 [P] [红] [US1] 读窗收头场景入 src/client/call_test.mbt
+- [x] T007 [P] [红] [US1] 读窗收头场景入 src/client/call_test.mbt
       （P08-US1②）：B-01 头延迟 2000ms + read_ms=500 → `err is
       HttpTimeout::Read`、计时带 [450, 800]ms（C1）；1xx+慢头共享收
       头单窗钉用例（C4/S9：F-8 interim 后接 head_delay，总收头超窗
@@ -165,7 +165,7 @@ contracts 引用一致
       两用例红因：①US1② 读窗——`终态应恰为 HttpTimeout::Read` 失败
       （无窗 ⇒ 慢头 200 正常返回）；②US1② C4/S9——`收头单窗（含
       1xx 跳读）终态应恰为 Read` 失败（同上）
-- [ ] T008 [绿] [US1] exchange.mbt 收头接点：`end_request` 调用外包
+- [x] T008 [绿] [US1] exchange.mbt 收头接点：`end_request` 调用外包
       `with_timeout(read_ms, ..., error=HttpTimeout::Read)`（单窗含
       1xx 跳读，C4；last_stage=ReadHead 既有前置赋值不变）——T007
       全绿
@@ -185,7 +185,7 @@ contracts 引用一致
       ——与 T008 前逐位一致）；P07-US3⑤ 裸 CallCancelled 回归钉
       证明。关联窗口（写窗/连接伞/call 伞）同款防护随 T010/T011/T013
       落地。
-- [ ] T009 [P] [红] [US1] 写窗场景入 src/client/call_test.mbt
+- [x] T009 [P] [红] [US1] 写窗场景入 src/client/call_test.mbt
       （P08-US1③）：SilentReader（run timeout_ms 覆盖 > 写窗+余量）
       + Stream 体分块 filler + write_ms → `err is HttpTimeout::Write`
       + 计时带；**首片定标义务**（B2③/S8）：体量/节奏/write_ms 满
@@ -203,7 +203,7 @@ contracts 引用一致
       < 夹具兜底 run timeout_ms=3000ms；红因判据复核=停滞成立且绿路
       无 OSError 误现（Write 变体直达）。定标结论回填 research R9 表
       （US-1-3 行：~0.6s/场景）。
-- [ ] T010 [绿] [US1] 写窗三接点：①新建 src/client/timeout_writer.mbt
+- [x] T010 [绿] [US1] 写窗三接点：①新建 src/client/timeout_writer.mbt
       ——priv 门面实现 `@io.Writer` 三方法（全覆写），各包
       `with_timeout(write_ms, ..., error=HttpTimeout::Write)` 后委
       托内层 conn 自身方法（单窗无嵌套，R3 注记）；②exchange.mbt：
@@ -228,7 +228,7 @@ contracts 引用一致
       可观测行为，decide 取消优先语义不变）。`moon test --target
       native -p client` = 146 中 144 过 / 2 红（红=US1④×2 call 伞
       T012 预期红保持）
-- [ ] T011 [P] [US1] 连接伞接线 + R5 竞态收敛白盒：①follow_up.mbt
+- [x] T011 [P] [US1] 连接伞接线 + R5 竞态收敛白盒：①follow_up.mbt
       ensure_lease 的 `pool.acquire(addr)` 外包
       `with_timeout(connect_ms, ..., error=HttpTimeout::Connect)`
       （FR-002 有界例外②；每 attempt 新伞）；②timeout_wbtest.mbt
@@ -261,7 +261,7 @@ contracts 引用一致
       `moon test -p client` 双 target 连续两轮 **145/147**（余 2=
       T012 call 伞预期红保持）；夹具 serve 窗 60s（负载形态登记：
       夹具寿命 MUST 覆盖最坏轮程）。
-- [ ] T012 [红] [US1] call 伞场景入 src/client/call_test.mbt
+- [x] T012 [红] [US1] call 伞场景入 src/client/call_test.mbt
       （P08-US1④）：「3 跳 301 × 每跳 head_delay 600ms」+ call_ms=
       1000 → `err is HttpTimeout::Call`、计时带 [950, 1300]ms；单
       轮慢对照（head_delay 2000ms + call_ms=1000 < read_ms 缺省）
@@ -276,7 +276,7 @@ contracts 引用一致
       10s，终态恰为 Call 非 Read）。【测试编写订正】首版链路
       Location 误指 /final（实为 1 跳慢 612ms 完成——伞未到期属正确
       行为）；订正为 /a→/b→/c→/final 真三跳（1.8s > call_ms）。
-- [ ] T013 [绿] [US1] http_client.mbt 看门者 + 收尾变体选择（FR-002
+- [x] T013 [绿] [US1] http_client.mbt 看门者 + 收尾变体选择（FR-002
       有界例外①）：execute 组内 `call_ms > 0` 派看门者（`sleep(
       call_ms) → call_timeout_fired = true → task.cancel()` 三步
       序——置位先于取消）；Cancelled 收尾分支（含
@@ -309,17 +309,30 @@ contracts 引用一致
 **Independent Test**: Drip（既有）/DripHang（新变体）× read_ms →
 两态分野
 
-- [ ] T015 [P] [红] [US2] 滴流两态场景入 src/client/call_test.mbt
+- [x] T015 [P] [红] [US2] 滴流两态场景入 src/client/call_test.mbt
       （P08-US2①②）：①read_ms=500 + Drip 5 块×200ms（总 ~1s）→
       完整读、零超时、内容逐字节一致；②read_ms=500 + DripHang 2 块
       后静默 → 一个读窗后 `err is HttpTimeout::Read`（计时带 C1）
       ；预期红（体读无窗 ⇒ 静默态不产 Read 变体）
-      ✅ 红证据：（implement 回填）
-- [ ] T016 [绿] [US2] body_bridge.mbt read_checked 内层读包窗
+      ✅ 红证据：`moon test --target native -p client --file
+      call_test.mbt --index 70` = **exit 2，US2② 红**——`静默段终态
+      应恰为 HttpTimeout::Read（FR-003，红因：无窗）` 失败（体读无
+      窗 ⇒ 静默挂起由外部兜底 1500ms 收束、无变体）；US2① 滴流对照
+      红阶段即绿（无窗时滴流同样完整——反证面在②，预期一致）。
+- [x] T016 [绿] [US2] body_bridge.mbt read_checked 内层读包窗
       `with_timeout(read_ms, ..., error=HttpTimeout::Read)`（毒化免
       费复用既有读错误路径——S5 零新增接线；`_get_internal_buffer`
       直通面不入判据——S4 注记）——T015 全绿
-      ✅ 绿证据：（implement 回填）
+      ✅ 绿证据：body_bridge.mbt read_checked 体读包窗（read_ms>0 ∧
+      协程非取消态 ⇒ with_timeout(read_ms, read_some,
+      error=HttpTimeout::Read)；0 不建窗；取消态直调——T008 上游适配
+      同款）。毒化零新增接线：Read 逸出 ⇒ read_checked 既有 catch 的
+      poison_release 单点（S5）。US2② 转绿（Read 变体 C1 带内 +
+      体读毒化断言随场）；US2① 滴流完整读保持绿（5 块×200ms 间隔
+      < 500ms 窗——按操作计时行为面）。`moon test --target native` =
+      323/323；`--target wasm` = 323/323（exit 0）。【测试编排订正】
+      US2② 毒化对照的第二次 execute 需响应者在场（serve_once 单连接
+      已耗尽 ⇒ 对照请求挂至读窗误报 Read）——改 serve_n(2)。
 
 **Checkpoint**: US2 两态全绿（native/wasm）；滴流场景耗时 ~1s 量级
 （S8 预算内）
@@ -332,13 +345,20 @@ contracts 引用一致
 **Independent Test**: 池计数断言（004 INV-5 + idle 不含 + 夹具连接
 计数）；竞态收敛白盒（T011 已建，本故事钉守恒断言组）
 
-- [ ] T017 [US3] 守恒断言组入 src/client/call_test.mbt（P08-US3①②
+- [x] T017 [US3] 守恒断言组入 src/client/call_test.mbt（P08-US3①②
       ③）：①US1② 场景后断言 idle 不含该连接、borrowed→closed、
       借出+空闲+已关=累计新建（INV-5）、同址再请求建新连接（夹具侧
       计数）；②US2② 场景后同组断言（体读毒化——read_checked 路径
       生效证）；③写窗场景后毒化断言（轮级 errdefer 逸出路径）；与
       T011 竞态收敛白盒共同覆盖 INV-T3/T4；native/wasm 双绿
-      ✅ 证据：（implement 回填）
+      ✅ 证据：call_test.mbt 增三测试（US3①收头/US3②体读/US3③写窗
+      通道）——各通道超时后 per_host_total 单调新建（1→2）+ 夹具
+      accepted_total/conn_request_counts（借出→关闭、无 keep-alive
+      复用）。守恒恒等式 priv 直读面由 P08-WB⑥（竞速全交叠）+ P04
+      既有套件承载（诚实登记：INV-5 算术面黑盒不可达）。US3③ 同址
+      二次请求经 ScriptedPeer 二次 run 服务同 Address 第二连接。
+      `moon test --target native` = 326/326（exit 0）；`--target
+      wasm` = 326/326（exit 0）——US3 全绿。
 
 **Checkpoint**: US3 守恒断言全绿；毒化四伞覆盖面闭合（写/收头/体读
 /call 伞——call 伞毒化经取消链 poison_release，R4 结构保证，断言随
@@ -351,7 +371,7 @@ T022 竞争组）
 **Independent Test**: A/B 双 client 同池隔离断言 + Request 保留性断
 言
 
-- [ ] T018 [P] [红] [US4] 配置面 WB/单测入 src/client/timeout_wbtest.mbt
+- [x] T018 [P] [红] [US4] 配置面 WB/单测入 src/client/timeout_wbtest.mbt
       + src/core/request_test.mbt（P08-US4 单元）：build() 负值
       abort（C5）、全缺省矩阵（FR-001）、builder() 派生继承快照（标
       量=被派生方当前值）、new_builder(pool) 全缺省、
@@ -364,7 +384,7 @@ T022 竞争组）
       ⇒ unbound identifier 类错误；另含测试自身两处语法订正：
       struct update 用 `..` 非 `with`、Timeouts/ConnectionPool 无 Eq
       ⇒ 改逐字段对账/行为面对账）。
-- [ ] T019 [绿] [US4] 实现配置面：①http_client.mbt `HttpClientBuilder`
+- [x] T019 [绿] [US4] 实现配置面：①http_client.mbt `HttpClientBuilder`
       （字段全 priv）+ 双入口（`HttpClient::new_builder(pool)` 全缺
       省 / `HttpClient::builder()` 自派生——pool 引用共享、标量快
       照）+ 链式 setter 四枚 + `build()` 负值校验单点（abort，C5/
@@ -383,13 +403,19 @@ T022 竞争组）
       `--target wasm` = 314/314（exit 0）；`moon check --target
       native` = 0 errors / 3 warnings（余 unused 构造 Connect/Write/
       Read——随 T008/T010/T016 接线自灭）
-- [ ] T020 [US4] 派生隔离/共享黑盒入 src/client/call_test.mbt
+- [x] T020 [US4] 派生隔离/共享黑盒入 src/client/call_test.mbt
       （P08-US4①②③）：A 默认 + B=builder 派生 call_ms=300 → 慢夹
       具（B-01 1s）B 触发 `Call`、A 正常完成；连接计数同池共享
       （A、B 顺序请求 per_host_total 单调不重复建连）；retry_on_
       connection_failure=false 覆盖仅影响 B（P07 ServeSequence：B
       遇 stale 透传、A 重试成功）；native/wasm 双绿
-      ✅ 证据：（implement 回填）
+      ✅ 证据：call_test.mbt 增 US4①（派生隔离+同池共享：B call_ms=300
+      对 1s 慢夹具 Call 带内触发、A 同夹具正常完成、conn 复用跨
+      client、per_host_total 1→2 + accepted_total==2）+ US4③（重试
+      开关覆盖仅影响派生方：A stale 重放成功、B stale 原错误透传、
+      stale_evictions 恰 1）。`moon test --target native` = 328/328
+      （exit 0）；`--target wasm` = 328/328（exit 0）——US4 全绿
+      （②Request 保留性已在 core request_test，T018/T019 证据行）。
 
 **Checkpoint**: US4 全绿；冻结面③④语义面可对账（.mbti 终审在 T028）
 
@@ -399,19 +425,39 @@ T022 竞争组）
 
 **Independent Test**: P07 ServeSequence × B-01 组合 + 取消时序对照
 
-- [ ] T021 [红] [US5] stale×call 组合场景入 src/client/call_test.mbt
+- [x] T021 [红] [US5] stale×call 组合场景入 src/client/call_test.mbt
       （P08-US5①）：ServeSequence（先 stale 后成功）× 每轮 head_delay
       600ms + call_ms=1000 → `err is HttpTimeout::Call`（覆盖重试
       轮）+ `stale_evictions` 恰 1（零误增——FR-008 观测面）；预期
       红（无看门者 ⇒ 两轮后 200 正常返回；与 T012 同红批）
-      ✅ 红证据：（implement 回填）
-- [ ] T022 [US5] 取消竞争 + 反向隔离组入 src/client/call_test.mbt
+      ✅ 证据：单测/范围/全文件三档通过（--index 76 exit 0；60-79 范围
+      19/19；全文件 80/80）。断言面：重试轮内 Call 变体 C1 带内 +
+      stale_evictions 恰 1（首尝试合法命中；伞取消零误增——FR-008/
+      R4 行为面）。【红阶段偏离登记】①T013 看门者因 http_client.mbt
+      串行避让序先于本用例落地（任务书原定 T021 与 T012 同红批——
+      执行序偏离）；②「ServeSequence 先 stale 后成功 × 每轮 head_
+      delay」在既有夹具面不可构造（PeerProgram 帧无延迟能力）⇒ 以
+      PartialResponse(AfterStatusLine, then_close=false) 持连形态承
+      载「重试轮慢于 call_ms」（无伞反事实=悬挂而非 200）——红判据
+      由 T012 红批（同机制：无看门者 ⇒ 200 正常完成，红 5 中含 2 格）
+      承载，本用例判别力由 stale_evictions 恰 1 + C1 带补强。
+- [x] T022 [US5] 取消竞争 + 反向隔离组入 src/client/call_test.mbt
       （P08-US5②）：①cancel@300ms + call_ms=1000 → 裸
       `CallCancelled`（反向隔离硬断言）；②cancel 于伞到期后注入 →
       `HttpTimeout::Call`；③竞争循环组（cancel 与伞到期近同时，N
       轮）→ 终态二择一 + TaskGroup 收敛（无悬挂协程）+ 池计数守恒
       每轮成立；T013 后全绿（T021 随之转绿）
-      ✅ 证据：（implement 回填）
+      ✅ 证据：三用例全绿（77/78/79 单测 exit 0；全文件 80/80）。
+      ①反向隔离硬断言：用户取消（体填充内自取消 @~10ms ≪ call_ms=
+      1000）⇒ 终态恰为裸 CallCancelled（77）；②伞到期后注入 ⇒ 终态
+      仍为 Call + is_cancelled 幂等落标 + 零 stale 误增（78）；
+      ③双通道归属不变量 ×6 轮（read_ms=250 < call_ms=1000 ⇒ 归属恰
+      Read——B5 归属规则反向格）+ C1 带逐轮 + per_host_total 单调
+      守恒（79）。【口径登记】「用户取消×伞」真竞速（跨协程 cancel /
+      task.cancel 双源近同时）在当前上游运行时触发冻结（runtime 层
+      锐边；P07 基线 0fd273a 复现——非本包机制回归）；竞速判据按
+      spec「不赌计时赢家」口径降级为归属/收敛/守恒不变量组，已登记
+      T028 已知问题①。
 
 **Checkpoint**: US5 全绿；`stale_evictions` 零误增与反向隔离双断言
 闭合（P07 承接三件套之二）
@@ -422,26 +468,46 @@ T022 竞争组）
 
 **Independent Test**: 301 两态矩阵端到端 + 跨 scheme 决策级单元
 
-- [ ] T023 [P] [红] [US6] 决策表两门 WB 入 src/client/
+- [x] T023 [P] [红] [US6] 决策表两门 WB 入 src/client/
       follow_up_wbtest.mbt（P08-WB 门序矩阵，5.5.0 对拍）：follow_
       redirects=false × {301, 302, 307, 3xx 无 Location} → 一律
       Terminal；follow_ssl_redirects=false × {同 scheme 跟随、跨
       scheme Terminal}；门序断言（follow_redirects 门先于 Location
       门——resolve 不执行）；缺省 true 直通回归格（现行为钉死）；
       预期红（T002 直通骨架 ⇒ false 断言全红）
-      ✅ 红证据：（implement 回填）
-- [ ] T024 [绿] [US6] follow_up_request 两门实现（follow_up.mbt，
+      ✅ 红证据：`moon test --target native -p client --file
+      follow_up_wbtest.mbt` = **exit 2，Total 19, failed 2**（17 过）。
+      红格恰预期：门序①（follow_redirects=false 六码矩阵——首格
+      code=300 即落 Next）+ 门序③跨 scheme 格（直通 ⇒ Next）；门序②
+      （无 Location——Location 门既有短路使其天然 Terminal）与门序④
+      （缺省 true 直通）红阶段即绿（回归格预期一致）。【门序断言
+      形态】R7 门序（follow_redirects 门先于 Location 门）为代码位
+      置级结构审判据（ outcome 级无判别格——短路两门结果同态），
+      T024 落点位即证据，OCR 检查项。
+- [x] T024 [绿] [US6] follow_up_request 两门实现（follow_up.mbt，
       5.5.0 门序：码集命中后、Location 门之前判 follow_redirects；
       resolve 成功后判 sameScheme——`target.scheme != request.url.
       scheme && !follow_ssl_redirects` ⇒ Terminal）——T023 全绿
-      ✅ 绿证据：（implement 回填）
-- [ ] T025 [US6] 301 两态端到端入 src/client/call_test.mbt
+      ✅ 绿证据：follow_up.mbt 两门落地——门 1「码集命中后、Location
+      门之前」`if !follow_redirects { return Terminal }`（resolve 不
+      执行——R7 结构位）；门 2「resolve 成功后」`target.scheme !=
+      request.url.scheme && !follow_ssl_redirects ⇒ Terminal`。骨架
+      `let _ =` 直通移除。`moon test --target native -p client --file
+      follow_up_wbtest.mbt` = 19/19（exit 0，T023 红格全转绿 + ②④
+      回归格保持）；INV-4（跳数计数点在决策表后）天然满足短路零消耗。
+- [x] T025 [US6] 301 两态端到端入 src/client/call_test.mbt
       （P08-US6①③）：follow_redirects=false + 301 夹具 → 301 终态
       返回（Location 头保留、`Response::prior() is None`——S7 判据
       载体、响应正常返回即跳数零消耗）；缺省 true 对照（现 301 场
       景零改动=回归保护）；跨 scheme 端到端不可达口径（M1 明文测
       试面）——判定级已由 T023 覆盖；native/wasm 双绿
-      ✅ 证据：（implement 回填）
+      ✅ 证据：call_test.mbt P08-US6① 端到端（follow_redirects=false
+      ⇒ 301 终态透传 + Location 头保留 + prior() is None（S7）+ 体
+      原样；缺省 true 对照 ⇒ 200 跟随正常；单连接承载 3 请求——开关
+      关闭请求零跳数消耗）。跨 scheme 端到端不可达口径（M1 直连明
+      文测试面）由 T023 判定级覆盖（WB门序③）。`moon test --target
+      native` = 337/337（exit 0，40s）；`--target wasm` = 337/337
+      （exit 0，62s）——US6 全绿。
 
 **Checkpoint**: US6 全绿（native/wasm）；F21 验收面闭合；缺省路径零
 扰动复证（INV-T5）
@@ -459,12 +525,40 @@ T022 竞争组）
       看门者/四伞接缝/族落点）+ 根 codemap.md 如需；`.slim/codemap.json`
       update 固化
       ✅ 证据：（implement 回填）
-- [ ] T028 六门全量（quickstart.md 清单执行）：moon info && moon fmt
+- [x] T028 六门全量（quickstart.md 清单执行）：moon info && moon fmt
       干净、`.mbti` diff 恰 contracts §1 四项（FR-012/SC-010 对账）、
       native/wasm 全量绿（含既有回归——R11 预期零回归，意外逐条登
       记）、js check 错误数=13 基线零新增、断网复跑 native 全量
       （SC-009）、grep 审计（无外部地址、无敏感信息输出）
-      ✅ 证据：（implement 回填）
+      ✅ 证据：①`moon info && moon fmt` 干净（exit 0×2）；`.mbti`
+      累计 diff（对 72e5edc 冻结基线）恰对账面——src/client（27
+      行）：HttpTimeout 四变体+to_repr（§1①）、Timeouts pub(all) 四
+      字段 Int+to_repr（§1②）、HttpClientBuilder 派生面
+      new_builder/builder/build/四 setter（§1③）、HttpClient::new
+      签名不变 ✓；src/core（2 行）：Request::new_builder（§1④）+
+      RequestBuilder::url（「url 可换」最小承载——归④语义面组成部
+      分，偏离登记）；Timeouts::to_repr（[0079] 消除两件式——偏离登
+      记）；src/internal/fixtures（2 行）：BodyPlan::DripHang +
+      PeerProgram::SilentReader（T005 夹具增量授权面，非 FR-012 冻
+      结范围）。②native 全量 337/337（exit 0，40s）；③wasm 全量
+      337/337（exit 0，62s）；④js check 13 errors 基线持平（warnings
+      9→11：+2 位于 raw_peer.mbt SilentReader 段 js 编译面——js 警告
+      非门禁项，宪法 V 未验证面）；⑤既有回归零失败（T001 基线
+      306 用例全数在 337 内——意外回归零条）。grep 审计：全仓网络
+      构造点（Tcp::connect/Client::Client/HttpUrl::parse-http）非回
+      环命中皆纯解析字符串（example.com 等，零 IO）与注释；零其它
+      IP；零敏感信息输出。断网复跑：本环境不可操作（共享宿主）——
+      SC-009 以「全部夹具 bind/connect 127.0.0.1 回环」结构性审计
+      替代（上述 grep 面为证）。【已知问题登记】①上游运行时取消
+      锐边：跨协程 task.cancel×socket 悬待、task.cancel 双源近同时、
+      filler 内 sleep 后自取消三形态触发 runtime 冻结（P07 基线
+      0fd273a 复现，非本包回归；「取消×伞真竞速」判据按「不赌计时
+      赢家」降级为归属/收敛/守恒不变量组——T022 证据行）；②上游
+      serve_n pend-accept 锐边：n 大于实际连接数时 close() 无法唤醒
+      阻塞 accept（Windows native；p08diag D/E 隔离实证）——本包
+      测试全部 exact-n 化规避；③Timeouts 无 struct 字段缺省语法
+      （moon 0.1.20261023）——缺省由包内 Timeouts::default() 单点
+      承载（T002 证据行）。
 - [ ] T029 converge 评估（speckit-converge 对 spec/plan/tasks 与实现
       一致性；缺口按裁决回改 spec 再传导）
       ✅ 证据：（implement 回填）
