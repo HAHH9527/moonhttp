@@ -567,9 +567,18 @@ T022 竞争组）
       零；SC-009 断网复跑以结构性 grep 审计替代（共享宿主，known
       issue 登记）；上游取消冻结与 serve_n pend-accept 两处 runtime
       锐边登记 known issues（上游 issue 须人工批准——宪法 I）
-- [ ] T030 open-code-review 收尾（全量 diff 审查；发现按severity 回
+- [x] T030 open-code-review 收尾（全量 diff 审查；发现按severity 回
       修或登记已知问题）
-      ✅ 证据：（implement 回填）
+      ✅ 证据：OCR CLI v1.13.3 preview（0fd273a..HEAD，34 文件）——
+      .mbt 不在 OCR 语言表 ⇒ 全部 excluded，回退宿主自查口径（P07 先
+      例）：19 代码文件全覆盖审阅（四伞接线/看门者/门面/族落点/两门/
+      配置面/WB⑥⑦ 竞态白盒/夹具变体/冻结面 .mbti×3）+ 文档面在
+      T026/T027 对账复核。发现：critical/high 0；medium 1（上游
+      runtime 锐边两处——取消冻结/pend-accept，P07 基线复现非本包
+      回归，已登记 known issues，上游 issue 待人工批准）；low 2
+      （Timeouts pub(all)+无字段缺省语法可用性 wart、js warnings
+      9→11——均已登记非门禁）。终验：native/wasm 338/338 双绿（含
+      T031）
 
 ## Dependencies & Execution Order
 
