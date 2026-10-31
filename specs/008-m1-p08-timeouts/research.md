@@ -40,38 +40,35 @@ execute 既有 `with_task_group` 组内增派看门者子任务：
 **结构审判据（WB）**：看门者 spawn 点、标记位置位点、收尾分支标记
 三分支断言（FR-002 有界例外①位点）。
 
-## R2 连接伞包裹位置：ensure_lease 侧整包 acquire（池零手术）
+## R2 连接伞形态：看门者同型（ensure_lease 侧；WB⑥ 实证订正整包形态）
 
-**Decision**: 连接伞在 `Call::ensure_lease` 的 `pool.acquire(addr)` 调
-用外包 `with_timeout(connect_ms, ..., error=HttpTimeout::Connect)`；
-`ConnectionPool` 与 `acquire` 签名零改动。
+**Decision（2026-10-31 implement 订正）**: 连接伞在 `Call::ensure_lease`
+的 `pool.acquire(addr)` 处采用**看门者同型**（R1 三步序的伞侧镜像）：
+`with_task_group` 内子任务跑 `acquire`、`spawn_bg(no_wait)` 定时器到
+期 `child.cancel()`、`child.wait()` 交付——记账完成 ⇒ 租约必达（wait
+拿到值照常使用）；建连在途被截断 ⇒ `WaitedTaskAlreadyCancelled` ⇒
+`HttpTimeout::Connect`（记账零发生）；真实建连失败（OSError 等）沿
+wait 原样透传（P07 建连族判定不受影响）。`ConnectionPool`/`acquire`
+签名零改动。
 
-**Rationale**:
-- **池副作用安全（R5 结构分析，qod-2 S3 修复前提）**：acquire 路径
-  的暂停点共两处——池锁 await（client.mbt:212）与建连 await；记账段
-  （client.mbt:244-252）与 lease 返回之间**无暂停点**（协作式调度，
-  取消只在 await 落）。取消无论落在锁等待还是建连 await：锁等待支
-  取消安全（上游 mutex.mbt:39-41 明文「acquire is cancellation
-  safe…a cancelled acquire request will never actually acquire the
-  mutex」——结构依赖登记）、建连支构造器未返回 ⇒ 两支记账均未执行
-  ⇒ 池状态零变化（004 建连失败契约）结构成立；若建连 await 先返回，
-  同步记账段原子完成、lease 必达调用方。两支皆满足 FR-006/R5 不变量
-  （INV-T3；US-3-3 收敛断言覆盖含锁等待支）。
-- 残留风险已当场关闭（qod-2 S4）：上游构造器取消/错误路径的半途资
-  源清理有行号证据——`errdefer proxy.close()`（http/client.mbt:49）
-  与 `errdefer transport.close()`（:57）在场；US-3-3 白盒收敛断言继
-  续兜底行为面。
-- 相比「改 acquire 签名加 connect_ms~」：零 P04 手术、零 acquire
-  `.mbti` 增量（FR-012 对账面更小）、连接伞与重试子循环的每 attempt
-  语义天然对齐（子循环每次 `ensure_lease` 重入即新伞，P07 follow_up.mbt:220
-  现场确认）。
+**订正记录（WB⑥ 实证，native/wasm 双现）**: 原决策 `with_timeout(
+connect_ms, acquire)` 整包形态存在 R5 孤儿租约竞态——伞到期取消
+body 时，acquire 若已越过末个暂停点（记账锁无竞争 fast-path 使同步
+记账尾在取消生效前完成），记账完成而租约被组丢弃 ⇒ borrowed 悬挂，
+违反 FR-006/US-3-3「副作用必达或显式撤销」。qod-1 B3 的担忧（编排
+层 R2 调和时曾以「记账段无暂停点」论证排除）经白盒第 8/4 轮实测成
+立——「取消只在 await 落」的前提对「末个 await 之后的同步尾 vs 取消
+信号到达次序」不成立（fast-path 下同步尾可先于取消观察点完成）。
+看门者同型以 wait 交付消除丢弃可能：INV-T3 两支恒成立（记账完成 ⇒
+必达；截断 ⇒ 记账零发生——锁 await 取消安全 mutex.mbt:39-41 + 构造
+器 errdefer 清理 client.mbt:49/:57）。
 
 **Alternatives considered**:
+- `with_timeout` 整包——WB⑥ 实测孤儿租约，否决（本条订正）。
 - 包裹点入 acquire 内部（只包 Client 构造）——需给 acquire 传阈值
-  （签名/字段手术，P04 增量）；且与 ensure_lease 侧包裹在可观测行为
-  上无差（见上），否决。
-- `with_timeout_opt`——丢弃成功结果的形态正是 R5 要排除的，且语义
-  冗余（见上，整包已安全），否决。
+  （签名/字段手术，P04 增量），且与看门者同型在可观测行为上无差，
+  否决。
+- `with_timeout_opt`——丢弃成功结果的形态正是 R5 要排除的，否决。
 
 ## R3 写窗包装面：@io.Writer trait 门面（每次用户写调用一窗）
 

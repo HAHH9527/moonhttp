@@ -45,15 +45,15 @@
 | F18 | `TcpServer::accept` 并发调用不安全（native PanicError 崩溃 / wasm 悬挂——P03 T008 实测；夹具已按裁决 A 以 serve_n 收口，上游 issue/修复候选**须人工批准**） | 未排期（须事先人工批准） | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F19 | IPv6 字面量建连 URI 缺方括号（Host 头非 RFC 3986/7230 权威形态；code-review 2026-10-21 发现·MEDIUM） | M1 / P05 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
 | F20 | P06 follow-up/重定向性能量化场景（P10 基准矩阵无重定向场景——宪法 II 量化义务落地对象；M1 README D17） | M1 / P10 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
-| F21 | followRedirects/followSslRedirects 关闭跟随开关（P06 spec 非目标/映射表钦定归 P08 builder 配置位；M1 恒跟随＝OkHttp 默认 true 行为面。2026-10-28 review 修复批登记——此前里程碑拆分时静默丢失） | M1 / P08 | 待回补 | [M1](deferred-items/deferred-items-m1.md) |
+| F21 | followRedirects/followSslRedirects 关闭跟随开关（P06 spec 非目标/映射表钦定归 P08 builder 配置位；M1 恒跟随＝OkHttp 默认 true 行为面。2026-10-28 review 修复批登记——此前里程碑拆分时静默丢失） | M1 / P08 | **已回补（2026-10-31，008 交付）** | [M1](deferred-items/deferred-items-m1.md) |
 
 ## 按里程碑速查（仅未完成）
 
 - **M1 内 P05**：F19（IPv6 URI 方括号修正 + 回归用例，随执行管线接线）。
 - **M1 内 P10**：F20（follow-up/重定向性能场景入基准矩阵 + 量化归档，
   M1 README D17）。
-- **M1 内 P08**：F21（followRedirects/followSslRedirects 开关入
-  builder 配置位）。
+- ~~**M1 内 P08**：F21（followRedirects/followSslRedirects 开关入
+  builder 配置位）~~（已回补）。
 - **M2 拆分须核对**：F1–F6（6 条）。
 - **M3 拆分须核对**：F10 评估决策、F12（可配置掩码开关 + 补宪法「不安全配置
   opt-in」条款）、F13（脱敏专版，与 F12 一批设计）；另注意 F2 随带的 Address

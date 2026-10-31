@@ -332,7 +332,9 @@ OkHttp 语义终态透传，不再自动跟随。
   （不回池）：发头/写体/收头段超时经既有轮级 errdefer 逸出路径毒
   化；体阶段读超时 MUST 毒化租约（复用 BodyBridge read_checked 既
   有点，零新增接线，S5）。**连接伞的包裹形态 MUST NOT 丢弃池副作用
-  结果**：伞只包建连调用本身（记账段之前，R5 机制口径）；伞到期与
+  结果**：机制形态归 plan——implement 订正为看门者同型 wait 交付（原
+  「只包建连调用本身」的整包/内包设想被 WB⑥ 实测孤儿租约竞态否决，
+  见 research R2 订正记录）；伞到期与
   建连完成的任何交叠下，建连副作用必达（租约交付）或被显式关闭并
   撤销记账——004 INV-5 守恒恒成立、无 borrowed 悬挂（US-3-3 验收）。
   全链与 Call.cancel 同一毒化通道语义。
@@ -493,12 +495,14 @@ OkHttp 语义终态透传，不再自动跟随。
   非需取证的风险；取消路径的 defer/errdefer 照常触发 ⇒ FR-006 的毒
   化义务在 call 伞路径自动成立。逸出通道形态选择（看门者 + 标记位）
   归 plan；「取消错误形状取证」候选废止（指向已废弃 API）。
-- **R5 裁决（2026-10-30，qod-1 B3）**：连接伞×建连完成竞态的清理义
-  务——`pool.acquire` 在建连成功后先记账（borrowed + per_host_total
-  ＋1，client.mbt:244-252）再返回租约；若伞包裹形态丢弃该结果，留
-  下 borrowed 悬挂与打开连接，破坏 004 INV-5。义务与验收见 FR-006/
-  US-3-3；机制口径＝伞只包建连调用本身（记账段之前），上游构造器取
-  消的半途资源清理归 plan 取证（宪法 I 信任公开 API 取消语义）。
+- **R5 裁决（2026-10-30，qod-1 B3；2026-10-31 implement 订正）**：连
+  接伞×建连完成竞态的清理义务——`pool.acquire` 在建连成功后先记账
+  （borrowed + per_host_total ＋1，client.mbt:244-252）再返回租约；
+  若伞包裹形态丢弃该结果，留下 borrowed 悬挂与打开连接，破坏 004
+  INV-5。义务与验收见 FR-006/US-3-3。**WB⑥ 实测订正**：整包/内包形
+  态的孤儿租约竞态实测成立（fast-path 同步记账尾可先于取消观察点完
+  成），机制订正为看门者同型 wait 交付（research R2 订正记录）；上
+  游构造器取消的半途资源清理已有 errdefer 行号证据（http/client.mbt:49/:57）。
 - **R6 裁决（2026-10-30，qod-1 B4）**：写超时端到端载体钉定 Stream
   体：上游 Sender 仅 1024B 缓冲，大体量 Bytes + 停滞对端以
   `IncorrectBodyLength` 收尾（P02 定长契约，非写窗场景）；Stream 体
@@ -650,6 +654,23 @@ OkHttp 5.5.0 对拍」自主裁决并回记；qod-1 复核后增补 C5（负值�
 上游实测证据自主裁决并记录理由；qod-1 八阻断（B1–B8）全部采纳落笔，
 十二建议（S1–S12）全部采纳；如 owner 推翻，回改本 spec 后再向下传
 导。
+
+### Session 2026-10-31（implement 级机制订正登记，承 research R2）
+
+1. **R2 连接伞形态订正（WB⑥ 实证）** → 原「`with_timeout` 整包 acquire」
+   存在孤儿租约竞态（fast-path 同步记账尾先于取消观察点完成 ⇒ 记账
+   完成而租约被组丢弃，native/wasm 双现）→ 订正为看门者同型
+   wait 交付；FR-006/R5/INV-T3 的义务与不变量不变，机制形态以本条
+   为准（详见 research R2 订正记录）。
+2. **T013 看门者 no_wait 订正（WB⑦ 实证）** → waited 看门者使正常
+   交付路径被组收尾拖满 call_ms（5s 悬挂实证）→ 改 no_wait 即发即
+   忘（失败路径组 cascade 取消仍覆盖）；FR-004 语义不变。
+3. **上游锐边适配** → 已取消协程不构造 with_timeout 组（上游
+   PanicError）；`Task::cancel` 后 `task.wait` 以
+   WaitedTaskAlreadyCancelled 呈现（P05 R1 同款）。
+
+三条均为机制级订正，FR/SC 语义零变化；证据与形态详见 research R1/
+R2 订正记录与 contracts §2。
 
 ## 参考
 

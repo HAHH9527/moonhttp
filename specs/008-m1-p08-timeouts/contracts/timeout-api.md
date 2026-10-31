@@ -50,7 +50,7 @@
 | `Call.call_timeout_fired : Bool` | http_client.mbt | 看门者标记；置位先于 task.cancel（R1 时序）；一次性无复位（I-1） |
 | 看门者 spawn | http_client.mbt execute | call_ms>0 才派生；`sleep(call_ms) → 置位 → task.cancel()` 三步序（FR-002 有界例外①） |
 | 取消收尾变体选择 | http_client.mbt execute Cancelled 分支 | 标记真 ⇒ `HttpTimeout::Call`；假 ⇒ 裸 `CallCancelled`（现状逐位不变） |
-| 连接伞包裹 | follow_up.mbt ensure_lease | `with_timeout(connect_ms, pool.acquire(addr), error=HttpTimeout::Connect)`；每 attempt 新伞（FR-002 有界例外②）。**白盒接缝豁免（qod-2 S2）**：exchange_once 白盒直调 `pool.acquire`（exchange.mbt:99，P05 既有接缝）不入伞——连接伞结构审判据的生产路径＝ensure_lease；白盒 FR-002 判据经生产路径驱动 |
+| 连接伞包裹 | follow_up.mbt ensure_lease | **看门者同型**（R2 implement 订正，WB⑥ 实证）：子任务跑 acquire + 定时器到期 cancel + wait 交付——记账完成 ⇒ 租约必达、截断 ⇒ `HttpTimeout::Connect` 且记账零发生；每 attempt 新伞（FR-002 有界例外②）。**白盒接缝豁免（qod-2 S2）**：exchange_once 白盒直调 `pool.acquire`（exchange.mbt:99，P05 既有接缝）不入伞——连接伞结构审判据的生产路径＝ensure_lease；白盒 FR-002 判据经生产路径驱动 |
 | 写窗三接点 | exchange.mbt | header `request` 包窗 / Bytes `write_once` 包窗 / Stream 经 Writer 门面（filler 实参替换） |
 | Writer 门面 | **timeout_writer.mbt（新文件，priv struct）**——以 plan 结构树为准（qod-2 S6 回填） | 实现 `@io.Writer` 三方法，各包 `with_timeout(write_ms, ..., error=HttpTimeout::Write)` 后委托内层 conn（委托目标＝内层自身方法，单窗无嵌套——research R3 注记） |
 | 读窗两接点 | exchange.mbt / body_bridge.mbt | `end_request` 包窗（收头单窗，C4）；read_checked 内层读包窗（体读） |

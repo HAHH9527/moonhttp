@@ -95,7 +95,8 @@ execute()                                      ④ call 伞（实体 4，全程�
     轮级 errdefer（P07 既有，毒化单点）
     轮内尝试子循环（P07 既有，≤2 attempts）
       ensure_lease(addr)
-        with_timeout(connect_ms, pool.acquire)   ① 连接伞（R2；每 attempt 新伞）
+      连接伞＝看门者同型（R2 订正）：子任务 acquire + 定时器 cancel
+      + wait 交付（① 每 attempt 新伞）
       exchange_with_lease(request, lease)
         last_stage = Send
         with_timeout(write_ms, conn.request)     ② 写窗：header 写
@@ -150,9 +151,8 @@ HttpClient::builder()          -> HttpClientBuilder   // 自既有 client 派生
   用户取消终态恰为裸 `CallCancelled`（标记位裁决，R1）；写/读窗终态
   恰为对应变体且无包装（FR-005）。
 - **INV-T3（池守恒全交叠）**：连接伞到期与建连完成的任何交叠下，
-  004 INV-5 恒等式成立——取消落建连 await ⇒ 记账未执行（零状态）；
-  建连 await 先返回 ⇒ 同步记账段原子完成、lease 必达（R2/R5；US-3-3
-  收敛断言）。
+  004 INV-5 恒等式成立——伞截断在途建连 ⇒ 记账零发生（零状态）；
+  记账已完成 ⇒ 租约经 wait 必达（R2 订正形态；US-3-3 收敛断言）。
 - **INV-T4（毒化全段覆盖）**：写/收头超时逸出 ⇒ 轮级 errdefer 毒化；
   体读超时 ⇒ read_checked 既有毒化点；call 伞到期 ⇒ cancel 链
   poison_release（取消不可捕获、defer 照常触发，R4）——四伞任一触

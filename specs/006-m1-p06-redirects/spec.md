@@ -374,7 +374,7 @@ RetryAndFollowUpInterceptor.kt` 与 `HttpMethod.kt`，2026-10-27 取证）**：
 | follow-up 上限 20（`MAX_FOLLOW_UPS`），超出 `ProtocolException("Too many follow-up requests: n")` | 上限 20，raise `TooManyFollowUps`（FR-005） | 对齐上限；**有意差异**：显式变体替代消息判别（P05 取消语义同款先例，判别性更强） |
 | 跨 host（scheme/host/port 任一不同）`removeHeader("Authorization")`，Cookie 由 Jar 按新域重算 | 剥 `Authorization` + `Cookie`（FR-004） | **有意差异**：M1 无 CookieJar 的等价保守化（C1）；M2/11-cookies 回改对齐 |
 | Location 缺失/不可解析 → 不跟随返回原响应 | 同义（FR-008） | 对齐 |
-| `followRedirects`/`followSslRedirects` 开关（默认 true） | M1 无开关、恒跟随、恒允许 scheme 变更 | **M1 范围差异**：开关归 P08 builder 配置位（行为面 = OkHttp 默认值） |
+| `followRedirects`/`followSslRedirects` 开关（默认 true） | M1 无开关、恒跟随、恒允许 scheme 变更（**008 加注 2026-10-31：开关已由 008 交付**——builder 配置位缺省 true，关闭语义对齐本行 OkHttp 形态；缺省路径与本包行为面逐位一致） | **M1 范围差异**：开关归 P08 builder 配置位（行为面 = OkHttp 默认值） |
 | priorResponse 链 | `Response::prior` 保序链（FR-006） | 对齐 |
 | js：fetch 浏览器自动跟随且不可关 | js 上循环不激活：同形编译（零 `#cfg(js)`），浏览器已跟随 ⇒ 首轮判定 Terminal 直通终态（FR-011） | **target 差异**：宪法 V 未验证面，欠账随 M5 收口（2026-10-28 订正：实现形态＝同形编译＋浏览器行为短路） |
 

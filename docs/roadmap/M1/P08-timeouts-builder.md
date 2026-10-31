@@ -6,7 +6,8 @@
 
 ## 功能描述（speckit 输入种子）
 
-为 P05 管线叠加 OkHttp 的**四类超时**：connect（连接伞，覆盖 DNS+TCP+TLS+隧道）、
+为 P05 管线叠加 OkHttp 的**四类超时**：connect（连接伞，覆盖 DNS+TCP+TLS+隧道；
+008 订正④：M1 无 TLS/隧道——实际覆盖 DNS+TCP，口径以 008 spec FR-007 为准）、
 write（按写操作，含 header 写出）、read（按读操作，响应头/体每块重置）、
 call（整个调用含 follow-up/重试的总伞）；超时以显式 `HttpTimeout{Connect/Write/
 Read/Call}` 错误变体暴露（经 `with_timeout(error=)` 注入），超时点伴随连接毒化。
@@ -19,10 +20,17 @@ dispatcher，仅覆盖标量）与 `Request::new_builder()`（OkHttp newBuilder 
 
 - `Timeouts` 配置：connect_ms/write_ms/read_ms 默认 10s，call_ms 默认 0（不限）。
 - 四级接线（时序叠加在 P05 单轮 + P06/P07 循环上）：
-  - ④ callTimeout：Timer 包全程（follow-up/重试含在内），到期取消整个执行；
-  - ① 连接伞：`with_timeout(connect_ms, pool.acquire(addr))`；
-  - ② 写：header 写与每 body 块（16–64KB 分块）各包 `with_timeout(write_ms)`；
-  - ③ 读：`end_request` 与流式 body 每次底层读各包 `with_timeout(read_ms)`。
+  - ④ callTimeout：Timer 包全程（follow-up/重试含在内），到期取消整个执行
+    （008 订正①：覆盖至交付为止，体消费期不入伞——每块体读仍有读窗兜底；
+    终态变体经伞内标记位选定）；
+  - ① 连接伞：`with_timeout(connect_ms, pool.acquire(addr))`
+    （008 订正⑧：整包形态有孤儿租约竞态——WB⑥ 实测，改看门者同型
+    wait 交付，记账完成 ⇒ 租约必达）；
+  - ② 写：header 写与每 body 块（16–64KB 分块）各包 `with_timeout(write_ms)`
+    （008 订正②：Bytes 分块不采纳——单次 write_once 即单写调用点，
+    Stream 经 @io.Writer 门面逐用户写一窗）；
+  - ③ 读：`end_request` 与流式 body 每次底层读各包 `with_timeout(read_ms)`
+    （008 订正：粒度＝L1 调用点——收头单窗含 1xx 跳读、体读每调用一窗）。
 - 按操作重置的实现选择：M1 用每块一个 `with_timeout`（简单正确，Timer 创建/取消
   ~百 ns 级）；单 Timer + `Timer::refresh` 方案留待基准驱动（14 跟踪，M2 决策）。
 - `HttpTimeout` suberror 四变体；超时抛出点伴随 `lease.poison()`（与 Call.cancel
@@ -40,7 +48,9 @@ dispatcher，仅覆盖标量）与 `Request::new_builder()`（OkHttp newBuilder 
 - Dispatcher 并发闸（P09）；connect 阶段 DNS 的可取消性（侵入 socket 线程池，
   10 §4 明确不做——超时后 getaddrinfo 后台跑完仅占线程，不阻塞正确性）；
 - js 上的按操作超时（fetch 路径降级为 callTimeout 经 AbortController + Dispatcher
-  闸，10 §5）；refresh 方案优化（基准驱动后）。
+  闸，10 §5；008 订正③：AbortController 上游内建自用、L1 不可触及——
+  js 降级为调用方侧变体、底层 fetch 不保证取消；Dispatcher 闸归 P09）；
+  refresh 方案优化（基准驱动后）。
 
 ## 用户故事种子
 
@@ -54,8 +64,13 @@ dispatcher，仅覆盖标量）与 `Request::new_builder()`（OkHttp newBuilder 
 
 1. Given connect_ms=500 与「accept 后挂起不完成」对端，Then ~500ms 内 raise
    `HttpTimeout::Connect`（耗时边界 ±50ms）。
+   （008 订正⑦：回环建连即时完成，Connect 端到端触发不可进程内注入——
+   判定器单元级（Connect→建连族可重试）+ 白盒接线伴随覆盖，竞态清理
+   守恒白盒断言；计时带口径改 C1 不对称带 [阈值−50, +300]ms）
 2. Given read_ms=500 与「延迟 2s 回响应头」夹具，Then `HttpTimeout::Read`。
-3. Given write_ms=500 与慢速接收对端 + 大 body，Then `HttpTimeout::Write`。
+3. Given write_ms=500 与慢速接收对端 + 大 body，Then `HttpTimeout::Write`
+   （008 订正：载体钉定 Stream 体——Bytes 定长契约下大体量停滞对端以
+   IncorrectBodyLength 收尾，非写窗场景）。
 4. Given call_ms=1000 与「每阶段都快但总链路 3 跳×慢」夹具，Then `HttpTimeout::Call`
    （覆盖 follow-up 全程）。
 
@@ -97,13 +112,22 @@ Request 级 builder 保留 headers/tag。
    总计 1.2s → call 伞触发 `HttpTimeout::Call`（覆盖重试）。
 2. Given 超时与 cancel 几乎同时，Then 二者之一有序终结，无悬挂协程（TaskGroup
    收敛断言）。
+   （008 订正：上游取消冻结锐边下「真竞速」判据降级——cancel 明确先于
+   伞到期 ⇒ 恰为裸 CallCancelled（反向隔离硬断言），竞态轮以归属/收敛/
+   守恒不变量组承载）
 
 ## 边界用例
 
 - call_ms=0 不限（默认）；阈值极小（1ms）的退化行为（快速失败不 panic）；
-  写阶段 header 与首块间超时归属（header 写归 write）；1xx 响应阶段的 read 计时；
+  写阶段 header 与首块间超时归属（header 写归 write；008 订正：1024B
+  缓冲下回环不可观测——接线级承诺，写停滞可经 end_request 尾刷逸出归
+  读窗，与 OkHttp 按 socket 方向判别的粒度差异已记映射表）；
+  1xx 响应阶段的 read 计时（008 裁决：收头段单窗，与 OkHttp 每底层读
+  重置的粒度差异记映射表）；
   超时错误经拦截器/重试层时不被误吞（M1 无拦截器，重试层 P07 对 HttpTimeout
-  不重试——超时属不可重试分类，spec 记录）。
+  不重试——008 订正⑥：Connect 变体并入建连失败族可重试（路由级重试
+  的 M1 等价物），Write/Read/Call 不可重试；5.5.0 isRecoverable 实测对
+  拍）。
 
 ## 需求种子
 
@@ -147,7 +171,9 @@ Request 级 builder 保留 headers/tag。
 
 ## 测试方案
 
-- 每类超时一个触发用例（P03 慢速夹具），断言错误类型与耗时边界 ±50ms。
+- 每类超时一个触发用例（P03 慢速夹具），断言错误类型与耗时边界 ±50ms
+  （008 订正⑤：改 C1 不对称带 [阈值−50, +300]ms、wasm 放宽至 +1000ms，
+  测量原点=窗建立点，δ 实测 12-14ms）。
 - read 按块重置两态用例（US-2）；超时毒化池计数断言；builder 派生共享性断言；
   超时×重试×取消交错用例。
 - native + wasm 双绿；js `moon check` + （可行时）node 冒烟 callTimeout。

@@ -19,7 +19,7 @@
 |-----------|----------------|------|
 | `src/` | 源码根；三个构建内包的命名空间父级 | [View Map](src/codemap.md) |
 | `src/core/` | 核心 HTTP 值模型层：`HttpUrl`、percent 编解码、`HeadersV`、`Method`、`Request`/`RequestBody`、`Response`/`ResponseBody`、错误模型、`Request::to_http_request` 纯转换；无网络 IO | [View Map](src/core/codemap.md) |
-| `src/client/` | 用户客户端层：`HttpClient` 门面、`Call` 状态机、`ConnectionPool`（Address 分桶 LIFO + keep-alive）、`exchange_once` 管线、`BodyBridge` 体桥接与租约处置 | [View Map](src/client/codemap.md) |
+| `src/client/` | 用户客户端层：`HttpClient` 门面与 builder 派生面、`Call` 状态机、`ConnectionPool`（Address 分桶 LIFO + keep-alive）、四级超时伞（call/连接/写/读——看门者形态）、`exchange_once` 管线、recover 判定器、`BodyBridge` 体桥接与租约处置 | [View Map](src/client/codemap.md) |
 | `src/internal/` | 内部支撑包命名空间，不对外发布为公共 API | [View Map](src/internal/codemap.md) |
 | `src/internal/fixtures/` | 回环测试夹具：`ScriptedServer` 声明式编排服务端、`ScriptedPeer` 裸 TCP 程序化对端、私有 `FrameScanner` 帧边界判定 | [View Map](src/internal/fixtures/codemap.md) |
 | `bench/` | T009 独立复核用一次性诊断/性能探针归档（独立 moon 模块：`bench/moon.mod`+`bench/moon.work`；根构建/门禁不感知） | [View Map](bench/codemap.md) |

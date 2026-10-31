@@ -3,8 +3,14 @@
 ## Responsibility
 
 面向用户的 HTTP 客户端层（对齐 OkHttp 语义），构建在 moonbitlang/async 公开 API 之上：
-- `http_client.mbt`：`HttpClient` 门面（唯一状态＝`ConnectionPool` 引用）、一次性请求句柄
-  `Call`（Pending→Executing→Done 状态机）、取消通道与错误变体 `CallCancelled`/`CallStateError`/`TooManyFollowUps`。
+- `http_client.mbt`：`HttpClient` 门面（唯一状态＝`ConnectionPool` 引用 + 配置标量
+  `Timeouts`/`follow_redirects`/`follow_ssl_redirects`/`retry_on_connection_failure`）、一次性请求句柄
+  `Call`（Pending→Executing→Done 状态机）、取消通道与错误变体 `CallCancelled`/`CallStateError`/`TooManyFollowUps`/
+  **P08 `HttpTimeout{Connect/Write/Read/Call}`**；**P08 builder 派生面**
+  `HttpClientBuilder`（`new_builder(pool)` 根构造 + `builder()` 自派生 + 链式 setter
+  + `build()` 负值校验单点）；**P08 call 伞看门者**（execute 组内
+  `sleep(call_ms)→置位 call_timeout_fired→task.cancel()` 三步序，no_wait
+  即发即忘；取消收尾分支按标记选 `HttpTimeout::Call`/裸 `CallCancelled`——反向隔离）。
 - `client.mbt`：连接池 `ConnectionPool`、直连三元组池键 `Address`（scheme/host/port，构造期
   小写化 + IPv6 剥方括号）、独占租约 `Lease`（poison/release）。
 - `exchange.mbt`：单轮收发管线与 `Address` 推导——`exchange_with_lease`
@@ -26,7 +32,19 @@
   锁〔native,wasm 全量 + js 降级恒 Other，moon.pkg targets 表〕）；
   错误透传原始值，毒化与重试解耦（P07 FR-001..FR-011）。
 - `body_bridge.mbt`：`BodyBridge` 响应体读适配器（实现 `@io.Reader`）与租约处置状态机
-  （Consumed/Dropped/Abandoned 事件驱动）。
+  （Consumed/Dropped/Abandoned 事件驱动）；**P08 体读窗**（read_checked
+  内层读包 `with_timeout(read_ms)`，毒化复用既有读错误路径）。
+- `timeout_writer.mbt`：**P08 写窗门面**（priv 结构实现 `@io.Writer` 三
+  方法，各包 `with_timeout(write_ms, error=HttpTimeout::Write)` 后委托
+  内层 conn——Stream 体 filler 经门面逐用户写一窗；委托目标＝内层自身
+  方法，单窗无嵌套）。
+- **P08 四级伞接线**（data-model 实体 5）：④ call 伞（看门者，execute
+  全程）＞ ① 连接伞（ensure_lease 处看门者同型：子任务 acquire + 定时
+  器 cancel + wait 交付——整包 with_timeout 的孤儿租约竞态 WB⑥ 实测否
+  决）＞ ② 写窗（header/Bytes 直包、Stream 经门面）／③ 读窗（收头单窗
+  含 1xx + 体读每调用）；族落点三行接入 `recover_family`（Connect→
+  ConnectFailure 可重试，余→Other 透传）；跟随开关两门入
+  `follow_up_request`（5.5.0 门序）。
 
 ## Design
 
@@ -90,7 +108,8 @@
 - `moon.pkg` 另引入 `core/debug`（错误 derive Debug）与测试专用 `internal/fixtures`、
   `core/test`（运行时零引用，抑制 unused_package 警告）。
 - 消费方：外部库用户（公开面见 `pkg.generated.mbti`：HttpClient/Call/ConnectionPool/
-  Address/Lease 与三错误变体 `CallCancelled`/`CallStateError`/
-  `TooManyFollowUps`）；基准/测试工具经同一公开面驱动。P07 后公开面
-  增量＝`HttpClient::new` 可选参 `retry_on_connection_failure~`
-  （specs/007 contracts §1 冻结面）。
+  Address/Lease 与错误变体 `CallCancelled`/`CallStateError`/
+  `TooManyFollowUps`；P07 增量＝`HttpClient::new` 可选参
+  `retry_on_connection_failure~`；**P08 增量＝`HttpTimeout`/`Timeouts`/
+  `HttpClientBuilder` 派生面与 core `Request::new_builder`**——specs/008
+  contracts §1 冻结面）。
