@@ -1012,3 +1012,75 @@ async test "P07-WB⑬ 建连段接线白盒：租约恒 None、池三集合零�
     )
   }
 }
+
+///|
+// ===== P08 US6：跟随开关（决策表两门 WB，T023 红；5.5.0
+// buildRedirectRequest 门序对拍——R7）=====
+
+///|
+// P08-WB门序①（FR-010，T023 红）：follow_redirects=false × 跟随码集
+// {300,301,302,303,307,308}（带 Location）→ 一律 Terminal（3xx 终态
+// 透传，Location 保留、prior 链不累积）。预期红：T002 直通骨架 ⇒
+// false 断言全红（六码皆 Next）。
+test "P08-WB门序① follow_redirects=false：跟随码集一律 Terminal" {
+  for code in [300, 301, 302, 303, 307, 308] {
+    let request = wb_req(1, "/a", @core.Method::Get)
+    let (response, raw) = wb_resp(code, [("Location", "/b")])
+    assert_true(
+      follow_up_request(response, request, raw, follow_redirects=false)
+      is Terminal,
+      msg="code=\{code} follow_redirects=false 应 Terminal（FR-010）",
+    )
+  }
+}
+
+///|
+// P08-WB门序②（FR-010，T023）：follow_redirects=false × 3xx 无
+// Location → Terminal（Location 门之前的短路使其天然成立；回归格）。
+test "P08-WB门序② follow_redirects=false：无 Location 恒 Terminal" {
+  for code in [300, 301, 302, 303, 307, 308] {
+    let request = wb_req(1, "/a", @core.Method::Get)
+    let (response, raw) = wb_resp(code, [])
+    assert_true(
+      follow_up_request(response, request, raw, follow_redirects=false)
+      is Terminal,
+      msg="code=\{code} 无 Location 应 Terminal（门序在 Location 之前——R7）",
+    )
+  }
+}
+
+///|
+// P08-WB门序③（FR-010，T023 红）：follow_ssl_redirects=false × 跨
+// scheme（http→https 绝对引用）→ Terminal；× 同 scheme（跨 host 同
+// scheme）→ 照常跟随（开关只封锁跨 scheme——5.5.0 sameScheme 门）。
+// 预期红：直通骨架 ⇒ 跨 scheme 格落 Next。
+test "P08-WB门序③ follow_ssl_redirects=false：跨 scheme Terminal、同 scheme 跟随" {
+  // 跨 scheme：https 绝对引用（resolve 成功后判 sameScheme——R7 门序）
+  let request = wb_req(1, "/a", @core.Method::Get)
+  let (response, raw) = wb_resp(301, [("Location", "https://127.0.0.1:2/b")])
+  assert_true(
+    follow_up_request(response, request, raw, follow_ssl_redirects=false)
+    is Terminal,
+    msg="跨 scheme + follow_ssl_redirects=false 应 Terminal（FR-010）",
+  )
+  // 同 scheme 跨 host：照常跟随（Next）
+  let request2 = wb_req(1, "/a", @core.Method::Get)
+  let (response2, raw2) = wb_resp(301, [("Location", "http://127.0.0.1:1/b")])
+  assert_true(
+    follow_up_request(response2, request2, raw2, follow_ssl_redirects=false)
+    is Next(_),
+    msg="同 scheme 不受 follow_ssl_redirects=false 封锁（照常跟随）",
+  )
+}
+
+///|
+// P08-WB门序④（FR-010 缺省直通回归格，T023）：两开关缺省（true）⇒
+// P06 行为面逐位不变（301+Location → Next——缺省路径钉死，INV-T5）。
+test "P08-WB门序④ 缺省 true 直通回归：301+Location → Next" {
+  let request = wb_req(1, "/a", @core.Method::Get)
+  let (response, raw) = wb_resp(301, [("Location", "/b")])
+  assert_true(
+    follow_up_request(response, request, raw) is Next(_),
+    msg="缺省 true 直通（P06 行为面回归保护——INV-T5）",
+  )
+}

@@ -147,7 +147,23 @@ async fn BodyBridge::read_checked(
   // 先 poison_release（FR-011/图 2 收尾不回池）再经 map_read_error 按
   // 取消态映射错误形态（cancelled ⇒ 裸 CallCancelled；未取消 ⇒ 原样透传，
   // FR-002a/FR-011）
-  let chunk = self.inner.read_some(max_len?) catch {
+  // P08 体读窗（T016，FR-003；data-model 实体 5 接点③体读）：每次体读
+  // 调用各享独立读窗（按操作计时——FR-003 行为级载体 US2）；read_ms=0
+  // 不建窗（INV-T1）；取消态直调（T008 上游适配同款）。毒化免费复用
+  // 既有读错误路径（S5 零新增接线）——Read 逸出 ⇒ 下方 catch 的
+  // poison_release 既有单点。
+  let read_ms = self.call.client.timeouts.read_ms
+  let chunk = try {
+    if read_ms > 0 && !@async.is_being_cancelled() {
+      @async.with_timeout(
+        read_ms,
+        () => self.inner.read_some(max_len?),
+        error=HttpTimeout::Read,
+      )
+    } else {
+      self.inner.read_some(max_len?)
+    }
+  } catch {
     err => {
       self.call.poison_release()
       raise self.call.map_read_error(err)

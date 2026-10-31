@@ -33,10 +33,6 @@ fn follow_up_request(
   follow_redirects~ : Bool = true,
   follow_ssl_redirects~ : Bool = true,
 ) -> FollowUp raise {
-  // T002 骨架直通（FR-010 缺省 true＝P06 行为面逐位不变——INV-T5）：
-  // 两门实体化归 T024（R7 门序对拍 5.5.0），骨架期仅钉住参数面。
-  let _ = follow_redirects
-  let _ = follow_ssl_redirects
   let code = response.code()
   // FR-003 行 4/5：304/305/306 及其余一切非跟随码（200/401/407/408 等）
   // 一律终态。跟随集合为精确码集 {300,301,302,303,307,308}（5.5.0 RFU
@@ -45,6 +41,13 @@ fn follow_up_request(
   match code {
     300 | 301 | 302 | 303 | 307 | 308 => ()
     _ => return Terminal
+  }
+  // P08 跟随开关门 1（T024，FR-010；5.5.0 buildRedirectRequest
+  // `!followRedirects → null` 严格同位——码集命中后、Location 门之前
+  // 判定，resolve 不执行）：false ⇒ 任何 3xx 终态透传（Location 保留、
+  // prior 链不累积、跳数预算零消耗——INV-4 计数点在决策表之后）。
+  if !follow_redirects {
+    return Terminal
   }
   // FR-008：Location 缺失 ⇒ 原响应终态（不跟随，5.5.0 L304-306 同构）。
   // 读取走 raw_headers 原始头 Map 直读（review 修复批 H1）：P02
@@ -58,6 +61,13 @@ fn follow_up_request(
   let target = match resolve_location(raw_headers, request) {
     Some(t) => t
     None => return Terminal
+  }
+  // P08 跟随开关门 2（T024，FR-010；5.5.0 `!sameScheme &&
+  // !followSslRedirects → null` 严格同位——resolve 成功后判）：跨
+  // scheme 且开关关闭 ⇒ 终态透传；同 scheme 照常跟随（开关只封锁
+  // 跨 scheme）。
+  if target.scheme != request.url.scheme && !follow_ssl_redirects {
+    return Terminal
   }
   // 跨 host 判定（R1 第 7 条）：Address 三元组不等 ⇒ 剥双头（FR-004）。
   let target_addr = Address::new(

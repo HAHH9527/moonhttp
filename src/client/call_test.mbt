@@ -4052,3 +4052,788 @@ async test "P08-US1④ 归属判别：单轮慢 2s + call_ms=1000 → Call 非 R
     }
   }
 }
+
+///|
+// ===== P08 US2：read 按操作重置（黑盒场景，T015 红批）=====
+
+///|
+// P08-US2①（FR-003 行为级证明，T015）：持续滴流零超时——read_ms=500 +
+// Drip 5 块×200ms（总 ~1s）⇒ 完整读、零超时、内容逐字节一致（每次体
+// 读各享独立读窗，非整段限时——绿路对照，红阶段即绿属预期：无窗时
+// 滴流同样完整，反证面在 US2② 的静默态）。
+async test "P08-US2① 持续滴流：5 块×200ms 完整读零超时、内容一致" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/drip-full", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Drip(1024, 5, 200),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_once(timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, read_ms=500)
+    let call = get_call_to(client, server.port(), "/drip-full")
+    let resp = call.execute()
+    assert_eq(resp.code(), 200, msg="滴流响应应正常收头")
+    let body = resp.body().unwrap().text()
+    assert_eq(body.length(), 5120, msg="滴流体应完整收齐（5×1024B）")
+    // 内容逐字节一致：全 'x'（drip_block 填充字节）
+    let mut all_x = true
+    for ch in body {
+      if ch != 'x' {
+        all_x = false
+        break
+      }
+    }
+    assert_true(all_x, msg="滴流体内容应逐字节一致（全 'x'）")
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// P08-US2②（FR-003/FR-006，T015 红）：滴 K 块后静默——read_ms=500 +
+// DripHang 2 块后保持 ⇒ 一个读窗后 raise HttpTimeout::Read（C1 带
+// [450, 800]ms，测量原点=体读窗建立点≈体读入口）且连接被毒化。
+// 预期红：体读无窗 ⇒ 静默态不产 Read 变体（外部兜底超时以 None
+// 呈现）。DripHang 承诺 3 块实滴 2 块（Fixed CL=3072）——客户端停
+// 在「已收 2048B、未收完」状态。
+async test "P08-US2② 滴 2 块后静默：一个读窗后 Read 变体" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/drip-hang-body", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: DripHang(1024, 2, 100),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(2, timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, read_ms=500)
+    let call = get_call_to(client, server.port(), "/drip-hang-body")
+    let resp = call.execute()
+    assert_eq(resp.code(), 200, msg="收头应正常（静默在体段）")
+    // 体读：外部兜底 1500ms 只为红阶段防悬挂（绿阶段读窗 500ms 先到）
+    let start = @async.now()
+    try {
+      let _ = @async.with_timeout_opt(1500) <| () => {
+        resp.body().unwrap().text()
+      }
+      fail(
+        "静默体读应触发 Read 超时（红因：体读无窗 ⇒ 兜底超时无变体）",
+      )
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Read,
+          msg="静默段终态应恰为 HttpTimeout::Read（FR-003，红因：无窗）",
+        )
+    }
+    p08_assert_band(500, @async.now() - start, "US2②")
+    // 毒化断言（US3② 同场景复用）：idle 不含该连接、计数守恒、
+    // 同址再请求建新连接（INV-T4 体读毒化）
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let before_total = pool.per_host_total(addr)
+    let second = get_call_to(client, server.port(), "/drip-hang-body")
+    let _ = second.execute()
+    assert_eq(
+      pool.per_host_total(addr),
+      before_total + 1,
+      msg="体读超时毒化不回池——同址再请求必须新建连接（US3②/FR-006）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// ===== P08 US3：超时后连接不回池（毒化守恒黑盒断言组，T017）=====
+// 守恒恒等式（借出+空闲+已关=累计新建）的 priv 直读面由 P08-WB⑥
+// （竞速全交叠）与 P04 既有套件承载；本组钉「毒化不回池」的黑盒可
+// 观测三面：per_host_total 单调新建 + 夹具 accepted_total +
+// conn_request_counts（INV-T4 收头/体读/写窗三毒化通道）。
+
+///|
+// P08-US3①（T017，INV-T4 收头通道）：US1② 场景后——idle 不含该连接
+// （同址再请求新建）、借出→关闭（夹具两连接各 1 请求）、计数单调。
+async test "P08-US3① 收头读窗毒化：同址再请求新建 + 夹具双连接" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/us3-head", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"ok"),
+      head_delay_ms: 2000,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(2, timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, read_ms=500)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let first = get_call_to(client, server.port(), "/us3-head")
+    let start = @async.now()
+    try {
+      let _ = first.execute()
+      fail("收头超时应触发")
+    } catch {
+      e => assert_true(e is @client.HttpTimeout::Read)
+    }
+    p08_assert_band(500, @async.now() - start, "US3①")
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="超时毒化不回池——超时后累计新建恰 1（无二次记账）",
+    )
+    // 同址再请求：新建连接（idle 不含被毒化连接的黑盒可观测面）
+    let second = get_call_to(client, server.port(), "/us3-head")
+    try {
+      let _ = second.execute()
+      fail("第二次同景仍应触发")
+    } catch {
+      e => assert_true(e is @client.HttpTimeout::Read)
+    }
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="毒化后同址再请求必须新建（FR-006/US-3-1）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+    assert_eq(
+      server.accepted_total(),
+      2,
+      msg="夹具应恰好接受 2 条连接（借出→关闭，复用断裂即毒化证）",
+    )
+    assert_eq(
+      server.conn_request_counts(),
+      [1, 1],
+      msg="每连接恰 1 请求（无 keep-alive 复用——毒化守恒）",
+    )
+  }
+}
+
+///|
+// P08-US3②（T017，INV-T4 体读通道）：US2② 场景后同组断言——体读
+// 超时发生在响应交付后的消费期，毒化义务不因交付完成而豁免
+// （read_checked 既有毒化点生效证）。
+async test "P08-US3② 体读毒化：交付后消费期超时同样新建" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/us3-body", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: DripHang(1024, 2, 100),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(2, timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, read_ms=500)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    let first = get_call_to(client, server.port(), "/us3-body")
+    let resp = first.execute()
+    assert_eq(resp.code(), 200, msg="收头应交付（静默在体段）")
+    try {
+      let _ = @async.with_timeout_opt(1500) <| () => {
+        resp.body().unwrap().text()
+      }
+      fail("体读应触发 Read")
+    } catch {
+      e => assert_true(e is @client.HttpTimeout::Read)
+    }
+    assert_eq(
+      pool.per_host_total(addr),
+      1,
+      msg="体读超时后累计新建恰 1（毒化不回池）",
+    )
+    let second = get_call_to(client, server.port(), "/us3-body")
+    let resp2 = second.execute()
+    assert_eq(
+      resp2.code(),
+      200,
+      msg="第二请求应正常收头（新建连接）",
+    )
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="体读毒化后同址再请求新建（US-3-2）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+    assert_eq(
+      server.accepted_total(),
+      2,
+      msg="夹具双连接（体读毒化可观测面）",
+    )
+  }
+}
+
+///|
+// P08-US3③（T017，INV-T4 写窗通道——轮级 errdefer 逸出路径）：
+// US1③ 场景后同组断言——写超时毒化，同址再请求新建（同一
+// ScriptedPeer 二次 run 服务第二条连接）。
+async test "P08-US3③ 写窗毒化：同址再请求新建" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(SilentReader(50))
+    let running1 = group.spawn(() => peer.run(timeout_ms=3000))
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, write_ms=500)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=peer.port(),
+    )
+    let url = @core.HttpUrl::parse("http://127.0.0.1:\{peer.port()}/us3-write")
+    let request = @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(
+        @core.RequestBody::stream(w => {
+          let chunk = FixedArray::make(16 * 1024, b'x').unsafe_reinterpret_as_bytes()
+          for _i in 0..<64 {
+            w.write(chunk)
+          }
+        }),
+      )
+      .build()
+    let first = client.new_call(request)
+    let start = @async.now()
+    try {
+      let _ = first.execute()
+      fail("写停滞应触发 Write")
+    } catch {
+      e => assert_true(e is @client.HttpTimeout::Write)
+    }
+    p08_assert_band(500, @async.now() - start, "US3③")
+    let _ = running1.wait()
+    // 同址再请求：peer 二次 run 服务第二条连接（同 Address）
+    let running2 = group.spawn(() => peer.run(timeout_ms=3000))
+    let second = client.new_call(request)
+    try {
+      let _ = second.execute()
+      fail("第二次同景仍应触发 Write")
+    } catch {
+      e => assert_true(e is @client.HttpTimeout::Write)
+    }
+    let _ = running2.wait()
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="写超时毒化后同址再请求新建（US-3-3 写窗通道）",
+    )
+    peer.close()
+  }
+}
+
+///|
+// ===== P08 US4：per-call 配置派生（黑盒场景，T020）=====
+
+///|
+// P08-US4①（FR-009，T020）：派生隔离 + 同池共享——A 默认派生 B
+// （call_ms=300）：B 对慢夹具（头延迟 1s）触发 Call、A 同夹具正常
+// 完成；B 复用 A 建立的池连接（accepted_total 计数共享可证）。
+async test "P08-US4① 派生隔离：B 触发 Call、A 正常完成、同池共享" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/fast", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"fast"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    server.mount("GET", "/slow", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"slow"),
+      head_delay_ms: 1000,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(2, timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client_a = @client.HttpClient::new(pool)
+    let client_b = @client.HttpClient::builder(client_a)
+      .timeouts({
+        connect_ms: 10_000,
+        write_ms: 10_000,
+        read_ms: 10_000,
+        call_ms: 300,
+      })
+      .build()
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    // A 快请求建 conn1 并回池
+    let warm = get_call_to(client_a, server.port(), "/fast")
+    let resp_warm = warm.execute()
+    assert_eq(resp_warm.code(), 200, msg="A 快请求正常")
+    let _ = resp_warm.body().unwrap().text()
+    assert_eq(pool.per_host_total(addr), 1, msg="warm 后恰 1 连接")
+    // B 慢请求：复用 conn1（同池共享），call_ms=300 触发 Call
+    let b_call = get_call_to(client_b, server.port(), "/slow")
+    let start = @async.now()
+    try {
+      let _ = b_call.execute()
+      fail("B（call_ms=300）应对 1s 慢夹具触发 Call")
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Call,
+          msg="B 终态恰为 Call（派生标量仅影响 B）",
+        )
+    }
+    p08_assert_band(300, @async.now() - start, "US4①")
+    // A 同夹具正常完成（缺省 call_ms=0 不建伞）
+    let a_call = get_call_to(client_a, server.port(), "/slow")
+    let resp_a = a_call.execute()
+    assert_eq(
+      resp_a.code(),
+      200,
+      msg="A 同夹具正常完成（派生零串扰）",
+    )
+    let _ = resp_a.body().unwrap().text()
+    assert_eq(
+      pool.per_host_total(addr),
+      2,
+      msg="B 的 Call 毒化 conn1 ⇒ A 新建 conn2（同池记账单调共享）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+    assert_eq(
+      server.accepted_total(),
+      2,
+      msg="夹具双连接（conn1 承载 warm+B、conn2 承载 A——共享池）",
+    )
+  }
+}
+
+///|
+// P08-US4③（P07 C4 承接，T020）：retry_on_connection_failure=false
+// 覆盖仅影响派生方——A（重试开）遇 stale 换新连接重放成功；B（派生
+// 覆盖关闭）遇 stale 原错误透传不重试；stale_evictions 恰 1（A 的
+// 合法命中，B 零计数）。
+async test "P08-US4③ 重试开关覆盖仅影响派生方：A 重试成功、B 透传" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs = group.spawn(() => {
+      let a = peer.run(timeout_ms=8000)
+      let b = peer.run(timeout_ms=8000)
+      (a, b)
+    })
+    let pool = @client.ConnectionPool::new()
+    let client_a = @client.HttpClient::new(pool)
+    let client_b = @client.HttpClient::builder(client_a)
+      .retry_on_connection_failure(false)
+      .build()
+    // A 预热：conn1 回池（Capture 应答后关闭 ⇒ 池内为死连接）
+    let warm = echo_post_call_to(client_a, peer.port(), "/x", b"payload")
+    let resp_warm = warm.execute()
+    assert_eq(resp_warm.code(), 200, msg="A 预热正常")
+    let _ = resp_warm.body().unwrap().text()
+    // A stale 命中：自动换新连接重放成功（重试开）
+    let a_call = echo_post_call_to(client_a, peer.port(), "/x", b"payload")
+    let resp_a = a_call.execute()
+    assert_eq(
+      resp_a.code(),
+      200,
+      msg="A stale 恢复重放成功（开关缺省开）",
+    )
+    let _ = resp_a.body().unwrap().text()
+    // B stale 命中：池内 conn2 已死 → 首尝试 EOF → 开关关闭不重试 →
+    // 原错误透传
+    let b_call = echo_post_call_to(client_b, peer.port(), "/x", b"payload")
+    let raised = try {
+      let _ = b_call.execute()
+      false
+    } catch {
+      err => p07_is_stale_error(err)
+    }
+    assert_true(
+      raised,
+      msg="B（开关覆盖关闭）stale 原错误透传不重试（P07 C4 承接）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      1,
+      msg="stale_evictions 恰 1（A 合法命中；B 未进重试分支零计数）",
+    )
+    let _ = runs.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// ===== P08 US5：与取消/重试的交互（黑盒场景，T021/T022）=====
+
+///|
+// P08-US5①（FR-004/FR-008，T021）：call 伞覆盖重试轮——预热（conn1
+// 回池后被对端关闭）→ execute（call_ms=1000）：首尝试 stale 命中
+// （stale_evictions=1）→ 重试连接 conn2 → PartialResponse 上线状态行
+// 前缀后持连 ⇒ 重试轮读窗悬待 ⇒ call 伞在重试轮内触发
+// HttpTimeout::Call（C1 带 [950, 1300]ms）且 stale_evictions 恰 1
+// （零误增——FR-008，R4 结构保证的行为面）。
+// 【编排注记】任务原文「ServeSequence 先 stale 后成功 × 每轮
+// head_delay 600ms」在既有夹具面不可构造（PeerProgram 帧无延迟
+// 能力）——以 PartialResponse(AfterStatusLine, then_close=false)
+// 持连形态承载「重试轮慢于 call_ms」语义（终态=Call 判据等价；
+// 无伞反事实为悬挂而非 200——红判据由 T012 红批同机制承载）。
+async test "P08-US5① call 伞覆盖重试轮：stale 命中后伞内触发 Call" {
+  @async.with_task_group() <| group => {
+    let peer = @fixtures.ScriptedPeer::start()
+    peer.mount(Capture)
+    let runs1 = group.spawn(() => peer.run(timeout_ms=8000))
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, call_ms=1000)
+    // 预热：conn1 回池（Capture 应答后关闭 ⇒ 池内死连接）
+    let warm = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let resp_warm = warm.execute()
+    assert_eq(resp_warm.code(), 200, msg="预热正常")
+    let _ = resp_warm.body().unwrap().text()
+    let _ = runs1.wait()
+    // 重试轮载体：状态行前缀上线后持连（重试轮读窗悬待）
+    peer.mount(PartialResponse(AfterStatusLine, false))
+    let runs2 = group.spawn(() => peer.run(timeout_ms=3000))
+    let call = echo_post_call_to(client, peer.port(), "/x", b"payload")
+    let start = @async.now()
+    try {
+      let resp = call.execute()
+      fail("call 伞应在重试轮内截断（实际完成 \{resp.code()}）")
+    } catch {
+      e =>
+        assert_true(
+          e is @client.HttpTimeout::Call,
+          msg="call 伞覆盖重试轮终态恰为 Call（FR-004；实际=\{e}）",
+        )
+    }
+    p08_assert_band(1000, @async.now() - start, "US5①")
+    assert_eq(
+      pool.stale_evictions(),
+      1,
+      msg="stale_evictions 恰 1（首尝试合法命中；伞取消零误增——FR-008）",
+    )
+    let _ = runs2.wait()
+    pool.evict_all()
+    peer.close()
+  }
+}
+
+///|
+// P08-US5②反向隔离硬断言（FR-004，T022①）：用户取消明确先于伞到期
+// （体填充内自取消 @~10ms ≪ call_ms=1000）⇒ 终态恰为裸 CallCancelled
+// （伞不得吞掉用户取消——B2 修法 (a) 隔离面）。
+// 【形态注记】取消向量=既有 P05-US3② 同款（体填充内 Call::cancel——
+// P05 起的既定「用户取消」测试向量）；跨协程取消形态见 T028 已知
+// 问题登记（上游运行时锐边，非本包机制）。
+async test "P08-US5② 反向隔离：cancel 先于伞到期 ⇒ 裸 CallCancelled" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("POST", "/us5-cancel-first", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"ignored"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_once(timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, call_ms=1000)
+    let holder : Array[@client.Call] = []
+    let url = @core.HttpUrl::parse(
+      "http://127.0.0.1:\{server.port()}/us5-cancel-first",
+    )
+    let request = @core.RequestBuilder::new(url)
+      .method(@core.Method::Post)
+      .body(
+        @core.RequestBody::stream(w => {
+          let _ = w.write(b"px")
+          holder[0].cancel()
+        }),
+      )
+      .build()
+    let call = client.new_call(request)
+    holder.push(call)
+    let cancelled = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => err is @client.CallCancelled
+    }
+    assert_true(
+      cancelled,
+      msg="cancel 先于伞到期 ⇒ 终态恰为裸 CallCancelled（反向隔离，B2 修法 (a)）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// P08-US5②伞到期后取消（T022②）：伞已定终态 Call，迟到 cancel 幂等
+// 不改写终态、不误增计数（cancel 落于 Done 态：零 task、零网络）。
+async test "P08-US5② 迟到取消：伞到期后 cancel ⇒ 终态仍为 Call" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/us5-late-cancel", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"slow"),
+      head_delay_ms: 2000,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_once(timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client = p08_client_with(pool, call_ms=500)
+    let call = get_call_to(client, server.port(), "/us5-late-cancel")
+    let canceller = group.spawn(() => {
+      @async.sleep(900)
+      call.cancel()
+    })
+    let start = @async.now()
+    let raised_call = try {
+      let _ = call.execute()
+      false
+    } catch {
+      err => err is @client.HttpTimeout::Call
+    }
+    p08_assert_band(500, @async.now() - start, "US5②-late")
+    assert_true(
+      raised_call,
+      msg="伞到期终态恰为 Call（迟到取消不改写）",
+    )
+    let _ = canceller.wait()
+    assert_true(
+      call.is_cancelled(),
+      msg="迟到 cancel 已落标记（幂等通道）",
+    )
+    assert_eq(
+      pool.stale_evictions(),
+      0,
+      msg="伞取消路径零 stale 误增（FR-008）",
+    )
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// P08-US5②竞争循环组（T022③，US-5-2 不变量组）：双通道近同时到期
+// 的归属不变量 ×6 轮——read_ms=250 < call_ms=1000（B5 归属规则：内层
+// 窗阈值小于外层剩余窗 ⇒ 归属恰为 Read——构造责任在使用者的归属
+// 判别反向格）+ TaskGroup 收敛（测试正常返回）+ 池每轮守恒
+// （per_host_total 单调 +1——每轮连接被毒化关闭，下轮新建）。
+// 【口径登记】「用户取消×伞」双 cancel 通道真竞速在当前上游运行时
+// 存在冻结锐边（task.cancel 双源近同时/跨协程×socket 悬待——T028
+// 已知问题①，P07 基线已复现）；「二择一」竞速判据按已知问题降级，
+// 本用例承载归属/收敛/守恒不变量组（阈值序 ⇒ 变体归属序确定）。
+async test "P08-US5② 双通道归属不变量：阈值序 ⇒ 变体归属 + 收敛 + 守恒" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/us5-race", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"slow"),
+      head_delay_ms: 2000,
+      close_after_response: false,
+    })
+    // serve_n(6) exact——6 轮 Read 超时各毒化关闭 ⇒ 恰 6 连接（Read 不
+    // 重试——FR-008）；n 大于实际 accept 数会在 close() 留悬 pend accept
+    // （上游 runtime 锐边，Windows native——T028 已知问题②，p08diag
+    // D/E 变量隔离实证：serve_n(8) 悬挂、serve_n(6) 通过）。
+    let serving = group.spawn(
+      () => server.serve_n(6, timeout_ms=30000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    // read_ms=250 < call_ms=1000：读窗先到期 ⇒ 终态恰为 Read（内层先逸出）
+    let client = p08_client_with(pool, call_ms=1000, read_ms=250)
+    let addr = @client.Address::new(
+      scheme="http",
+      host="127.0.0.1",
+      port=server.port(),
+    )
+    for round in 0..<6 {
+      let call = get_call_to(client, server.port(), "/us5-race")
+      let start = @async.now()
+      let terminal = try {
+        let _ = call.execute()
+        "delivered"
+      } catch {
+        err => {
+          assert_true(
+            err is @client.HttpTimeout::Read,
+            msg="第 \{round} 轮归属不变量破坏（read_ms < call_ms ⇒ Read）：\{err}",
+          )
+          p08_assert_band(250, @async.now() - start, "US5②③-r\{round}")
+          "read"
+        }
+      }
+      assert_true(
+        terminal == "read",
+        msg="第 \{round} 轮终态必须为 Read（实际 \{terminal}）",
+      )
+      assert_eq(
+        pool.per_host_total(addr),
+        round + 1,
+        msg="第 \{round} 轮池守恒（每轮恰一次新建——毒化后不复用）",
+      )
+    }
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
+
+///|
+// ===== P08 US6：跟随开关（黑盒端到端，T025）=====
+
+///|
+// P08-US6①（FR-010，T025）：follow_redirects=false + 301 夹具 ⇒ 301
+// 原样终态返回（Location 头保留、`Response::prior() is None`——S7
+// 判据载体、跳数预算零消耗＝夹具单请求）；缺省 true 对照 ⇒ 正常跟随
+// 至 200（P06 行为面回归保护）。
+async test "P08-US6① 301 两态：开关关闭终态透传、缺省跟随" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/us6-a", {
+      status: 301,
+      headers: [("Location", "/us6-final")],
+      framing: Fixed,
+      body: Static(b"moved"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    server.mount("GET", "/us6-final", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"final"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    // serve_n(1) exact：两 client 同池——请求 1（301 终态）与请求 2
+    // （跟随链）共用同一 keep-alive 连接（conn_request_counts==[3]：
+    // us6-a / us6-a / us6-final）。n 大于实际 accept 数触发上游
+    // pend-accept 冻结（T028 已知问题②）。
+    let serving = group.spawn(
+      () => server.serve_n(1, timeout_ms=8000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    let client_closed = @client.HttpClient::new_builder(pool)
+      .follow_redirects(false)
+      .build()
+    // 开关关闭：301 原样终态（不跟随）
+    let call1 = get_call_to(client_closed, server.port(), "/us6-a")
+    let resp1 = call1.execute()
+    assert_eq(
+      resp1.code(),
+      301,
+      msg="follow_redirects=false ⇒ 301 终态透传",
+    )
+    assert_eq(
+      resp1.headers().get("Location"),
+      Some("/us6-final"),
+      msg="Location 头保留（FR-010）",
+    )
+    assert_true(
+      resp1.body().unwrap().text() == "moved",
+      msg="301 响应体原样（透传无改写）",
+    )
+    assert_true(
+      resp1.prior() is None,
+      msg="prior 链不累积（S7 判据载体）",
+    )
+    // 缺省 true 对照：正常跟随至 200（P06 行为面零变化）
+    let client_default = @client.HttpClient::new(pool)
+    let call2 = get_call_to(client_default, server.port(), "/us6-a")
+    let resp2 = call2.execute()
+    assert_eq(
+      resp2.code(),
+      200,
+      msg="缺省 true ⇒ 跟随至 200（回归保护）",
+    )
+    let _ = resp2.body().unwrap().text()
+    pool.evict_all()
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+    assert_eq(
+      server.conn_request_counts(),
+      [3],
+      msg="单连接承载全部 3 请求（us6-a×2 + us6-final；开关关闭请求零跳数消耗）",
+    )
+  }
+}
