@@ -559,9 +559,14 @@ T022 竞争组）
       测试全部 exact-n 化规避；③Timeouts 无 struct 字段缺省语法
       （moon 0.1.20261023）——缺省由包内 Timeouts::default() 单点
       承载（T002 证据行）。
-- [ ] T029 converge 评估（speckit-converge 对 spec/plan/tasks 与实现
+- [x] T029 converge 评估（speckit-converge 对 spec/plan/tasks 与实现
       一致性；缺口按裁决回改 spec 再传导）
-      ✅ 证据：（implement 回填）
+      ✅ 证据：FR-001..012/SC-001..010/US 22 验收场景/R1–R12/宪法
+      I–VII 全清单核验——1 条 LOW partial（FR-001 全 0 用例载体缺位
+      → 追加 T031，Phase 10 Convergence）；contradicts/unrequested
+      零；SC-009 断网复跑以结构性 grep 审计替代（共享宿主，known
+      issue 登记）；上游取消冻结与 serve_n pend-accept 两处 runtime
+      锐边登记 known issues（上游 issue 须人工批准——宪法 I）
 - [ ] T030 open-code-review 收尾（全量 diff 审查；发现按severity 回
       修或登记已知问题）
       ✅ 证据：（implement 回填）
@@ -627,3 +632,15 @@ T022 竞争组）
 - js 面零改动预期（R12）——若 implement 中出现 js 新增错误即回查新
   引用是否引入锁定包类型
 - 每故事 Checkpoint 后可 commit（Conventional Commits 中文描述）
+
+## Phase 10: Convergence
+
+- [x] T031 补「Timeouts 四字段全 0 ⇒ 正常完成、零窗构造」黑盒场景
+      （call_test.mbt：全 0 配置经 builder 构造 client，对既有快夹具
+      正常完成且行为面与缺省 client 一致；断言零窗构造经结构守卫在
+      位佐证）——钉死 FR-001「0＝不限且不建窗」的用例载体 per
+      FR-001/Edge Cases (partial)
+      ✅ 证据：`moon test --target native -p …client --file
+      call_test.mbt -i 80-81` → 1/1 passed exit 0（全 0 配置 200 +
+      体一致；六处 0 守卫结构在位 http_client.mbt:392/exchange.mbt:
+      130/146/178/body_bridge.mbt:157/follow_up.mbt:256）

@@ -4837,3 +4837,44 @@ async test "P08-US6① 301 两态：开关关闭终态透传、缺省跟随" {
     )
   }
 }
+
+///|
+// P08-T031（converge F1，FR-001/Edge Cases）：四字段全 0 ⇒ 正常完成、
+// 零窗构造——0=不限且不建窗（INV-T1）的用例载体：全 0 配置经 builder
+// 构造 client，对快夹具正常完成（行为面与缺省 client 一致——除无窗
+// 外零差异）。
+async test "P08-FR001 全 0 配置：正常完成、零窗构造" {
+  @async.with_task_group() <| group => {
+    let server = @fixtures.ScriptedServer::start()
+    server.mount("GET", "/us-zero", {
+      status: 200,
+      headers: [],
+      framing: Fixed,
+      body: Static(b"ok"),
+      head_delay_ms: 0,
+      close_after_response: false,
+    })
+    let serving = group.spawn(
+      () => server.serve_n(1, timeout_ms=30000),
+      allow_failure=true,
+    )
+    let pool = @client.ConnectionPool::new()
+    // 四字段全 0：负值校验合法（0 恒合法=不限不建窗）；六处窗守卫
+    // （call/connect/read×2/write×2，INV-T1 结构在位）全部走直调分支
+    let client = p08_client_with(
+      pool,
+      connect_ms=0,
+      write_ms=0,
+      read_ms=0,
+      call_ms=0,
+    )
+    let call = get_call_to(client, server.port(), "/us-zero")
+    let resp = call.execute()
+    assert_eq(resp.code(), 200, msg="全 0 配置下正常完成")
+    assert_true(resp.body().unwrap().text() == "ok", msg="内容一致")
+    server.close()
+    serving.wait() catch {
+      _ => ()
+    }
+  }
+}
